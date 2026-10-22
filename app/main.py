@@ -5,8 +5,10 @@ import asyncio
 import logging
 import math
 import os
+import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -140,6 +142,112 @@ def api_works():
             "where": ", ".join(where), "postcode": r.get("cp_arrondissement"),
         }})
     return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="chantiers actifs aujourd'hui occupant le trottoir")
+
+
+# --- Places (Acceslibre): wheelchair verdict computed from the raw fields --
+
+FOOD = re.compile(r"\b(restaura\w*|caf[ée]s?|bars?|brasseries?|glaciers?|salons? de th[ée]|cr[êe]peries?|pizzerias?|traiteurs?|sandwich\w*)\b", re.I)
+RAMP = ("fixe", "amovible")
+MIN_DOOR_CM = 77  # minimum clear width for a door in an existing ERP (arrêté du 20 avril 2017)
+_places_pool = ThreadPoolExecutor(max_workers=4)
+
+
+def _num(v) -> Optional[float]:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def wheelchair_verdict(r: dict) -> Tuple[str, List[str]]:
+    """Return ("true" | "partial" | "false" | "unknown", reasons in French).
+
+    Missing fields stay unknown: we never turn "not filled in" into "not accessible".
+    """
+    reasons = []
+    steps = _num(r.get("entree_marches"))
+    if r.get("entree_plain_pied") is True:
+        entrance = "true"
+        reasons.append("Entrée de plain-pied")
+    elif r.get("entree_pmr") is True or r.get("entree_ascenseur_pmr") is True:
+        entrance = "true"
+        reasons.append("Entrée dédiée PMR" if r.get("entree_pmr") else "Ascenseur PMR à l'entrée")
+    elif r.get("entree_marches_rampe") == "fixe":
+        entrance = "true"
+        reasons.append("Rampe fixe à l'entrée")
+    elif r.get("entree_marches_rampe") == "amovible":
+        entrance = "partial"
+        reasons.append("Rampe amovible (sur demande)")
+    elif r.get("entree_plain_pied") is False:
+        if r.get("entree_aide_humaine") is True or r.get("entree_dispositif_appel") is True:
+            entrance = "partial"
+            reasons.append(f"{int(steps) if steps else 'Des'} marche(s) à l'entrée, aide humaine possible")
+        else:
+            entrance = "false"
+            reasons.append(f"{int(steps) if steps else 'Des'} marche(s) à l'entrée, sans rampe")
+    else:
+        entrance = "unknown"
+        reasons.append("Entrée non renseignée")
+
+    level = entrance
+    width = _num(r.get("entree_largeur_mini"))
+    if width is not None and width < MIN_DOOR_CM:
+        level = "false"
+        reasons.append(f"Porte étroite : {int(width)} cm (minimum {MIN_DOOR_CM} cm)")
+    elif width is not None:
+        reasons.append(f"Porte : {int(width)} cm")
+    blocked = [
+        ("cheminement_ext", "Marches sur le cheminement extérieur"),
+        ("accueil_cheminement", "Marches entre l'entrée et l'accueil"),
+    ]
+    for prefix, text in blocked:
+        if (r.get(f"{prefix}_plain_pied") is False and r.get(f"{prefix}_rampe") not in RAMP
+                and r.get(f"{prefix}_ascenseur") is not True):
+            reasons.append(text)
+            if level == "true":
+                level = "partial"
+    return level, reasons
+
+
+def toilets_verdict(r: dict) -> str:
+    if r.get("sanitaires_adaptes") is True:
+        return "true"
+    if r.get("sanitaires_adaptes") is False:
+        return "false"
+    if r.get("sanitaires_presence") is False:
+        return "none"
+    return "unknown"
+
+
+@app.get("/api/places")
+def api_places(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat")):
+    try:
+        x1, y1, x2, y2 = [float(v) for v in bbox.split(",")]
+    except ValueError:
+        raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat")
+    tiles = sources.place_tiles(x1, y1, x2, y2)
+    if len(tiles) > 16:
+        raise HTTPException(400, "zone trop grande : zoomer davantage")
+    feats, seen, fetched, stale = [], set(), [], False
+    for data in _places_pool.map(lambda xy: sources.places_tile(*xy), tiles):
+        fetched.append(data["fetched_at"])
+        stale = stale or data.get("stale", False)
+        for r in data["rows"]:
+            lon, lat = _num(r.get("longitude")), _num(r.get("latitude"))
+            if lon is None or lat is None or r["id"] in seen:
+                continue
+            seen.add(r["id"])
+            level, reasons = wheelchair_verdict(r)
+            feats.append(point(lon, lat, {
+                "id": r["id"], "name": r.get("name"), "activity": r.get("activite"),
+                "category": "food" if FOOD.search(r.get("activite") or "") else "shop",
+                "address": " ".join(str(r[k]) for k in ("numero", "voie", "postal_code", "commune") if r.get(k)),
+                "wheelchair": level, "reasons": reasons, "toilets": toilets_verdict(r),
+                "parking": r.get("stationnement_pmr") is True or r.get("stationnement_ext_pmr") is True,
+                "url": sources.ACCESLIBRE_PAGE.format(id=r["id"]),
+            }))
+    return fc(feats, "places", min(fetched) if fetched else None, stale=stale,
+              counts={k: sum(f["properties"]["wheelchair"] == k for f in feats) for k in ("true", "partial", "false", "unknown")})
 
 
 @app.get("/api/alerts")
