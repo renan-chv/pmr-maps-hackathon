@@ -691,7 +691,7 @@ function openStation(id) {
   $("#go-from").addEventListener("click", () => openTrip(spot, null));
   fillPhoto(st.coord);
   fillReliability(st);
-  document.querySelectorAll(".report-lift").forEach((b) => b.addEventListener("click", () => reportLift(st, st.lifts.find((l) => l.liftid === b.dataset.lift), b)));
+  document.querySelectorAll(".report-lift").forEach((b) => b.addEventListener("click", () => reportLift(st, st.lifts.find((l) => l.liftid === b.dataset.lift))));
 }
 
 // Lift reliability from the Dispotrains archive (roadmap screen 6). Honest about the window.
@@ -721,23 +721,116 @@ const REPORT_FR = {
 const GRAV_ST = { bloquant: "ko", genant: "warn", info: "unk" };
 const userId = () => store.get("pmr_user_id");
 
-async function reportLift(st, lift, btn) {
-  btn.disabled = true;
+function reportLift(st, lift) {
+  openReportFlow({ cat: "ascenseur_panne", place: { label: st.name, sub: lift.situation || "Ascenseur de la station", lon: st.coord[0], lat: st.coord[1] },
+    target: { type: "lift", id: lift.liftid } });
+}
+
+// ---------------------------------------------------------------------------
+// Report flow (roadmap screen 5): what, where, optional voice / photo / text, then send.
+// The API (POST /api/reports, /api/reports/analyze) belongs to chantier B; without it we say so.
+// ---------------------------------------------------------------------------
+const R_CATS = [
+  { key: "ascenseur_panne", label: "Ascenseur en panne", ic: "lift", gravite: "bloquant", temporaire: true },
+  { key: "trottoir_encombre", label: "Obstacle sur le passage", ic: "cone", gravite: "genant", temporaire: true },
+  { key: "marche", label: "Marche ou rampe impossible", ic: "steps", gravite: "bloquant", temporaire: false },
+  { key: "autre", label: "Autre problème", ic: "unk", gravite: "info", temporaire: true },
+];
+const rep = { cat: null, place: null, target: null, text: "", photo: null, ai: null };
+
+function openReportFlow({ cat = null, place = null, target = null }) {
+  Object.assign(rep, { cat, target, text: "", photo: null, ai: null });
+  if (!place) {
+    const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
+    const near = nearestStations(pos, 1, 250)[0];
+    place = near ? { label: near.st.name, sub: "Station la plus proche de vous", lon: near.st.coord[0], lat: near.st.coord[1] }
+      : { label: "Ici", sub: S.myPos ? "Votre position" : "Le centre de la carte", lon: pos[0], lat: pos[1] };
+    if (near && !target) rep.target = { type: "station", id: near.st.id };
+  }
+  rep.place = place;
+  $("#r-place").textContent = place.label;
+  $("#r-place-sub").textContent = place.sub;
+  $("#r-text").value = ""; $("#r-text").hidden = true; $("#r-thumb").hidden = true; $("#r-photo").value = "";
+  renderReportCats();
+  show("report", "full");
+  setPin([place.lon, place.lat]);
+}
+
+function renderReportCats() {
+  $("#r-cats").innerHTML = R_CATS.map((c) => `<button class="r-cat" role="radio" aria-checked="${rep.cat === c.key}" data-cat="${c.key}">${icon(c.ic)}<span>${c.label}</span></button>`).join("");
+  document.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { rep.cat = b.dataset.cat; renderReportCats(); }));
+  renderReportSummary();
+}
+
+function renderReportSummary() {
+  const c = R_CATS.find((x) => x.key === rep.cat);
+  $("#r-send").disabled = !c;
+  if (!c) { $("#r-summary").innerHTML = ""; return; }
+  const ai = rep.ai;
+  const grav = { bloquant: "Bloquant en fauteuil", genant: "Gênant", info: "Pour information" }[ai?.gravite || c.gravite];
+  $("#r-summary").innerHTML =
+    `<p class="r-sum-head">${icon(ai ? "spark" : "ok")}${ai ? "Ce que Roulib a compris de votre photo" : "Vous allez signaler"}</p>` +
+    `<p><b>${esc(ai ? (REPORT_FR[ai.categorie] || c.label) : c.label)}</b> à ${esc(rep.place.label)}. ${esc(grav)}${(ai?.temporaire ?? c.temporaire) ? ", sans doute temporaire" : ""}.</p>` +
+    (ai?.description ? `<p class="muted">${esc(ai.description)}</p>` : "") +
+    (ai ? `<p class="muted">Vérifiez avant d'envoyer : c'est une proposition, pas une certitude.</p>` : "");
+}
+
+$("#r-text-btn").addEventListener("click", () => { $("#r-text").hidden = false; $("#r-text").focus(); });
+$("#r-text").addEventListener("input", (e) => { rep.text = e.target.value; });
+(() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn = $("#r-voice");
+  if (!SR) { btn.hidden = true; return; }
+  const rec = new SR(); rec.lang = "fr-FR";
+  rec.onresult = (e) => { const t = e.results[0][0].transcript; $("#r-text").hidden = false; $("#r-text").value = (rep.text ? rep.text + " " : "") + t; rep.text = $("#r-text").value; };
+  rec.onerror = () => toast("Je n'ai pas bien entendu. Réessayez.");
+  rec.onend = () => btn.classList.remove("listening");
+  btn.addEventListener("click", () => { btn.classList.add("listening"); toast("Je vous écoute. Décrivez le problème."); try { rec.start(); } catch {} });
+})();
+
+// Photo: resized to 1024 px JPEG (Vercel refuses bodies over 4.5 MB), then analysed if B's route exists.
+$("#r-photo").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp) return toast("Je n'arrive pas à lire cette photo.");
+  const k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+  const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+  cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+  rep.photo = cv.toDataURL("image/jpeg", 0.7);
+  $("#r-thumb").src = rep.photo; $("#r-thumb").hidden = false;
+  $("#r-summary").insertAdjacentHTML("afterbegin", `<p class="muted" id="r-analyzing">${icon("spark")}J'analyse la photo…</p>`);
+  try {
+    const r = await fetch("/api/reports/analyze", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_base64: rep.photo.split(",")[1], lat: rep.place.lat, lon: rep.place.lon }) });
+    if (!r.ok) throw new Error(r.status);
+    rep.ai = await r.json();
+    if (rep.ai?.categorie) rep.cat = R_CATS.some((c) => c.key === rep.ai.categorie) ? rep.ai.categorie : (rep.ai.categorie === "escalier" ? "marche" : rep.cat || "autre");
+    renderReportCats();
+  } catch {
+    $("#r-analyzing")?.remove();
+    toast("Photo ajoutée. L'analyse automatique n'est pas encore disponible.");
+  }
+});
+
+$("#r-send").addEventListener("click", async () => {
+  const c = R_CATS.find((x) => x.key === rep.cat);
+  if (!c) return;
+  const btn = $("#r-send"); btn.disabled = true; btn.textContent = "Envoi…";
   try {
     const r = await fetch("/api/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      categorie: "ascenseur_panne", temporaire: true, gravite: "bloquant", confiance: 1,
-      description: `Ascenseur en panne : ${lift.situation || st.name}`,
-      user_id: userId(), lat: st.coord[1], lon: st.coord[0], target_type: "lift", target_id: lift.liftid,
+      categorie: rep.ai?.categorie || c.key, temporaire: rep.ai?.temporaire ?? c.temporaire, gravite: rep.ai?.gravite || c.gravite,
+      description: rep.text || rep.ai?.description || `${c.label} à ${rep.place.label}`, confiance: rep.ai?.confiance ?? 1,
+      user_id: userId(), lat: rep.place.lat, lon: rep.place.lon, target_type: rep.target?.type || "place", target_id: rep.target?.id || null,
+      photo_thumb: rep.photo || null,
     }) });
     if (!r.ok) throw new Error(r.status);
-    btn.textContent = "Merci, c'est signalé";
-    toast("Merci ! Les autres utilisateurs verront votre signalement.");
-    loadReports();
+    toast("Merci ! C'est sur la carte. Les autres utilisateurs pourront confirmer.");
+    goHome(); loadReports();
   } catch {
-    btn.disabled = false;
-    toast("Le signalement n'est pas encore disponible. Réessayez un peu plus tard.");
-  }
-}
+    toast("Les signalements ne sont pas encore branchés : celui-ci n'a pas été envoyé. Réessayez plus tard.", 5000);
+  } finally { btn.disabled = false; btn.textContent = "Envoyer le signalement"; }
+});
 
 let reportsData = [];
 async function loadReports() {
@@ -1130,17 +1223,7 @@ $("#locate").addEventListener("click", async () => {
   flyTo(pos, 15.5);
 });
 $("#zoom-in").addEventListener("click", () => map.zoomIn());
-// Chantier B ships static/report.js exposing window.PMRReport.open({ lat, lon, onDone }).
-fetch("/static/report.js", { method: "HEAD" }).then((r) => {
-  if (!r.ok) return;
-  const s = document.createElement("script"); s.src = "/static/report.js"; document.body.appendChild(s);
-}).catch(() => {});
-$("#snap").addEventListener("click", () => {
-  // Respond at once: last known position, else the map centre (B's screen refines it with GPS).
-  const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
-  if (window.PMRReport?.open) window.PMRReport.open({ lat: pos[1], lon: pos[0], onDone: loadReports });
-  else toast("Bientôt : prenez en photo un obstacle pour prévenir les autres.");
-});
+$("#snap").addEventListener("click", () => openReportFlow({}));
 $("#zoom-out").addEventListener("click", () => map.zoomOut());
 
 // ---------------------------------------------------------------------------

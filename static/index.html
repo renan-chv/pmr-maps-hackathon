@@ -110,6 +110,26 @@
         <div id="l-body" aria-live="polite"></div>
       </section>
 
+      <!-- REPORT (roadmap screen 5) -->
+      <section class="view" id="v-report" hidden aria-labelledby="r-title">
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
+        <div class="r-where"><span class="fav-ic"><svg class="i"><use href="#i-pin"/></svg></span><span class="t"><b id="r-place">Ici</b><small id="r-place-sub">Votre position</small></span></div>
+        <h2 id="r-title" class="title">Que voulez-vous signaler&nbsp;?</h2>
+        <div class="r-cats" role="radiogroup" aria-labelledby="r-title" id="r-cats"></div>
+        <h3 class="h2">Ajouter des précisions <span class="muted">(facultatif)</span></h3>
+        <div class="r-adds">
+          <button class="r-add" id="r-voice"><svg class="i"><use href="#i-mic"/></svg>Voix</button>
+          <label class="r-add" id="r-photo-btn"><svg class="i"><use href="#i-camera"/></svg>Photo<input id="r-photo" type="file" accept="image/*" capture="environment" hidden></label>
+          <button class="r-add" id="r-text-btn"><svg class="i"><use href="#i-keyboard"/></svg>Texte</button>
+        </div>
+        <img id="r-thumb" class="r-thumb" alt="Votre photo" hidden>
+        <label for="r-text" class="sr">Votre description</label>
+        <textarea id="r-text" class="field r-text" rows="3" placeholder="Par exemple : l'ascenseur côté sortie 2 est arrêté" hidden></textarea>
+        <div class="r-summary" id="r-summary" aria-live="polite"></div>
+        <button id="r-send" class="btn primary block" disabled>Envoyer le signalement</button>
+        <p class="src">Votre signalement sera visible par les autres utilisateurs, marqué « signalé par la communauté ». Il ne remplace pas une information officielle.</p>
+      </section>
+
       <!-- DETAIL (station, place, works) -->
       <section class="view" id="v-detail" hidden aria-labelledby="d-title">
         <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
@@ -175,6 +195,8 @@
       <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.3"/><path d="M3 20a6 6 0 0 1 12 0M14 20a4.5 4.5 0 0 1 7-3.7"/></symbol>
       <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4v16M7 4 4 7M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></symbol>
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></symbol>
       <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
       <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
       <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
