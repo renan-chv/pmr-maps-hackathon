@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#fff9f1">
+  <!-- Text size step before the first paint (no flash of small text for low-vision users) -->
+  <script>try { var t = localStorage.getItem("text") ?? (localStorage.getItem("big") === "1" ? "1" : null); if (t) document.documentElement.dataset.text = t; } catch (e) {}</script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Roulib">
   <link rel="manifest" href="/static/manifest.webmanifest">
@@ -51,7 +53,15 @@
         <label for="o-name" class="field-label">Your first name <span class="muted">(optional)</span></label>
         <input id="o-name" class="field" type="text" autocomplete="given-name" enterkeyhint="done" placeholder="For example: Lea">
         <h3 class="h2">Display</h3>
-        <button id="textsize" class="me-line text-toggle setting" aria-pressed="false"><span class="aa" aria-hidden="true">A<small>A</small></span><span>Larger text</span><span class="switch" aria-hidden="true"></span></button>
+        <fieldset id="textsize" class="ts">
+          <legend class="ts-l">Text size</legend>
+          <div class="ts-seg">
+            <label><input type="radio" name="textsize" value="0"><span><b class="ts-a" aria-hidden="true">A</b>Default</span></label>
+            <label><input type="radio" name="textsize" value="1"><span><b class="ts-a" aria-hidden="true">A+</b>Large</span></label>
+            <label><input type="radio" name="textsize" value="2"><span><b class="ts-a" aria-hidden="true">A++</b>Larger</span></label>
+            <label><input type="radio" name="textsize" value="3"><span><b class="ts-a" aria-hidden="true">A+++</b>Largest</span></label>
+          </div>
+        </fieldset>
         <button id="o-go" class="btn primary block" disabled>Let's go</button>
         <p class="src">Your choice stays on this phone. You can change it at any time.</p>
       </section>
