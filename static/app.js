@@ -106,6 +106,7 @@ async function loadLifts() {
       `<div class="stat ko"><b>${c.notavailable || 0}</b>en panne</div>` +
       `<div class="stat unk"><b>${c.unknown || 0}</b>inconnu</div>`;
     document.getElementById("lift-fresh").textContent =
+      (d.meta.stale ? "⚠ Source injoignable, dernière version connue. " : "") +
       `Récupéré à ${fmtTime(d.meta.fetched_at)} · source : ${d.meta.source.name} (mis à jour ~3 fois par jour par IDFM)`;
   } catch (e) {
     document.getElementById("lift-stats").innerHTML = `<span class="err">Ascenseurs indisponibles : ${esc(e.message)}</span>`;

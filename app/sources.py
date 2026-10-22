@@ -5,12 +5,19 @@ so the UI (and later the agent) can always show source + freshness.
 """
 from __future__ import annotations
 
+import json
+import logging
+import os
 import threading
 import time
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
+
+log = logging.getLogger("sources")
+CACHE_DIR = Path(os.getenv("CACHE_DIR", "/tmp/pmr-cache"))
 
 IDF_REGION = "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets"
 IDFM = "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets"
@@ -42,15 +49,24 @@ SOURCES = {
 
 _cache: Dict[str, Tuple[float, Any]] = {}
 _locks: Dict[str, threading.Lock] = {}
-_client = httpx.Client(timeout=60, headers={"User-Agent": "pmr-maps-hackathon"})
+_client = httpx.Client(timeout=httpx.Timeout(180, connect=15), headers={"User-Agent": "pmr-maps-hackathon"})
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _disk(key: str) -> Path:
+    return CACHE_DIR / f"{key}.json"
+
+
 def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
-    """TTL cache with one download at a time per key (concurrent callers wait for it)."""
+    """TTL cache, one download at a time per key, with a stale fallback.
+
+    The last good payload is also written to disk. If the upstream API fails,
+    we serve the last known version flagged with "stale": True so the UI can
+    say how old it is instead of showing nothing.
+    """
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < ttl:
         return hit[1]
@@ -58,8 +74,22 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < ttl:
             return hit[1]
-        value = fn()
+        try:
+            value = fn()
+        except Exception as e:
+            stale = hit[1] if hit else None
+            if stale is None and _disk(key).exists():
+                stale = json.loads(_disk(key).read_text())
+            if stale is None:
+                raise
+            log.warning("%s: upstream failed (%s), serving stale data from %s", key, e, stale.get("fetched_at"))
+            return {**stale, "stale": True, "error": str(e)}
         _cache[key] = (time.time(), value)
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            _disk(key).write_text(json.dumps(value))
+        except OSError:
+            log.warning("could not write disk cache for %s", key)
         return value
 
 
@@ -69,9 +99,21 @@ def _export(base: str, dataset: str, where: Optional[str] = None, select: Option
         params["where"] = where
     if select:
         params["select"] = select
-    r = _client.get(f"{base}/{dataset}/exports/json", params=params)
-    r.raise_for_status()
-    return r.json()
+    url = f"{base}/{dataset}/exports/json"
+    for attempt in range(3):
+        try:
+            t0 = time.time()
+            r = _client.get(url, params=params)
+            r.raise_for_status()
+            rows = r.json()
+            log.info("%s: %d rows in %.1fs", dataset, len(rows), time.time() - t0)
+            return rows
+        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as e:
+            log.warning("%s: attempt %d failed: %r", dataset, attempt + 1, e)
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError("unreachable")
 
 
 # --- Lifts (live, ~3 updates a day upstream) -------------------------------
@@ -160,5 +202,4 @@ def warm_up() -> None:
         try:
             fn()
         except Exception:
-            import logging
-            logging.getLogger("sources").exception("warm-up failed for %s", fn.__name__)
+            log.exception("warm-up failed for %s", fn.__name__)

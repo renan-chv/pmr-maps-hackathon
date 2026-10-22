@@ -63,7 +63,7 @@ def api_lifts():
             "direction": r.get("liftdirection"), "mode": r.get("liftmode"),
             "source_update": r.get("liftstateupdate"),
         }))
-    return fc(feats, "lifts", data["fetched_at"], counts=counts, poller=poller.state)
+    return fc(feats, "lifts", data["fetched_at"], stale=data.get("stale", False), counts=counts, poller=poller.state)
 
 
 @app.get("/api/stations")
@@ -78,7 +78,7 @@ def api_stations():
             "id": r.get("arrid"), "name": r.get("arrname"), "type": r.get("arrtype"),
             "accessibility": r.get("arraccessibility") or "unknown", "town": r.get("arrtown"),
         }))
-    return fc(feats, "stations", data["fetched_at"])
+    return fc(feats, "stations", data["fetched_at"], stale=data.get("stale", False))
 
 
 @app.get("/api/train-stations")
@@ -94,7 +94,7 @@ def api_train_stations():
             "level": r.get("accessibility_level_id"), "level_name": r.get("accessibility_level_name"),
             "comment": r.get("commentaire"),
         }))
-    return fc(feats, "train_stations", data["fetched_at"])
+    return fc(feats, "train_stations", data["fetched_at"], stale=data.get("stale", False))
 
 
 @app.get("/api/bus-stops")
@@ -116,7 +116,7 @@ def api_bus_stops(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLa
         }))
         if len(feats) >= 3000:
             break
-    return fc(feats, "stations", data["fetched_at"])
+    return fc(feats, "stations", data["fetched_at"], stale=data.get("stale", False))
 
 
 @app.get("/api/works")
@@ -134,7 +134,7 @@ def api_works():
             "start": r.get("date_debut"), "end": r.get("date_fin"),
             "where": ", ".join(where), "postcode": r.get("cp_arrondissement"),
         }})
-    return fc(feats, "works", data["fetched_at"], filter="chantiers actifs aujourd'hui occupant le trottoir")
+    return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="chantiers actifs aujourd'hui occupant le trottoir")
 
 
 @app.get("/api/alerts")

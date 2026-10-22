@@ -55,7 +55,7 @@ def poll_once() -> int:
     db.save_lift_history(history_rows)
     state["last_poll"] = fetched_at
     state["polls"] += 1
-    state["last_error"] = None
+    state["last_error"] = data.get("error") if data.get("stale") else None
     log.info("poll ok: %d lifts, %d changes (first_run=%s)", len(data["rows"]), changes, first_run)
     return changes
 
