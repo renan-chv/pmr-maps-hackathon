@@ -221,7 +221,7 @@ def test_card_is_cleaned():
 
 
 def test_analyser_reads_the_tool_call(monkeypatch):
-    """analyser() sends the photo with the forced `fiche` tool and reads its input back."""
+    """analyser() sends the photo with the `fiche` tool (auto: forcing a tool is refused by current models)."""
     import sys
     import types
 
@@ -239,6 +239,6 @@ def test_analyser_reads_the_tool_call(monkeypatch):
     monkeypatch.setitem(sys.modules, "anthropic", fake)
     f = reports.analyser(JPEG, "image/jpeg")
     assert f.categorie == "travaux" and f.temporaire is True and f.confiance == 0.8
-    assert calls["tool_choice"] == {"type": "tool", "name": "fiche"}
+    assert calls["tool_choice"] == {"type": "auto"} and calls["tools"][0]["strict"] is True
     img = calls["messages"][0]["content"][0]
     assert img["source"] == {"type": "base64", "media_type": "image/jpeg", "data": JPEG}

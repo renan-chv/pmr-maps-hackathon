@@ -314,7 +314,7 @@ ANALYZE_PER_10_MIN = int(os.getenv("REPORTS_ANALYZE_LIMIT", "30"))  # per client
 _recent_calls: dict = defaultdict(deque)
 
 PROMPT = """Tu aides des personnes en fauteuil roulant à signaler les obstacles dans la rue et les gares en \
-Île-de-France. Regarde la photo et remplis la fiche avec l'outil `fiche`.
+Île-de-France. Regarde la photo et remplis toujours la fiche en appelant l'outil `fiche`, sans texte autour.
 
 Catégories :
 - escalier : plusieurs marches ; marche : une seule marche ou un ressaut ; bordure_haute : trottoir sans bateau
@@ -333,14 +333,16 @@ mets categorie=autre, gravite=info et une confiance basse. confiance = ta certit
 FICHE_TOOL = {
     "name": "fiche",
     "description": "Fiche de signalement d'obstacle proposée à l'utilisateur, qui la valide ou la corrige.",
+    "strict": True,
     "input_schema": {
         "type": "object",
+        "additionalProperties": False,
         "properties": {
             "categorie": {"type": "string", "enum": list(CATEGORIES)},
             "temporaire": {"type": "boolean"},
             "gravite": {"type": "string", "enum": list(GRAVITES)},
             "description": {"type": "string", "description": "Une phrase en français, 120 caractères maximum."},
-            "confiance": {"type": "number", "minimum": 0, "maximum": 1},
+            "confiance": {"type": "number", "description": "Certitude entre 0 et 1."},
         },
         "required": ["categorie", "temporaire", "gravite", "description", "confiance"],
     },
@@ -395,8 +397,10 @@ def analyser(image_base64: str, media_type: str = "image/jpeg") -> Fiche:
 
     client = anthropic.Anthropic(timeout=20.0, max_retries=1)  # reads ANTHROPIC_API_KEY
     msg = client.messages.create(
-        model=ANALYZE_MODEL, max_tokens=300, system=PROMPT,
-        tools=[FICHE_TOOL], tool_choice={"type": "tool", "name": "fiche"},
+        model=ANALYZE_MODEL, max_tokens=1024, system=PROMPT,
+        # Forcing a tool (tool_choice "tool") is refused with a 400 by the current models: auto + strict schema
+        # + the prompt asking for the tool. Low effort keeps the answer fast (target: under 3 s).
+        tools=[FICHE_TOOL], tool_choice={"type": "auto"}, output_config={"effort": "low"},
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_base64}},
             {"type": "text", "text": "Quel obstacle vois-tu sur cette photo ? Remplis la fiche."},
