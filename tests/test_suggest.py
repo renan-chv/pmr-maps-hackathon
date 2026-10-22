@@ -26,3 +26,8 @@ def test_falls_back_to_ign_when_photon_fails(monkeypatch):
     monkeypatch.setattr(sources, "_suggest_photon", boom)
     monkeypatch.setattr(sources, "_suggest_ign", lambda q, limit=6: [{"label": "ign"}])
     assert sources.suggest("x") == [{"label": "ign"}]
+
+
+def test_paris_open_data_url_is_not_shadowed():
+    # Regression: a (lon, lat) constant named PARIS replaced the opendata.paris.fr URL and broke works/stairs.
+    assert isinstance(sources.PARIS, str) and sources.PARIS.startswith("https://opendata.paris.fr")
