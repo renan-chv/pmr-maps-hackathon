@@ -473,7 +473,7 @@ function renderToday() {
   const m = S.meta.lifts, c = m.counts, total = (c.available || 0) + (c.notavailable || 0) + (c.unknown || 0);
   const latest = [...S.stations.values()].map((s) => s.latest).filter(Boolean).sort().pop();
   const pct = (n) => `${(100 * n / total).toFixed(2)}%`;
-  $("#tile-pannes").textContent = `${c.notavailable} elevators out of order`;
+  $("#tile-pannes").textContent = c.notavailable ? `${plural(c.notavailable, "elevator", "elevators")} out of order` : "None reported right now";
   $("#today").innerHTML =
     `<p class="headline">Today, <em>${c.notavailable}</em> elevators are out of order in Île-de-France stations.</p>` +
     `<div class="bar" aria-hidden="true"><span style="width:${pct(c.available)};background:${C.ok}"></span>` +
@@ -492,18 +492,39 @@ function renderSources() {
 // Favourites (Home, Work) kept on this phone only.
 const FAVS = [{ key: "home", label: "Home", ic: "home" }, { key: "work", label: "Work", ic: "work" }];
 let pendingFav = null;
+const PENCIL = `<svg class="i" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/></svg>`;
+// Home row, maps-app style: Home, Work, then recent places, each one tap from a trip.
 function renderFavs() {
-  $("#favs").innerHTML = FAVS.map((f) => {
+  const ul = $("#favs");
+  const favs = FAVS.map((f) => {
     const v = store.json(`fav-${f.key}`);
-    return `<div class="fav"><button class="fav-go" data-fav="${f.key}"><span class="fav-ic">${icon(f.ic)}</span><span class="t"><b>${f.label}</b>` +
-      `<small>${v ? esc(v.label) : "Add"}</small></span></button>` +
-      (v ? `<button class="fav-edit" data-fav-edit="${f.key}" aria-label="Change the ${f.label} address">Change</button>` : "") + `</div>`;
-  }).join("");
-  document.querySelectorAll("[data-fav]").forEach((b) => b.addEventListener("click", () => {
+    return `<li class="hp${v ? " set" : ""}"><button class="hp-go" data-fav="${f.key}">${icon(f.ic)}<span class="t"><b>${f.label}</b>` +
+      `<small>${v ? esc(v.label) : "Add address"}</small></span></button>` +
+      (v ? `<button class="hp-edit" data-fav-edit="${f.key}" aria-label="Change the ${f.label} address">${PENCIL}</button>` : "") + `</li>`;
+  });
+  const rec = recents().map((r, i) => `<li class="hp"><button class="hp-go" data-recent="${i}">${icon("clock")}<span class="t">` +
+    `<b><span class="sr">Recent: </span>${esc(r.label)}</b><small>${esc(r.sub || "Recent")}</small></span></button></li>`);
+  const html = [...favs, ...rec].join("");
+  if (ul.innerHTML === html) return;  // re-rendered on every return home: keep focus when nothing changed
+  const hadFocus = ul.contains(document.activeElement);
+  ul.innerHTML = html;
+  ul.scrollLeft = 0;
+  ul.querySelectorAll("[data-fav]").forEach((b) => b.addEventListener("click", () => {
     const v = store.json(`fav-${b.dataset.fav}`);
-    if (v) openTrip(null, { ...v, kind: "fav" }); else askFav(b.dataset.fav);
+    if (v) tripTo({ ...v, kind: "fav" }); else askFav(b.dataset.fav);
   }));
-  document.querySelectorAll("[data-fav-edit]").forEach((b) => b.addEventListener("click", () => askFav(b.dataset.favEdit)));
+  ul.querySelectorAll("[data-fav-edit]").forEach((b) => b.addEventListener("click", () => askFav(b.dataset.favEdit)));
+  ul.querySelectorAll("[data-recent]").forEach((b) => b.addEventListener("click", () => {
+    const r = recents()[+b.dataset.recent];
+    if (r) { addRecent(r); tripTo({ ...r, kind: "recent" }); }
+  }));
+  if (hadFocus) ul.querySelector("button")?.focus({ preventScroll: true });
+}
+// A trip to `to` from where the user is (never the start of a previous trip), like Google Maps.
+function tripTo(to) {
+  if (!S.myPos) trip.from = null;
+  $("#search").value = "";
+  openTrip(myPosItem(), to);
 }
 function askFav(key) {
   pendingFav = key;
@@ -516,7 +537,7 @@ function saveFav(it) {
   store.set(`fav-${pendingFav}`, JSON.stringify({ label: it.label, lon: it.lon, lat: it.lat }));
   toast(`${pendingFav === "home" ? "Home" : "Work"} saved. Tap it to go there.`);
   pendingFav = null;
-  $("#search").placeholder = "A station, a place, an address";
+  $("#search").placeholder = "Where to?";
   $("#search").value = "";
   renderFavs();
 }
@@ -560,6 +581,8 @@ document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("clic
 document.querySelectorAll("[data-go]").forEach((t) => t.addEventListener("click", () => {
   ({ trip: () => openTrip(null, null), food: openFood, near: openNearby, pannes: openPannes })[t.dataset.go]();
 }));
+// Recent places change in the trip form: refresh the home row each time home comes back.
+new MutationObserver(() => { if (!$("#v-home").hidden) renderFavs(); }).observe($("#v-home"), { attributes: true, attributeFilter: ["hidden"] });
 
 async function here() {
   let pos = await locate();
@@ -1416,11 +1439,22 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
   return { run, first };
 }
 
+// Home search = "Where to?": a picked place goes straight to a trip from here (the map still opens station and place sheets).
 const pickMain = (it) => {
   if (pendingFav) return saveFav(it);
-  return it.kind === "station" ? openStation(it.id) : it.kind === "acces" ? openAcceslibre(it.f) : openPlace(it);
+  if (it.lon == null) return;
+  addRecent(it);
+  tripTo(it);
 };
-const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, { onFocus: () => isPhone() && Sheet.set("full") });
+const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, {
+  onFocus: () => isPhone() && Sheet.set("full"),
+  // Enter before the suggestions arrive: take the best match, as the trip form does.
+  onEnter: async () => {
+    if ($("#search").value.trim().length < 2) return;
+    const it = await mainSearch.first();
+    if (it) pickMain(it); else toast("No place found. Try a station, an address or a landmark.");
+  },
+});
 $("#trip-swap").addEventListener("click", () => {
   [trip.from, trip.to] = [trip.to, trip.from];
   [$("#trip-from").value, $("#trip-to").value] = [$("#trip-to").value, $("#trip-from").value];
@@ -1538,7 +1572,10 @@ function renderMe() {
   const p = Profile.get();
   $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
   $("#me-name").textContent = p ? p.short : "your profile";
-  $("#h-home").innerHTML = Profile.name() ? `Where to, ${esc(Profile.name())}?` : "Hi! Where are you going?";
+  // Short greeting: the search bar itself asks "Where to?".
+  const h = new Date().getHours(), hi = h >= 18 || h < 4 ? "Good evening" : h < 12 ? "Good morning" : "Hello";
+  $("#h-home").textContent = Profile.name() ? `${hi}, ${Profile.name()}` : hi;
+  $("#me-chip").setAttribute("aria-label", `For: ${p ? p.short : "your profile"}. Change profile`);
 }
 let onboardFrom = null;
 $("#me-chip").addEventListener("click", () => { onboardFrom = [...document.querySelectorAll(".view")].find((v) => !v.hidden)?.id.slice(2); renderOnboard(); show("onboard", "full"); });

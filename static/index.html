@@ -65,26 +65,34 @@
 
       <!-- HOME -->
       <section class="view" id="v-home" aria-labelledby="h-home">
-        <h1 id="h-home" class="greet">Hello! Where are you going?</h1>
-        <button id="me-chip" class="me-line" aria-label="Change profile"><span id="me-ic"></span><span>For: <b id="me-name">your profile</b></span><span class="linkish">Change</span></button>
+        <h1 id="h-home" class="greet home-greet">Hello!</h1>
         <div class="search" role="search">
           <svg class="i search-i" aria-hidden="true"><use href="#i-search"/></svg>
-          <label for="search" class="sr">Search for a station, a place or an address</label>
-          <input id="search" type="search" enterkeyhint="search" placeholder="A station, a place, an address" autocomplete="off"
+          <label for="search" class="sr">Where to? Search for a station, a place or an address</label>
+          <input id="search" type="search" enterkeyhint="search" placeholder="Where to?" autocomplete="off"
                  role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
           <button id="mic" class="mic" aria-label="Say where you are going"><svg class="i"><use href="#i-mic"/></svg></button>
         </div>
         <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
-        <div class="favs" id="favs" role="group" aria-label="My places"></div>
+        <button id="me-chip" class="me-line home-me" aria-label="Trips checked for your profile. Change profile"><span id="me-ic"></span><span>For: <b id="me-name">your profile</b></span><span class="linkish" aria-hidden="true">Change</span></button>
 
-        <div class="tiles">
-          <button class="tile t-trip" data-go="trip"><span class="tile-ic"><svg class="i"><use href="#i-route"/></svg></span><b>Go somewhere</b><small>Wheelchair trip</small></button>
-          <button class="tile t-food" data-go="food"><span class="tile-ic"><svg class="i"><use href="#i-food"/></svg></span><b>Eat</b><small>Accessible restaurants</small></button>
-          <button class="tile t-near" data-go="near"><span class="tile-ic"><svg class="i"><use href="#i-pin"/></svg></span><b>Near me</b><small>Stations with elevators</small></button>
-          <button class="tile t-lift" data-go="pannes"><span class="tile-ic"><svg class="i"><use href="#i-lift"/></svg></span><b>Outages</b><small id="tile-pannes">Elevators out of order</small></button>
-        </div>
+        <!-- One tap to go: Home, Work, then the last places searched -->
+        <ul class="home-places" id="favs" aria-label="My places"></ul>
 
-        <h2 class="h2">On the map</h2>
+        <ul class="home-acts" aria-label="Around me">
+          <li><button class="home-act a-food" data-go="food"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span><span class="t"><b>Restaurants nearby</b><small id="act-food">Step-free entrance</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+          <li><button class="home-act a-near" data-go="near"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-lift"/></svg></span><span class="t"><b>Stations near me</b><small id="act-near">With elevators</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+          <li><button class="home-act a-lift" data-go="pannes"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span><span class="t"><b>Elevator outages</b><small id="tile-pannes">Elevators out of order</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+        </ul>
+
+        <!-- Network status: the text version of the map (screen readers), below the fold -->
+        <h2 class="h2 home-status" id="h-status">Network status</h2>
+        <div id="today" class="today" aria-live="polite"><p class="muted">Checking elevator status…</p></div>
+
+        <h3 class="h2">Just changed</h3>
+        <ul id="alerts" class="list"></ul>
+
+        <h3 class="h2">On the map</h3>
         <ul class="legend-card">
           <li><span class="mark ok" aria-hidden="true"><svg class="i"><use href="#i-ok"/></svg></span>Station: elevators working</li>
           <li><span class="mark warn" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span>Station: one elevator to check</li>
@@ -92,12 +100,6 @@
           <li><span class="mark ok food" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span>Wheelchair-accessible restaurant</li>
           <li><span class="hatch" aria-hidden="true"></span>Sidewalk works</li>
         </ul>
-
-
-        <div id="today" class="today" aria-live="polite"><p class="muted">Checking elevator status…</p></div>
-
-        <h2 class="h2">Just changed</h2>
-        <ul id="alerts" class="list"></ul>
 
         <details class="sources">
           <summary>Where the information comes from</summary>
