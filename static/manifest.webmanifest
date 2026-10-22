@@ -1,8 +1,8 @@
 {
-  "name": "Roulib – Se déplacer en fauteuil en Île-de-France",
+  "name": "Roulib – Getting around Île-de-France in a wheelchair",
   "short_name": "Roulib",
-  "description": "Ascenseurs en direct, travaux sur les trottoirs, restos accessibles et trajets vérifiés pour votre profil.",
-  "lang": "fr",
+  "description": "Live elevator status, sidewalk works, accessible restaurants and trips checked for your profile.",
+  "lang": "en",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

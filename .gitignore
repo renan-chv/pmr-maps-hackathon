@@ -1,4 +1,3 @@
-.venv/
 __pycache__/
 *.pyc
 .env
@@ -6,3 +5,5 @@ __pycache__/
 .impeccable/review/
 .impeccable/mocks/
 .impeccable/build/
+.venv*/
+.venv*/

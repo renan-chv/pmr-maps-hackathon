@@ -1,4 +1,4 @@
-"""PMR Maps – FastAPI app: serves the map page and GeoJSON layers built from open data."""
+"""Roulib – FastAPI app: serves the map page and GeoJSON layers built from open data."""
 from __future__ import annotations
 
 import asyncio
@@ -25,8 +25,8 @@ PRIM_API_KEY = os.getenv("PRIM_API_KEY")
 SERVERLESS = bool(os.getenv("VERCEL"))  # Vercel functions sleep between requests
 PRIM_JOURNEYS = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/journeys"
 
-app = FastAPI(title="PMR Maps")
-app.add_middleware(GZipMiddleware, minimum_size=1000)  # chantiers : 2,3 Mo de GeoJSON non compressés sur Aiven
+app = FastAPI(title="Roulib")
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # roadworks layer: 2.3 MB of uncompressed GeoJSON on Aiven
 http_cache.install(app)
 app.include_router(photos.router)
 app.include_router(search.router)
@@ -150,7 +150,7 @@ def api_works():
             "start": r.get("date_debut"), "end": r.get("date_fin"),
             "where": ", ".join(where), "postcode": r.get("cp_arrondissement"),
         }})
-    return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="chantiers actifs aujourd'hui occupant le trottoir")
+    return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="roadworks active today that take up the sidewalk")
 
 
 @app.get("/api/stairs")
@@ -176,8 +176,14 @@ def _num(v) -> Optional[float]:
         return None
 
 
+def _steps_text(steps: Optional[float]) -> str:
+    if not steps:
+        return "Steps"
+    return f"{int(steps)} step" + ("" if int(steps) == 1 else "s")
+
+
 def wheelchair_verdict(r: dict) -> Tuple[str, List[str]]:
-    """Return ("true" | "partial" | "false" | "unknown", reasons in French).
+    """Return ("true" | "partial" | "false" | "unknown", reasons in English).
 
     Missing fields stay unknown: we never turn "not filled in" into "not accessible".
     """
@@ -185,37 +191,37 @@ def wheelchair_verdict(r: dict) -> Tuple[str, List[str]]:
     steps = _num(r.get("entree_marches"))
     if r.get("entree_plain_pied") is True:
         entrance = "true"
-        reasons.append("Entrée de plain-pied")
+        reasons.append("Step-free entrance")
     elif r.get("entree_pmr") is True or r.get("entree_ascenseur_pmr") is True:
         entrance = "true"
-        reasons.append("Entrée dédiée PMR" if r.get("entree_pmr") else "Ascenseur PMR à l'entrée")
+        reasons.append("Dedicated accessible entrance" if r.get("entree_pmr") else "Accessible elevator at the entrance")
     elif r.get("entree_marches_rampe") == "fixe":
         entrance = "true"
-        reasons.append("Rampe fixe à l'entrée")
+        reasons.append("Permanent ramp at the entrance")
     elif r.get("entree_marches_rampe") == "amovible":
         entrance = "partial"
-        reasons.append("Rampe amovible (sur demande)")
+        reasons.append("Removable ramp (on request)")
     elif r.get("entree_plain_pied") is False:
         if r.get("entree_aide_humaine") is True or r.get("entree_dispositif_appel") is True:
             entrance = "partial"
-            reasons.append(f"{int(steps) if steps else 'Des'} marche(s) à l'entrée, aide humaine possible")
+            reasons.append(f"{_steps_text(steps)} at the entrance, staff can help")
         else:
             entrance = "false"
-            reasons.append(f"{int(steps) if steps else 'Des'} marche(s) à l'entrée, sans rampe")
+            reasons.append(f"{_steps_text(steps)} at the entrance, no ramp")
     else:
         entrance = "unknown"
-        reasons.append("Entrée non renseignée")
+        reasons.append("Entrance not documented")
 
     level = entrance
     width = _num(r.get("entree_largeur_mini"))
     if width is not None and width < MIN_DOOR_CM:
         level = "false"
-        reasons.append(f"Porte étroite : {int(width)} cm (minimum {MIN_DOOR_CM} cm)")
+        reasons.append(f"Narrow door: {int(width)} cm (minimum {MIN_DOOR_CM} cm)")
     elif width is not None:
-        reasons.append(f"Porte : {int(width)} cm")
+        reasons.append(f"Door: {int(width)} cm")
     blocked = [
-        ("cheminement_ext", "Marches sur le cheminement extérieur"),
-        ("accueil_cheminement", "Marches entre l'entrée et l'accueil"),
+        ("cheminement_ext", "Steps on the outside path"),
+        ("accueil_cheminement", "Steps between the entrance and the front desk"),
     ]
     for prefix, text in blocked:
         if (r.get(f"{prefix}_plain_pied") is False and r.get(f"{prefix}_rampe") not in RAMP
@@ -244,7 +250,7 @@ def api_places(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat")
         raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat")
     tiles = sources.place_tiles(x1, y1, x2, y2)
     if len(tiles) > 16:
-        raise HTTPException(400, "zone trop grande : zoomer davantage")
+        raise HTTPException(400, "area too large: zoom in")
     feats, seen, fetched, stale = [], set(), [], False
     for data in _places_pool.map(lambda xy: sources.places_tile(*xy), tiles):
         fetched.append(data["fetched_at"])
@@ -298,7 +304,7 @@ def _lifts_near(lon: float, lat: float, radius: float = 150) -> List[dict]:
 def api_geocode(q: str):
     res = sources.geocode(q)
     if not res:
-        raise HTTPException(404, "adresse introuvable")
+        raise HTTPException(404, "address not found")
     return res
 
 
@@ -327,7 +333,7 @@ def _navitia(a: dict, b: dict, forbidden: List[str] = ()) -> List[dict]:
               ("wheelchair", "true"), ("count", 3)] + [("forbidden_uris[]", u) for u in forbidden]
     r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params=params)
     if r.status_code != 200:
-        raise HTTPException(502, f"PRIM a répondu {r.status_code}: {r.text[:300]}")
+        raise HTTPException(502, f"PRIM answered {r.status_code}: {r.text[:300]}")
     return r.json().get("journeys", [])
 
 
@@ -438,21 +444,21 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
                 profile: str = Query(profiles.DEFAULT_PROFILE, description=", ".join(profiles.PROFILES)),
                 replay: Optional[str] = Query(None, description="demo: recorded journeys and lift snapshot")):
     if profile not in profiles.PROFILES:
-        raise HTTPException(400, f"profile doit être l'un de : {', '.join(profiles.PROFILES)}")
+        raise HTTPException(400, f"profile must be one of: {', '.join(profiles.PROFILES)}")
     if replay == "demo":
         try:
             demo = json.loads((FIXTURES / "navitia_demo.json").read_text())
             lifts = json.loads((FIXTURES / "lifts_demo.json").read_text())
         except FileNotFoundError:
-            raise HTTPException(404, "fichiers de démo absents (static/fixtures)")
+            raise HTTPException(404, "demo files missing (static/fixtures)")
         a, b, journeys = demo["from"], demo["to"], demo["journeys"]
         rel = reliability.load_fixture(FIXTURES / "reliability_demo.json")
     else:
         if not PRIM_API_KEY:
-            raise HTTPException(503, "PRIM_API_KEY manquante : itinéraire indisponible")
+            raise HTTPException(503, "PRIM_API_KEY missing: journey planning unavailable")
         a, b = _resolve(from_q), _resolve(to_q)
         if not a or not b:
-            raise HTTPException(404, "adresse de départ ou d'arrivée introuvable")
+            raise HTTPException(404, "departure or arrival address not found")
         journeys = _navitia(a, b)
         lifts = sources.lifts()
         rel = None
@@ -468,7 +474,7 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
     return {"from": a, "to": b, "profile": profile, "itineraries": itineraries,
             "journeys": [] if replay == "demo" else [_legacy(j) for j in journeys],  # kept for the current UI
             "baseline": [_summary(j) for j in journeys], "replay": replay,
-            "source": "PRIM / Navitia (wheelchair=true) vérifié par PMR Maps",
+            "source": "PRIM / Navitia (wheelchair=true) checked by Roulib",
             "lifts_fetched_at": lifts.get("fetched_at")}
 
 

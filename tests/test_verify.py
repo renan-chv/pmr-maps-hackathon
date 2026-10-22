@@ -88,7 +88,7 @@ def test_unreliable_lift_warns_even_when_in_service():
     rel = {"a": {"availability": 0.6, "window_days": 11.2, "outages": 4, "source": "Dispotrains"}}
     c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reliability=rel)
     assert c["status"] == "ok" and c["effect"] == "genant" and c["reliability"] == 0.6
-    assert "60 %" in c["message"] and "11.2" in c["message"] and "4 panne" in c["message"]
+    assert "60%" in c["message"] and "11.2" in c["message"] and "4 outages" in c["message"]
 
 
 def test_reliable_lift_stays_clear():

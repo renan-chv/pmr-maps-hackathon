@@ -11,11 +11,11 @@ Profile = Literal["manuel", "electrique", "poussette", "deambulateur", "malvoyan
 Effect = Literal["bloquant", "genant", "sans_effet"]
 
 PROFILES: Dict[str, str] = {
-    "manuel": "Fauteuil roulant manuel",
-    "electrique": "Fauteuil roulant électrique",
-    "poussette": "Poussette",
-    "deambulateur": "Déambulateur ou canne",
-    "malvoyant": "Malvoyant",
+    "manuel": "Manual wheelchair",
+    "electrique": "Power wheelchair",
+    "poussette": "Stroller",
+    "deambulateur": "Walker or cane",
+    "malvoyant": "Visually impaired",
 }
 DEFAULT_PROFILE = "manuel"
 

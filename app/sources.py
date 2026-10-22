@@ -35,37 +35,37 @@ PLACES_WARM_BBOX = os.getenv("PLACES_WARM_BBOX", "")
 
 SOURCES = {
     "lifts": {
-        "name": "IDFM – État des ascenseurs",
+        "name": "IDFM – Elevator status",
         "url": "https://data.iledefrance.fr/explore/dataset/etat-des-ascenseurs/",
         "license": "Licence Mobilité",
     },
     "lifts_sncf": {
-        "name": "SNCF Gares & Connexions – État des équipements d'élévatique en gare",
+        "name": "SNCF Gares & Connexions – Status of station elevators and escalators",
         "url": "https://ressources.data.sncf.com/explore/dataset/etat-fonctionnement-elevatique-gare/",
         "license": "ODbL",
     },
     "stations": {
-        "name": "IDFM – Référentiel des arrêts",
+        "name": "IDFM – Stop register",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/arrets/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "train_stations": {
-        "name": "IDFM – Accessibilité en gare",
+        "name": "IDFM – Station accessibility",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/accessibilite-en-gare/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "works": {
-        "name": "Ville de Paris – Chantiers à Paris",
+        "name": "Ville de Paris – Roadworks in Paris",
         "url": "https://opendata.paris.fr/explore/dataset/chantiers-a-paris/",
         "license": "ODbL",
     },
     "stairs": {
-        "name": "Ville de Paris – Plan de voirie, voies en escalier",
+        "name": "Ville de Paris – Street map, stepped streets",
         "url": "https://opendata.paris.fr/explore/dataset/plan-de-voirie-voies-en-escalier/",
         "license": "ODbL",
     },
     "places": {
-        "name": "Acceslibre – Accessibilité des ERP (export data.gouv.fr)",
+        "name": "Acceslibre – Accessibility of public venues (data.gouv.fr export)",
         "url": "https://www.data.gouv.fr/fr/datasets/60a528e8b656ce01b4c0c0a6/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },

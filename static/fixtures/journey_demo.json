@@ -54,10 +54,10 @@
        "confidence": 5,
        "obstacle": "trottoir_etroit",
        "effect": "genant",
-       "source": "Ville de Paris – Chantiers à Paris",
-       "fetched_at": "2026-10-22T09:22:16+00:00",
-       "label": "Chantier sur le trottoir",
-       "message": "Construction ou réhabilitation d’immeuble (jusqu'au 2026-12-31)"
+       "source": "Ville de Paris – Roadworks in Paris",
+       "fetched_at": "2026-10-22T11:50:15+00:00",
+       "label": "Sidewalk works",
+       "message": "Construction ou réhabilitation d’immeuble (until 2026-12-31)"
       }
      ],
      "verdict": "risque"
@@ -97,7 +97,7 @@
      "checks": [
       {
        "kind": "lift",
-       "source": "IDFM – État des ascenseurs",
+       "source": "IDFM – Elevator status",
        "fetched_at": "2026-10-22T09:11:00+00:00",
        "station": "Châtelet - Les Halles",
        "zdcid": "474151",
@@ -113,14 +113,14 @@
        "confidence": 5,
        "obstacle": null,
        "effect": "sans_effet",
-       "label": "Ascenseurs ligne 1 à Châtelet - Les Halles",
-       "message": "2 ascenseur(s) en service. Historique : en service 92 % du temps de 6h à 21h sur les 11.4 derniers jours, 2 panne(s).",
+       "label": "Line 1 elevators at Châtelet - Les Halles",
+       "message": "2 elevators working. History: working 92% of the time from 6 am to 9 pm over the last 11.4 days, 2 outages.",
        "at": "from",
        "stop_area": "stop_area:IDFM:474151"
       },
       {
        "kind": "lift",
-       "source": "IDFM – État des ascenseurs",
+       "source": "IDFM – Elevator status",
        "fetched_at": "2026-10-22T09:11:00+00:00",
        "station": "Esplanade de la Défense",
        "zdcid": "71485",
@@ -135,8 +135,8 @@
        "confidence": 5,
        "obstacle": "ascenseur_panne",
        "effect": "bloquant",
-       "label": "Ascenseur ligne 1 à Esplanade de la Défense",
-       "message": "1 ascenseur(s) sur 1 en panne (signalé le 22/10 à 07h52), aucun en service confirmé. Historique : en service 88 % du temps de 6h à 21h sur les 11.1 derniers jours, 6 panne(s).",
+       "label": "Line 1 elevator at Esplanade de la Défense",
+       "message": "1 of 1 elevator out of order (reported Oct 22 at 07:52), none confirmed working. History: working 88% of the time from 6 am to 9 pm over the last 11.1 days, 6 outages.",
        "at": "to",
        "stop_area": "stop_area:IDFM:71485"
       }
@@ -219,10 +219,10 @@
        "confidence": 5,
        "obstacle": "trottoir_etroit",
        "effect": "genant",
-       "source": "Ville de Paris – Chantiers à Paris",
-       "fetched_at": "2026-10-22T09:22:16+00:00",
-       "label": "Chantier sur le trottoir",
-       "message": "Construction ou réhabilitation d’immeuble (jusqu'au 2026-12-31)"
+       "source": "Ville de Paris – Roadworks in Paris",
+       "fetched_at": "2026-10-22T11:50:15+00:00",
+       "label": "Sidewalk works",
+       "message": "Construction ou réhabilitation d’immeuble (until 2026-12-31)"
       }
      ],
      "verdict": "risque"
@@ -266,7 +266,7 @@
      "checks": [
       {
        "kind": "lift",
-       "source": "IDFM – État des ascenseurs",
+       "source": "IDFM – Elevator status",
        "fetched_at": "2026-10-22T09:11:00+00:00",
        "station": "Châtelet - Les Halles",
        "zdcid": "474151",
@@ -282,14 +282,14 @@
        "confidence": 5,
        "obstacle": null,
        "effect": "sans_effet",
-       "label": "Ascenseurs ligne 1 à Châtelet - Les Halles",
-       "message": "2 ascenseur(s) en service. Historique : en service 92 % du temps de 6h à 21h sur les 11.4 derniers jours, 2 panne(s).",
+       "label": "Line 1 elevators at Châtelet - Les Halles",
+       "message": "2 elevators working. History: working 92% of the time from 6 am to 9 pm over the last 11.4 days, 2 outages.",
        "at": "from",
        "stop_area": "stop_area:IDFM:474151"
       },
       {
        "kind": "lift",
-       "source": "IDFM – État des ascenseurs",
+       "source": "IDFM – Elevator status",
        "fetched_at": "2026-10-22T09:11:00+00:00",
        "station": "La Défense",
        "zdcid": "71517",
@@ -304,8 +304,8 @@
        "confidence": 5,
        "obstacle": null,
        "effect": "sans_effet",
-       "label": "Ascenseurs ligne 1 à La Défense",
-       "message": "1 ascenseur(s) en service. Historique : en service 98 % du temps de 6h à 21h sur les 10.4 derniers jours, 2 panne(s).",
+       "label": "Line 1 elevators at La Défense",
+       "message": "1 elevator working. History: working 98% of the time from 6 am to 9 pm over the last 10.4 days, 2 outages.",
        "at": "to",
        "stop_area": "stop_area:IDFM:71517"
       }
@@ -350,10 +350,10 @@
        "confidence": 5,
        "obstacle": "long_trajet_pied",
        "effect": "genant",
-       "source": "calcul PMR Maps",
+       "source": "Roulib calculation",
        "fetched_at": null,
-       "label": "Long trajet à pied",
-       "message": "672 m à pied"
+       "label": "Long walk",
+       "message": "672 m on foot"
       }
      ],
      "verdict": "risque"
@@ -420,6 +420,6 @@
   }
  ],
  "replay": "demo",
- "source": "PRIM / Navitia (wheelchair=true) vérifié par PMR Maps",
+ "source": "PRIM / Navitia (wheelchair=true) checked by Roulib",
  "lifts_fetched_at": "2026-10-22T09:11:00+00:00"
 }

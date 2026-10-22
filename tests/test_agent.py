@@ -38,18 +38,18 @@ def run(monkeypatch, script, **body):
 def test_demo_journey_is_checked_and_cited(monkeypatch):
     r, fake = run(monkeypatch, [
         tool_use("check_journey", origin="Rue de Rivoli", destination="La Défense", profile="electrique"),
-        text("Bloqué à Esplanade de la Défense. Sources : IDFM, relevé de 11 h."),
-    ], message="Je vais à La Défense en fauteuil électrique, ça passe ?", profile="electrique", replay="demo")
+        text("Blocked at Esplanade de la Défense. Sources: IDFM, snapshot from 11 am."),
+    ], message="I'm going to La Défense in a power wheelchair, can I make it?", profile="electrique", replay="demo")
     assert r.status_code == 200, r.text
     out = r.json()
     assert out["tools_called"][0]["tool"] == "check_journey" and out["tools_called"][0]["ok"]
     assert out["verdict"] in ("passe", "risque", "bloque")
     assert out["mode"] == "recorded" and out["itineraries"]
     assert any(s["source"] for s in out["sources"])
-    # le résultat d'outil renvoyé au modèle contient l'heure du relevé et le mode démo
+    # the tool result sent back to the model carries the snapshot time and the demo mode
     tool_result = fake.requests[1]["messages"][-1]["content"][0]["content"]
-    assert "lifts_fetched_at" in tool_result and "démo" in tool_result
-    assert "MODE DÉMO" in fake.requests[0]["system"]
+    assert "lifts_fetched_at" in tool_result and "demo" in tool_result
+    assert "DEMO MODE" in fake.requests[0]["system"]
 
 
 def test_lift_status_demo_finds_outage(monkeypatch):
@@ -60,22 +60,22 @@ def test_lift_status_demo_finds_outage(monkeypatch):
 
 def test_unknown_station_is_not_called_accessible():
     res = agent.lift_status("Gare imaginaire du Nord-Ouest", replay="demo")
-    assert res["found"] is False and "Ne pas conclure" in res["note"]
+    assert res["found"] is False and "Do not conclude" in res["note"]
 
 
 def test_tool_error_is_returned_to_model_not_crash(monkeypatch):
     r, fake = run(monkeypatch, [
         tool_use("save_report", lat=48.85, lon=2.35, categorie="escalier", gravite="bloquant",
-                 temporaire=False, description="Trois marches"),
-        text("Je n'ai pas pu enregistrer le signalement."),
-    ], message="Il y a trois marches devant la boulangerie")
+                 temporaire=False, description="Three steps"),
+        text("I couldn't save the report."),
+    ], message="There are three steps in front of the bakery")
     out = r.json()
     assert r.status_code == 200 and out["tools_called"][0]["ok"] is False
     assert fake.requests[1]["messages"][-1]["content"][0]["is_error"] is True
 
 
 def test_no_tools_baseline(monkeypatch):
-    r, fake = run(monkeypatch, [text("Probablement oui.")], message="Gare de Lyon est accessible ?",
+    r, fake = run(monkeypatch, [text("Probably yes.")], message="Is Gare de Lyon accessible?",
                   config="no_tools")
     assert r.status_code == 200 and "tools" not in fake.requests[0]
     assert r.json()["verdict"] is None

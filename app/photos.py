@@ -83,11 +83,11 @@ def _commons_near(lat: float, lon: float, radius: int = 80) -> Optional[dict]:
         src = info.get("thumburl") or info.get("url")
         if not src:
             continue
-        artist = TAG.sub("", (meta.get("Artist") or {}).get("value", "")).strip() or "auteur inconnu"
+        artist = TAG.sub("", (meta.get("Artist") or {}).get("value", "")).strip() or "unknown author"
         return {
             "src": src, "kind": "nearby", "link": info.get("descriptionurl"),
-            "credit": f"{artist}, {(meta.get('LicenseShortName') or {}).get('value', 'licence libre')}",
-            "caption": "Photo prise à proximité (Wikimedia Commons)",
+            "credit": f"{artist}, {(meta.get('LicenseShortName') or {}).get('value', 'free license')}",
+            "caption": "Photo taken nearby (Wikimedia Commons)",
         }
     return None
 
@@ -109,7 +109,7 @@ def _photo(place_id: Optional[str], lat: float, lon: float) -> dict:
         if img:
             link = _site_url(site)  # "www.x.fr" in Acceslibre would otherwise be a broken relative link
             return {"photo": {"src": img, "kind": "site", "link": link, "credit": urlparse(link).hostname,
-                              "caption": "Photo du site du lieu"}}
+                              "caption": "Photo from the venue's website"}}
     return {"photo": _commons_near(lat, lon)}
 
 

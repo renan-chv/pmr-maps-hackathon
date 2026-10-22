@@ -46,7 +46,7 @@ NOT_BROKEN = re.compile(r"aucun[^.]{0,40}en panne|pas en panne|ni en panne", re.
 POS = re.compile(r"fonctionne|en service|ça passe|ca passe|vous pouvez|accessible|pas de probl|risqu", re.I)
 UNSURE = re.compile(r"je ne sais pas|je ne peux pas|je n'ai pas|je n'ai aucune|aucune donnée|pas de donnée|"
                     r"pas d'information|pas accès|impossible de savoir", re.I)
-CITES = re.compile(r"IDFM|Île-de-France Mobilités|Acceslibre|Navitia|Dispotrains|relevé", re.I)
+CITES = re.compile(r"IDFM|Île-de-France Mobilités|Acceslibre|Navitia|Dispotrains|relevé|snapshot", re.I)
 HOUR = re.compile(r"\b\d{1,2} ?h(?: ?\d{2})?\b")
 PRICE_IN, PRICE_OUT = 4.0, 20.0  # $ par million de tokens, claude-opus-5-5
 

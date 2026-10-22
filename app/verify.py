@@ -171,6 +171,24 @@ def _mentions(row: dict, tokens: List[str]) -> bool:
     return any(re.search(rf"(?<![\w]){re.escape(t)}(?![\w])", text, re.I) for t in tokens)
 
 
+# English labels for the community report categories (keys are the API values, kept in French).
+REPORT_LABELS = {
+    "escalier": "stairs", "marche": "step", "travaux": "roadworks", "trottoir_encombre": "blocked sidewalk",
+    "trottoir_etroit": "narrow sidewalk", "bordure_haute": "high curb", "pente": "steep slope",
+    "ascenseur_panne": "elevator out of order", "escalator_panne": "escalator out of order",
+    "rampe": "ramp problem", "autre": "other problem",
+}
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" + ("" if n == 1 else "s")
+
+
+def _of(part: list, whole: list) -> str:
+    """"1 of 3 elevators", "1 of 1 elevator"."""
+    return f"{len(part)} of {_count(len(whole), 'elevator')}"
+
+
 def _since(stamp: Optional[str]) -> str:
     if not stamp:
         return ""
@@ -178,7 +196,7 @@ def _since(stamp: Optional[str]) -> str:
         d = datetime.fromisoformat(stamp)
     except ValueError:
         return ""
-    return f" (signalé le {d:%d/%m} à {d:%Hh%M})"
+    return f" (reported {d:%b} {d.day} at {d:%H:%M})"
 
 
 def _at_most_genant(e: str) -> str:
@@ -270,22 +288,25 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
         relevant = near
     up = [r for r in relevant if r.get("liftstatus") == "available"]
     down = [r for r in relevant if r.get("liftstatus") == "notavailable"]
-    line_label = f"ligne {code}" if code else "la ligne"
-    base = {"kind": "lift", "source": "IDFM – État des ascenseurs", "fetched_at": fetched_at,
+    def label(plural: bool) -> str:
+        noun = "elevators" if plural else "elevator"
+        return f"Line {code} {noun} at {station}" if code else f"{noun.capitalize()} at {station}"
+
+    base = {"kind": "lift", "source": "IDFM – Elevator status", "fetched_at": fetched_at,
             "station": station, "zdcid": (relevant[0].get("zdcid") if relevant else None),
             "lift_ids": [r.get("liftid") for r in relevant]}
     rel = _worst_reliability(relevant, reliability)
     if rel:
         base.update(reliability=rel["availability"], reliability_window_days=rel["window_days"],
                     reliability_outages=rel.get("outages"), reliability_source=rel["source"])
-    rel_text = (f" Historique : en service {round(rel['availability'] * 100)} % du temps de 6h à 21h "
-                f"sur les {rel['window_days']:g} derniers jours, {rel.get('outages', 0)} panne(s).") if rel else ""
+    rel_text = (f" History: working {round(rel['availability'] * 100)}% of the time from 6 am to 9 pm "
+                f"over the last {rel['window_days']:g} days, {_count(rel.get('outages', 0), 'outage')}.") if rel else ""
 
     full = profiles.effect("ascenseur_panne", profile)
     if not relevant:
         eff = _at_most_genant(full)
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": "ascenseur_panne", "effect": eff,
-                "label": f"Ascenseurs à {station}", "message": "Aucune donnée d'ascenseur pour cette station"}
+                "label": f"Elevators at {station}", "message": "No elevator data for this station"}
     conf = 5 if matched_line else 3  # 3: we could not tell which lift serves this line
     reported = [r for r in down if r.get("reported")]
     if reported:
@@ -297,26 +318,26 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
     if down and not up:
         since = _since(min((r.get("liftstateupdate") or "") for r in down) or None)
         unknown = len(relevant) - len(down)
-        extra = f", {unknown} à l'état inconnu" if unknown else ""
+        extra = f", {unknown} with unknown status" if unknown else ""
         return {**base, "status": "en_panne", "confidence": conf, "obstacle": "ascenseur_panne", "effect": full,
-                "label": f"Ascenseur {line_label} à {station}",
-                "message": f"{len(down)} ascenseur(s) sur {len(relevant)} en panne{since}{extra}, aucun en service confirmé.{rel_text}"}
+                "label": label(False),
+                "message": f"{_of(down, relevant)} out of order{since}{extra}, none confirmed working.{rel_text}"}
     if down:
         eff = _at_most_genant(full)
         return {**base, "status": "partiel", "confidence": conf, "obstacle": "ascenseur_panne", "effect": eff,
-                "label": f"Ascenseurs {line_label} à {station}",
-                "message": f"{len(down)} ascenseur(s) sur {len(relevant)} en panne : vérifier que le vôtre fonctionne.{rel_text}"}
+                "label": label(True),
+                "message": f"{_of(down, relevant)} out of order: check that yours is working.{rel_text}"}
     if not up:
         eff = _at_most_genant(full)
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": "ascenseur_panne", "effect": eff,
-                "label": f"Ascenseurs {line_label} à {station}", "message": "État des ascenseurs inconnu"}
+                "label": label(True), "message": "Elevator status unknown"}
     if rel and rel["availability"] < UNRELIABLE_BELOW:
         return {**base, "status": "ok", "confidence": conf, "obstacle": "ascenseur_panne",
-                "effect": _at_most_genant(full), "label": f"Ascenseurs {line_label} à {station}",
-                "message": f"{len(up)} ascenseur(s) en service, mais souvent en panne : prévoir un plan B.{rel_text}"}
+                "effect": _at_most_genant(full), "label": label(True),
+                "message": f"{_count(len(up), 'elevator')} working, but often out of order: have a Plan B ready.{rel_text}"}
     return {**base, "status": "ok", "confidence": conf, "obstacle": None, "effect": "sans_effet",
-            "label": f"Ascenseurs {line_label} à {station}",
-            "message": f"{len(up)} ascenseur(s) en service.{rel_text}"}
+            "label": label(True),
+            "message": f"{_count(len(up), 'elevator')} working.{rel_text}"}
 
 
 # --- Walking steps -------------------------------------------------------------
@@ -350,17 +371,17 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
             # a sidewalk worksite usually leaves a way round: never more than "genant" on its own
             eff = _at_most_genant(profiles.effect("trottoir_etroit", profile))
             out.append({"kind": "works", "status": "obstacle", "confidence": 5, "obstacle": "trottoir_etroit",
-                        "effect": eff, "source": "Ville de Paris – Chantiers à Paris", "fetched_at": works_fetched_at,
-                        "label": "Chantier sur le trottoir",
-                        "message": f"{p.get('summary') or 'Chantier'}" + (f" (jusqu'au {p['end']})" if p.get("end") else "")})
+                        "effect": eff, "source": "Ville de Paris – Roadworks in Paris", "fetched_at": works_fetched_at,
+                        "label": "Sidewalk works",
+                        "message": f"{p.get('summary') or 'Roadworks'}" + (f" (until {p['end']})" if p.get("end") else "")})
     for f in stairs:
         if _bbox_apart(f, box, 1e-4):
             continue
         if _crosses(f.get("geometry"), line, f.get("_bbox")):
             out.append({"kind": "stairs", "status": "obstacle", "confidence": 3, "obstacle": "escalier",
                         "effect": profiles.effect("escalier", profile),
-                        "source": "Ville de Paris – Voies en escalier", "fetched_at": None,
-                        "label": "Rue en escalier", "message": "Passage uniquement par des marches"})
+                        "source": "Ville de Paris – Stepped streets", "fetched_at": None,
+                        "label": "Stepped street", "message": "The only way through is by steps"})
     for r in reports:
         if r.get("lon") is None or point_to_line_m([r["lon"], r["lat"]], line) > 30:
             continue
@@ -369,15 +390,15 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
             continue
         out.append({"kind": "report", "status": "obstacle", "confidence": _report_confidence(r, now),
                     "obstacle": obstacle, "effect": profiles.effect(obstacle, profile),
-                    "source": "Signalement PMR Maps", "fetched_at": str(r.get("created_at") or ""),
-                    "label": f"Signalé : {(r.get('categorie') or '').replace('_', ' ')}",
+                    "source": "Roulib community report", "fetched_at": str(r.get("created_at") or ""),
+                    "label": f"Reported: {REPORT_LABELS.get(r.get('categorie') or '', (r.get('categorie') or 'obstacle').replace('_', ' '))}",
                     "message": r.get("description") or "", "report_id": r.get("id")})
     length = line_length_m(line) if len(line) > 1 else 0.0
     if length > LONG_WALK_M:
         eff = profiles.effect("long_trajet_pied", profile, walk_m=length)
         out.append({"kind": "walk", "status": "obstacle", "confidence": 5, "obstacle": "long_trajet_pied",
-                    "effect": eff, "source": "calcul PMR Maps", "fetched_at": None,
-                    "label": "Long trajet à pied", "message": f"{round(length)} m à pied"})
+                    "effect": eff, "source": "Roulib calculation", "fetched_at": None,
+                    "label": "Long walk", "message": f"{round(length)} m on foot"})
     return out
 
 

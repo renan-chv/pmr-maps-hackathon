@@ -2,19 +2,19 @@
 "use strict";
 
 const C = { ok: "#157a3c", warn: "#9a5800", ko: "#b42318", unk: "#5f6670", works: "#c2410c", brand: "#3d3bd6", ink: "#1e1a16" };
-const LIFT_FR = { available: "Fonctionne", notavailable: "En panne", unknown: "État inconnu" };
-const ACCESS_FR = { true: "accessible", partial: "partiellement accessible", false: "non accessible", unknown: "sans information" };
-const TYPE_FR = { metro: "Métro", rail: "Train / RER", tram: "Tram", cableway: "Câble", bus: "Bus" };
-const MODE_FR = { Metro: "Métro", RapidTransit: "RER / Train", Tramway: "Tram", LocalTrain: "Train" };
+const LIFT_FR = { available: "Working", notavailable: "Out of order", unknown: "Status unknown" };
+const ACCESS_FR = { true: "accessible", partial: "partly accessible", false: "not accessible", unknown: "no information" };
+const TYPE_FR = { metro: "Metro", rail: "Train / RER", tram: "Tram", cableway: "Cable car", bus: "Bus" };
+const MODE_FR = { Metro: "Metro", RapidTransit: "RER / Train", Tramway: "Tram", LocalTrain: "Train" };
 // Acceslibre wheelchair verdict -> our status + plain words
 const PLACE_ST = { true: "ok", partial: "warn", false: "ko", unknown: "unk" };
 const PLACE_FR = {
-  true: ["Accessible en fauteuil", "Entrée sans obstacle."],
-  partial: ["Accessible avec un peu d'aide", "Rampe à demander ou petit obstacle."],
-  false: ["Difficile en fauteuil", "Obstacle à l'entrée."],
-  unknown: ["Pas encore renseigné", "Personne n'a encore décrit l'entrée."],
+  true: ["Wheelchair accessible", "Step-free entrance."],
+  partial: ["Accessible with a little help", "Ramp on request or a small obstacle."],
+  false: ["Hard in a wheelchair", "Obstacle at the entrance."],
+  unknown: ["Not described yet", "No one has described the entrance yet."],
 };
-const WC_FR = { true: ["ok", "Toilettes adaptées"], false: ["ko", "Toilettes non adaptées"], none: ["unk", "Pas de toilettes"], unknown: ["unk", "Toilettes : non renseigné"] };
+const WC_FR = { true: ["ok", "Accessible toilets"], false: ["ko", "Toilets not accessible"], none: ["unk", "No toilets"], unknown: ["unk", "Toilets: not described"] };
 const STALE_H = 48; // IDFM info older than this lowers confidence
 
 const $ = (s) => document.querySelector(s);
@@ -32,29 +32,29 @@ const isPhone = () => window.matchMedia("(max-width: 1023px) and (not ((orientat
 async function getJSON(url) {
   const r = await fetch(url);
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(body.detail || `Erreur ${r.status}`); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(body.detail || `Error ${r.status}`); e.status = r.status; throw e; }
   return body;
 }
 
 function rel(iso) {
-  if (!iso) return "date inconnue";
+  if (!iso) return "unknown date";
   const d = new Date(iso);
   if (isNaN(d)) return iso;
   const min = Math.round((Date.now() - d) / 60000);
-  if (min < 1) return "à l'instant";
-  if (min < 60) return `il y a ${min} min`;
-  if (min < 24 * 60) return `il y a ${Math.round(min / 60)} h`;
-  return `le ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`;
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  if (min < 24 * 60) return `${Math.round(min / 60)} h ago`;
+  return `on ${d.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`;
 }
 const ageH = (iso) => { const d = new Date(iso); return isNaN(d) ? Infinity : (Date.now() - d) / 3600000; };
-const hhmm = (iso) => { const d = new Date(iso); return isNaN(d) ? "?" : d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); };
-const dayTime = (iso) => { const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString("fr-FR", { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); };
+const hhmm = (iso) => { const d = new Date(iso); return isNaN(d) ? "?" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
+const dayTime = (iso) => { const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString("en-GB", { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); };
 
 function distM(a, b) {
   const k = Math.PI / 180, x = (b[0] - a[0]) * k * Math.cos((a[1] + b[1]) * k / 2), y = (b[1] - a[1]) * k;
   return 6371000 * Math.hypot(x, y);
 }
-const fmtDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1).replace(".", ",")} km`);
+const fmtDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
 const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
 
 function toast(msg, ms = 3800) {
@@ -67,7 +67,7 @@ function toast(msg, ms = 3800) {
 // ---------------------------------------------------------------------------
 const Sheet = (() => {
   const el = $("#sheet"), grip = $("#grip"), body = $("#sheet-body");
-  const LABEL = { peek: "réduit", half: "moitié", full: "plein écran" };
+  const LABEL = { peek: "collapsed", half: "half", full: "full screen" };
   let snap = "half";
   const heights = () => {
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
@@ -168,11 +168,11 @@ function verdictText(st) {
   const n = st.lifts.length, ko = st.lifts.filter((l) => l.status === "notavailable").length;
   const unk = st.lifts.filter((l) => l.status === "unknown").length;
   switch (st.status) {
-    case "ok": return [n > 1 ? `Les ${n} ascenseurs fonctionnent` : "L'ascenseur fonctionne", "Vous pouvez passer en fauteuil."];
-    case "ko": return [n > 1 ? `Aucun des ${n} ascenseurs ne marche` : "L'ascenseur est en panne", "Mieux vaut éviter cette station pour l'instant."];
-    case "warn": return [ko ? `${ko} ascenseur${ko > 1 ? "s" : ""} sur ${n} en panne` : `On ne sait pas pour ${unk} ascenseur${unk > 1 ? "s" : ""} sur ${n}`,
-      "Vérifiez que celui dont vous avez besoin marche."];
-    default: return ["On ne sait pas", "IDFM n'a pas d'information récente."];
+    case "ok": return [n > 1 ? `All ${n} elevators are working` : "The elevator is working", "You can get through in a wheelchair."];
+    case "ko": return [n > 1 ? `None of the ${n} elevators is working` : "The elevator is out of order", "Better avoid this station for now."];
+    case "warn": return [ko ? `${ko} of ${n} elevators out of order` : `Status unknown for ${unk} of ${n} elevators`,
+      "Check that the one you need is working."];
+    default: return ["Unknown", "IDFM has no recent information."];
   }
 }
 
@@ -323,7 +323,7 @@ map.on("load", () => {
     paint: { "circle-radius": 10, "circle-color": C.brand, "circle-stroke-color": "#fff", "circle-stroke-width": 4 } });
   map.addLayer({ id: "me-halo", type: "circle", source: "me", paint: { "circle-radius": 22, "circle-color": "#1a73e8", "circle-opacity": 0.15 } });
   map.addLayer({ id: "me", type: "symbol", source: "me", layout: {
-    "text-field": "Vous êtes ici", "text-font": ["Noto Sans Bold"], "text-size": 14, "text-offset": [0, 1.6], "text-anchor": "top", "text-allow-overlap": true,
+    "text-field": "You are here", "text-font": ["Noto Sans Bold"], "text-size": 14, "text-offset": [0, 1.6], "text-anchor": "top", "text-allow-overlap": true,
   }, paint: { "text-color": "#1a4fb5", "text-halo-color": "#fff", "text-halo-width": 2 } });
   map.addLayer({ id: "me-dot", type: "circle", source: "me", paint: { "circle-radius": 9, "circle-color": "#1a73e8", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
 
@@ -332,8 +332,8 @@ map.on("load", () => {
   map.on("click", "places", (e) => { const id = e.features[0].properties.id; const p = S.places.find((x) => x.properties.id === id); if (p) openAcceslibre(p); });
   map.on("click", "works-fill", (e) => openWorks(e.features[0].properties, e.lngLat));
   map.on("click", "reports", (e) => { const f = reportsData[e.features[0].properties.i]; if (f) openReport(f); });
-  map.on("click", "quais", (e) => quickPopup(e, "Quai"));
-  map.on("click", "bus", (e) => quickPopup(e, "Arrêt de bus"));
+  map.on("click", "quais", (e) => quickPopup(e, "Platform"));
+  map.on("click", "bus", (e) => quickPopup(e, "Bus stop"));
   for (const id of ["stations", "stations-dot", "places", "reports", "works-fill", "quais", "bus"]) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
@@ -359,7 +359,7 @@ function quickPopup(e, kind) {
   const p = e.features[0].properties;
   new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.lngLat)
     .setHTML(`<b>${esc(p.name)}</b><br>${esc(kind)}${p.type ? " · " + esc(TYPE_FR[p.type] || p.type) : ""}<br>` +
-      `<b>${esc(ACCESS_FR[p.accessibility] || p.accessibility)}</b><div style="color:#5a524a;font-size:.85em;margin-top:4px">IDFM, référentiel des arrêts</div>`)
+      `<b>${esc(ACCESS_FR[p.accessibility] || p.accessibility)}</b><div style="color:#5a524a;font-size:.85em;margin-top:4px">IDFM, stop register</div>`)
     .addTo(map);
 }
 
@@ -387,7 +387,7 @@ async function loadLifts() {
     renderToday();
     renderSources();
   } catch (e) {
-    $("#today").innerHTML = `<p class="err">Je n'arrive pas à charger l'état des ascenseurs. Réessayez dans un instant.</p>`;
+    $("#today").innerHTML = `<p class="err">I can't load the elevator status. Try again in a moment.</p>`;
   }
 }
 
@@ -431,12 +431,12 @@ async function loadAlerts() {
     const d = await getJSON("/api/alerts");
     const ul = $("#alerts");
     if (!d.alerts.length) {
-      ul.innerHTML = `<li class="empty-li">Rien n'a bougé depuis ${d.poller.last_poll ? hhmm(d.poller.last_poll) : "tout à l'heure"}. Je revérifie toutes les 15 minutes.</li>`;
+      ul.innerHTML = `<li class="empty-li">Nothing has changed since ${d.poller.last_poll ? hhmm(d.poller.last_poll) : "earlier"}. I check again every 15 minutes.</li>`;
       return;
     }
     ul.innerHTML = d.alerts.slice(0, 6).map((a) => {
       const st = a.to === "available" ? "ok" : a.to === "notavailable" ? "ko" : "unk";
-      const what = st === "ok" ? "Ascenseur réparé" : st === "ko" ? "Ascenseur tombé en panne" : "On ne sait plus";
+      const what = st === "ok" ? "Elevator fixed" : st === "ko" ? "Elevator broke down" : "Status no longer known";
       return `<li><button class="item" data-open="${esc(a.zdcid)}">${mark(st)}<span class="t"><b>${esc(a.station)}</b>` +
         `<small>${what}, ${rel(a.detected_at)}</small></span>${icon("chev-r", "chev")}</button></li>`;
     }).join("");
@@ -451,31 +451,31 @@ function renderToday() {
   const m = S.meta.lifts, c = m.counts, total = (c.available || 0) + (c.notavailable || 0) + (c.unknown || 0);
   const latest = [...S.stations.values()].map((s) => s.latest).filter(Boolean).sort().pop();
   const pct = (n) => `${(100 * n / total).toFixed(2)}%`;
-  $("#tile-pannes").textContent = `${c.notavailable} ascenseurs en panne`;
+  $("#tile-pannes").textContent = `${c.notavailable} elevators out of order`;
   $("#today").innerHTML =
-    `<p class="headline">Aujourd'hui, <em>${c.notavailable}</em> ascenseurs sont en panne dans les gares d'Île-de-France.</p>` +
+    `<p class="headline">Today, <em>${c.notavailable}</em> elevators are out of order in Île-de-France stations.</p>` +
     `<div class="bar" aria-hidden="true"><span style="width:${pct(c.available)};background:${C.ok}"></span>` +
     `<span style="width:${pct(c.notavailable)};background:${C.ko}"></span><span style="width:${pct(c.unknown)};background:${C.unk}"></span></div>` +
-    `<ul class="legend"><li><span class="sw ok"></span><b>${c.available}</b> marchent</li><li><span class="sw ko"></span><b>${c.notavailable}</b> en panne</li>` +
-    `<li><span class="sw unk"></span><b>${c.unknown}</b> on ne sait pas</li></ul>` +
-    `<p class="fresh">${icon("clock")}${m.stale ? "Source IDFM injoignable, dernière version connue. " : ""}Info IDFM ${rel(latest)}, vérifiée à ${hhmm(m.fetched_at)}</p>`;
+    `<ul class="legend"><li><span class="sw ok"></span><b>${c.available}</b> working</li><li><span class="sw ko"></span><b>${c.notavailable}</b> out of order</li>` +
+    `<li><span class="sw unk"></span><b>${c.unknown}</b> unknown</li></ul>` +
+    `<p class="fresh">${icon("clock")}${m.stale ? "IDFM unreachable, showing the last known version. " : ""}IDFM update ${rel(latest)}, checked at ${hhmm(m.fetched_at)}</p>`;
 }
 
 function renderSources() {
   const items = Object.values(S.meta).filter((m) => m && m.source).map((m) =>
-    `<li><a href="${esc(m.source.url)}" target="_blank" rel="noopener">${esc(m.source.name)}</a>, ${esc(m.source.license)}.${m.fetched_at ? ` Récupéré à ${hhmm(m.fetched_at)}.` : ""}</li>`);
-  $("#sources-list").innerHTML = items.join("") + `<li>Recherche de lieux : IGN Géoplateforme.</li><li>Fond de carte © OpenStreetMap, OpenFreeMap.</li>`;
+    `<li><a href="${esc(m.source.url)}" target="_blank" rel="noopener">${esc(m.source.name)}</a>, ${esc(m.source.license)}.${m.fetched_at ? ` Fetched at ${hhmm(m.fetched_at)}.` : ""}</li>`);
+  $("#sources-list").innerHTML = items.join("") + `<li>Place search: IGN Géoplateforme.</li><li>Base map © OpenStreetMap, OpenFreeMap.</li>`;
 }
 
-// Favourites (Maison, Travail) kept on this phone only.
-const FAVS = [{ key: "home", label: "Maison", ic: "home" }, { key: "work", label: "Travail", ic: "work" }];
+// Favourites (Home, Work) kept on this phone only.
+const FAVS = [{ key: "home", label: "Home", ic: "home" }, { key: "work", label: "Work", ic: "work" }];
 let pendingFav = null;
 function renderFavs() {
   $("#favs").innerHTML = FAVS.map((f) => {
     const v = store.json(`fav-${f.key}`);
     return `<div class="fav"><button class="fav-go" data-fav="${f.key}"><span class="fav-ic">${icon(f.ic)}</span><span class="t"><b>${f.label}</b>` +
-      `<small>${v ? esc(v.label) : "Ajouter"}</small></span></button>` +
-      (v ? `<button class="fav-edit" data-fav-edit="${f.key}" aria-label="Changer l'adresse ${f.label}">Changer</button>` : "") + `</div>`;
+      `<small>${v ? esc(v.label) : "Add"}</small></span></button>` +
+      (v ? `<button class="fav-edit" data-fav-edit="${f.key}" aria-label="Change the ${f.label} address">Change</button>` : "") + `</div>`;
   }).join("");
   document.querySelectorAll("[data-fav]").forEach((b) => b.addEventListener("click", () => {
     const v = store.json(`fav-${b.dataset.fav}`);
@@ -486,15 +486,15 @@ function renderFavs() {
 function askFav(key) {
   pendingFav = key;
   const s = $("#search");
-  s.placeholder = key === "home" ? "Tapez votre adresse (Maison)" : "Tapez l'adresse de votre travail";
+  s.placeholder = key === "home" ? "Type your home address" : "Type your work address";
   s.value = ""; s.focus();
-  toast(key === "home" ? "Tapez votre adresse, puis choisissez-la dans la liste." : "Tapez l'adresse de votre travail, puis choisissez-la.");
+  toast(key === "home" ? "Type your address, then pick it from the list." : "Type your work address, then pick it from the list.");
 }
 function saveFav(it) {
   store.set(`fav-${pendingFav}`, JSON.stringify({ label: it.label, lon: it.lon, lat: it.lat }));
-  toast(`${pendingFav === "home" ? "Maison" : "Travail"} enregistré. Touchez-le pour y aller.`);
+  toast(`${pendingFav === "home" ? "Home" : "Work"} saved. Tap it to go there.`);
   pendingFav = null;
-  $("#search").placeholder = "Une station, un lieu, une adresse";
+  $("#search").placeholder = "A station, a place, an address";
   $("#search").value = "";
   renderFavs();
 }
@@ -512,7 +512,7 @@ function bindOpen(root) { root.querySelectorAll("[data-open]").forEach((b) => b.
 function show(view, snap) {
   for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== `v-${view}`;
   // Restaurant pins stay visible while a restaurant list or detail is open, even with the chip off.
-  const foodView = (view === "list" && /^Manger/.test($("#l-title").textContent)) || (view === "detail" && $("#detail")?.dataset.kind === "place");
+  const foodView = (view === "list" && /^Eat/.test($("#l-title").textContent)) || (view === "detail" && $("#detail")?.dataset.kind === "place");
   const wantPlaces = layerOn.places || foodView;
   if (map.getLayer("places")) map.setLayoutProperty("places", "visibility", wantPlaces ? "visible" : "none");
   Sheet.scrollTop();
@@ -535,7 +535,7 @@ document.querySelectorAll("[data-go]").forEach((t) => t.addEventListener("click"
 
 async function here() {
   let pos = await locate();
-  if (!pos) { const c = map.getCenter(); pos = [c.lng, c.lat]; toast("Je ne trouve pas votre position. Je cherche autour du centre de la carte."); }
+  if (!pos) { const c = map.getCenter(); pos = [c.lng, c.lat]; toast("I can't find your location. Searching around the center of the map."); }
   return pos;
 }
 
@@ -543,34 +543,34 @@ function listView(title, sub) {
   $("#l-title").textContent = title;
   $("#l-sub").textContent = sub || "";
   $("#l-filters").innerHTML = "";
-  $("#l-body").innerHTML = `<p class="muted">Je cherche…</p>`;
+  $("#l-body").innerHTML = `<p class="muted">Searching…</p>`;
   show("list", "half");
 }
 
 async function openNearby() {
-  listView("Autour de moi", "Les stations avec ascenseur les plus proches.");
+  listView("Near me", "The closest stations with elevators.");
   const pos = await here();
   if (!S.myPos) setPin(pos);
   flyTo(pos, 14.5);
   const near = nearestStations(pos, 8, 3000);
-  $("#l-body").innerHTML = near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 3 km.</p>`;
+  $("#l-body").innerHTML = near.length ? stationList(near) : `<p class="muted">No station with an elevator within 3 km.</p>`;
   bindOpen($("#l-body"));
 }
 
 async function openPannes() {
-  listView("Ascenseurs en panne", "Les stations où au moins un ascenseur ne marche pas, de la plus proche à la plus loin.");
+  listView("Elevators out of order", "Stations where at least one elevator is not working, closest first.");
   const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
   const rows = [...S.stations.values()].filter((st) => st.ko > 0).map((st) => ({ st, d: distM(pos, st.coord) })).sort((a, b) => a.d - b.d).slice(0, 30);
-  $("#l-body").innerHTML = rows.length ? stationList(rows) : `<p class="muted">Aucune panne signalée en ce moment. Bonne nouvelle !</p>`;
+  $("#l-body").innerHTML = rows.length ? stationList(rows) : `<p class="muted">No outages reported right now. Good news!</p>`;
   bindOpen($("#l-body"));
 }
 
-// --- Restos ----------------------------------------------------------------
+// --- Restaurants ----------------------------------------------------------------
 const foodFilters = { ok: true, help: true, wc: false };
 let foodPos = null, foodAll = [];
 
 async function openFood() {
-  listView("Manger près d'ici", "Restaurants, cafés et bars décrits sur Acceslibre.");
+  listView("Eat nearby", "Restaurants, cafes and bars described on Acceslibre.");
   renderFoodFilters();
   foodPos = await here();
   if (!S.myPos) setPin(foodPos);
@@ -580,11 +580,11 @@ async function openFood() {
       .map((f) => ({ f, d: distM(foodPos, f.geometry.coordinates) })).sort((a, b) => a.d - b.d);
     renderFood();
   } catch (e) {
-    $("#l-body").innerHTML = `<p class="err">Je n'arrive pas à charger les restaurants. Réessayez dans un instant.</p>`;
+    $("#l-body").innerHTML = `<p class="err">I can't load the restaurants. Try again in a moment.</p>`;
   }
 }
 function renderFoodFilters() {
-  const F = [["ok", "ok", "Sans marche"], ["help", "hand", "Avec un peu d'aide"], ["wc", "wc", "Toilettes adaptées"]];
+  const F = [["ok", "ok", "Step-free"], ["help", "hand", "With a little help"], ["wc", "wc", "Accessible toilets"]];
   $("#l-filters").innerHTML = F.map(([k, ic, label]) => `<button class="fchip" data-f="${k}" aria-pressed="${foodFilters[k]}">${icon(ic)}${label}</button>`).join("");
   document.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click", () => {
     foodFilters[b.dataset.f] = !foodFilters[b.dataset.f]; b.setAttribute("aria-pressed", String(foodFilters[b.dataset.f])); renderFood();
@@ -598,25 +598,25 @@ function renderFood() {
   });
   showPlacesOnMap(keep.map((x) => x.f));
   const total = foodAll.length;
-  $("#l-sub").textContent = `${plural(keep.length, "adresse", "adresses")} sur ${total} autour de vous.`;
+  $("#l-sub").textContent = `${plural(keep.length, "place", "places")} out of ${total} around you.`;
   $("#l-body").innerHTML = keep.length
     ? `<ul class="list">${keep.slice(0, 40).map(({ f, d }, i) => {
         const p = f.properties, st = PLACE_ST[p.wheelchair];
-        return `<li><button class="item" data-place="${i}">${mark(st, "food")}<span class="t"><b>${esc(p.name || "Sans nom")}</b>` +
-          `<small>${esc(PLACE_FR[p.wheelchair][0])}${p.toilets === "true" ? " · toilettes adaptées" : ""}</small>` +
+        return `<li><button class="item" data-place="${i}">${mark(st, "food")}<span class="t"><b>${esc(p.name || "Unnamed")}</b>` +
+          `<small>${esc(PLACE_FR[p.wheelchair][0])}${p.toilets === "true" ? " · accessible toilets" : ""}</small>` +
           `<small>${esc(p.activity || "")}</small></span><span class="end">${fmtDist(d)}${icon("chev-r", "chev")}</span></button></li>`;
       }).join("")}</ul>`
-    : `<p class="muted">Aucune adresse avec ces filtres. Essayez d'en enlever un.</p>`;
+    : `<p class="muted">No place matches these filters. Try removing one.</p>`;
   document.querySelectorAll("[data-place]").forEach((b) => b.addEventListener("click", () => openAcceslibre(keep[+b.dataset.place].f)));
 }
 
 function acceslibreBlock(p) {
   const st = PLACE_ST[p.wheelchair], [title, sub] = PLACE_FR[p.wheelchair], wc = WC_FR[p.toilets] || WC_FR.unknown;
-  const reasonIcon = (r) => /marche/i.test(r) ? "steps" : /porte/i.test(r) ? "door" : /rampe|aide/i.test(r) ? "hand" : "ok";
+  const reasonIcon = (r) => /marche|\bsteps?\b(?!-)/i.test(r) ? "steps" : /porte|door/i.test(r) ? "door" : /rampe|aide|ramp|help|assist/i.test(r) ? "hand" : "ok";
   return `<div class="verdict ${st}">${mark(st, "lg")}<span><strong>${esc(title)}</strong>${esc(sub)}</span></div>` +
     `<ul class="facts">` + (p.reasons || []).map((r) => `<li>${icon(reasonIcon(r))}<span>${esc(r)}</span></li>`).join("") +
     `<li>${icon("wc", wc[0])}<span>${esc(wc[1])}</span></li>` +
-    (p.parking ? `<li>${icon("parking", "ok")}<span>Place de parking handicapé</span></li>` : "") + `</ul>`;
+    (p.parking ? `<li>${icon("parking", "ok")}<span>Disabled parking space</span></li>` : "") + `</ul>`;
 }
 
 function openAcceslibre(f) {
@@ -628,13 +628,13 @@ function openAcceslibre(f) {
   const near = nearestStations(coord, 3, 1500);
   $("#detail").innerHTML =
     photoSlot() +
-    `<h2 id="d-title" class="title">${esc(p.name || "Sans nom")}</h2><p class="sub">${esc(p.activity || "")}${p.address ? ` · ${esc(p.address)}` : ""}</p>` +
+    `<h2 id="d-title" class="title">${esc(p.name || "Unnamed")}</h2><p class="sub">${esc(p.activity || "")}${p.address ? ` · ${esc(p.address)}` : ""}</p>` +
     acceslibreBlock(p) +
-    `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">${icon("ext")}Plus d'infos</a></div>` +
-    `<h3 class="h2">Stations avec ascenseur à côté</h3>` +
-    (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`) +
+    `<div class="btn-row"><button class="btn primary" id="go-to">Go there</button><a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">${icon("ext")}More info</a></div>` +
+    `<h3 class="h2">Nearby stations with elevators</h3>` +
+    (near.length ? stationList(near) : `<p class="muted">No station with an elevator within 1.5 km.</p>`) +
     nearSlot() +
-    `<p class="src">Accessibilité : Acceslibre (beta.gouv.fr), décrite par les lieux et les visiteurs. Licence Ouverte.</p>`;
+    `<p class="src">Accessibility: Acceslibre (beta.gouv.fr), described by venues and visitors. Licence Ouverte (open licence).</p>`;
   bindOpen($("#detail"));
   $("#go-to").addEventListener("click", () => openTrip(null, { label: p.name, lon: coord[0], lat: coord[1] }));
   fillPhoto(coord, p.id);
@@ -645,7 +645,7 @@ function openAcceslibre(f) {
 // ---------------------------------------------------------------------------
 // Top slot: only a photo of the place itself. Bottom slot: a photo taken nearby, kept small and below the verdict.
 const photoSlot = () => `<figure class="photo" id="photo" hidden><figcaption></figcaption></figure>`;
-const nearSlot = () => `<section id="photo-near" hidden><h3 class="h2">Aux alentours</h3><figure class="photo small"><figcaption></figcaption></figure></section>`;
+const nearSlot = () => `<section id="photo-near" hidden><h3 class="h2">Around here</h3><figure class="photo small"><figcaption></figcaption></figure></section>`;
 async function fillPhoto(coord, placeId) {
   const top = $("#photo"), near = $("#photo-near");
   const q = new URLSearchParams({ lat: coord[1].toFixed(5), lon: coord[0].toFixed(5) });
@@ -658,7 +658,7 @@ async function fillPhoto(coord, placeId) {
     const img = document.createElement("img");
     img.decoding = "async";
     (box.tagName === "FIGURE" ? box : box.querySelector("figure")).prepend(img);
-    img.alt = photo.kind === "site" ? "Photo du lieu" : "Photo prise à proximité";
+    img.alt = photo.kind === "site" ? "Photo of the place" : "Photo taken nearby";
     img.onload = () => { box.hidden = false; };
     img.onerror = () => box.remove();
     img.src = photo.src;
@@ -672,7 +672,7 @@ async function fillPhoto(coord, placeId) {
 function openStation(id) {
   $("#detail").dataset.kind = "station";
   const st = S.stations.get(String(id));
-  if (!st) { toast("Je n'ai pas d'information d'ascenseur pour cette station."); return; }
+  if (!st) { toast("I have no elevator information for this station."); return; }
   history.replaceState(null, "", `#station=${encodeURIComponent(st.id)}`);
   setPin(null);
   show("detail", "half");
@@ -680,27 +680,27 @@ function openStation(id) {
   const [title, sub] = verdictText(st);
   const lifts = [...st.lifts].sort((a, b) => (b.status === "notavailable") - (a.status === "notavailable"));
   const oldest = st.lifts.map((l) => l.source_update).filter(Boolean).sort()[0];
-  const who = st.staleLifts === st.lifts.length ? (st.lifts.length > 1 ? "tous les ascenseurs" : "cet ascenseur") : `${st.staleLifts} ascenseur${st.staleLifts > 1 ? "s" : ""} sur ${st.lifts.length}`;
+  const who = st.staleLifts === st.lifts.length ? (st.lifts.length > 1 ? "all elevators" : "this elevator") : `${st.staleLifts} of ${st.lifts.length} elevators`;
 
   $("#detail").innerHTML =
     `<h2 id="d-title" class="title">${esc(st.name)}</h2><p class="sub">${esc(MODE_FR[st.mode] || st.mode || "Station")}</p>` +
     `<div class="verdict ${st.status}">${mark(st.status, "lg")}<span><strong>${esc(title)}</strong>${esc(sub)}</span></div>` +
-    (st.staleLifts ? `<p class="note">${icon("clock")}<span><b>À confirmer.</b> Pour ${who}, la dernière info IDFM date ${rel(oldest).replace(/^le /, "du ").replace("il y a", "d'il y a")}. Ça a pu changer depuis.</span></p>` : "") +
-    `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><button class="btn" id="go-from">Partir d'ici</button></div>` +
+    (st.staleLifts ? `<p class="note">${icon("clock")}<span><b>To be confirmed.</b> For ${who}, the latest IDFM update was ${rel(oldest)}. It may have changed since.</span></p>` : "") +
+    `<div class="btn-row"><button class="btn primary" id="go-to">Go there</button><button class="btn" id="go-from">Start here</button></div>` +
     `<ul class="facts" id="st-facts" hidden></ul>` +
-    `<h3 class="h2">Les ascenseurs (${lifts.length})</h3><div class="card">` +
+    `<h3 class="h2">Elevators (${lifts.length})</h3><div class="card">` +
     lifts.map((l) => {
       const s = l.status === "available" ? "ok" : l.status === "notavailable" ? "ko" : "unk";
       const old = ageH(l.source_update) > STALE_H;
       return `<div class="lift">${mark(s)}<div class="lift-body"><div class="st">${esc(LIFT_FR[l.status] || l.status)}</div>` +
-        `<div class="where">${esc(l.situation || "Emplacement non précisé")}</div>${l.direction ? `<small>${esc(l.direction)}</small>` : ""}` +
-        `<small class="${old ? "old" : ""}">Info IDFM ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small>` +
+        `<div class="where">${esc(l.situation || "Location not specified")}</div>${l.direction ? `<small>${esc(l.direction)}</small>` : ""}` +
+        `<small class="${old ? "old" : ""}">IDFM update ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small>` +
         `<small class="rel" data-rel="${esc(l.liftid)}"></small>` +
-        (l.status !== "notavailable" ? `<button class="linkish report-lift" data-lift="${esc(l.liftid)}">Signaler une panne</button>` : "") +
+        (l.status !== "notavailable" ? `<button class="linkish report-lift" data-lift="${esc(l.liftid)}">Report an outage</button>` : "") +
         `</div></div>`;
     }).join("") + `</div>` +
     nearSlot() +
-    `<p class="src">Source : IDFM, état des ascenseurs (Licence Mobilité), zone ${esc(st.id)}. Vérifié à ${hhmm(S.meta.lifts.fetched_at)}.</p>`;
+    `<p class="src">Source: IDFM, elevator status (Licence Mobilité), area ${esc(st.id)}. Checked at ${hhmm(S.meta.lifts.fetched_at)}.</p>`;
   const spot = { label: st.name, lon: st.coord[0], lat: st.coord[1] };
   $("#go-to").addEventListener("click", () => openTrip(null, spot));
   $("#go-from").addEventListener("click", () => openTrip(spot, null));
@@ -717,11 +717,11 @@ async function fillStationFacts(st) {
   const quais = S.quais.filter((q) => distM(st.coord, q.geometry.coordinates) < 350 && norm(q.properties.name) === st.key);
   const qCount = {};
   quais.forEach((q) => { const k = q.properties.accessibility || "unknown"; qCount[k] = (qCount[k] || 0) + 1; });
-  const Q_FR = { true: ["accessible", "accessibles"], partial: ["partiellement accessible", "partiellement accessibles"], false: ["non accessible", "non accessibles"], unknown: ["sans information", "sans information"] };
+  const Q_FR = { true: ["accessible", "accessible"], partial: ["partly accessible", "partly accessible"], false: ["not accessible", "not accessible"], unknown: ["no information", "no information"] };
   const qText = ["true", "partial", "false", "unknown"].filter((k) => qCount[k]).map((k) => `${qCount[k]} ${Q_FR[k][qCount[k] > 1 ? 1 : 0]}`).join(", ");
   const works = worksNear(st.coord, 200);
-  ul.innerHTML = (quais.length ? `<li>${icon("train")}<span><b>Quais :</b> ${qText}</span></li>` : "") +
-    (works.length ? `<li>${icon("cone", "warn")}<span><b>${plural(works.length, "chantier", "chantiers")}</b> sur le trottoir à moins de 200 m</span></li>` : "");
+  ul.innerHTML = (quais.length ? `<li>${icon("train")}<span><b>Platforms:</b> ${qText}</span></li>` : "") +
+    (works.length ? `<li>${icon("cone", "warn")}<span><b>${plural(works.length, "sidewalk works site", "sidewalk works sites")}</b> within 200 m</span></li>` : "");
   ul.hidden = !ul.innerHTML;
 }
 
@@ -734,38 +734,38 @@ async function fillReliability(st) {
       if (!el) continue;
       const down = 1 - r.availability;
       el.textContent = down < 0.02
-        ? `Très fiable : presque jamais en panne (${Math.round(r.window_days)} derniers jours)`
-        : `En panne environ 1 jour sur ${Math.max(2, Math.round(1 / down))} (${Math.round(r.window_days)} derniers jours, ${plural(r.outages, "panne", "pannes")})`;
+        ? `Very reliable: almost never out of order (last ${Math.round(r.window_days)} days)`
+        : `Out of order about 1 day in ${Math.max(2, Math.round(1 / down))} (last ${Math.round(r.window_days)} days, ${plural(r.outages, "outage", "outages")})`;
       el.classList.toggle("bad", down >= 0.1);
     }
   } catch { /* the history is a bonus */ }
 }
 
 // ---------------------------------------------------------------------------
-// Community reports (chantier B owns the API and the photo screen; A shows them)
+// Community reports (workstream B owns the API and the photo screen; A shows them)
 // ---------------------------------------------------------------------------
 const REPORT_FR = {
-  escalier: "Escalier", marche: "Marche", travaux: "Travaux", trottoir_encombre: "Trottoir encombré",
-  trottoir_etroit: "Trottoir étroit", bordure_haute: "Bordure haute", pente: "Pente forte",
-  ascenseur_panne: "Ascenseur en panne", escalator_panne: "Escalator en panne", rampe: "Rampe", autre: "Obstacle",
+  escalier: "Stairs", marche: "Step", travaux: "Roadworks", trottoir_encombre: "Blocked sidewalk",
+  trottoir_etroit: "Narrow sidewalk", bordure_haute: "High curb", pente: "Steep slope",
+  ascenseur_panne: "Elevator out of order", escalator_panne: "Escalator out of order", rampe: "Ramp", autre: "Obstacle",
 };
 const GRAV_ST = { bloquant: "ko", genant: "warn", info: "unk" };
 const userId = () => store.get("pmr_user_id");
 
 function reportLift(st, lift) {
-  openReportFlow({ cat: "ascenseur_panne", place: { label: st.name, sub: lift.situation || "Ascenseur de la station", lon: st.coord[0], lat: st.coord[1] },
+  openReportFlow({ cat: "ascenseur_panne", place: { label: st.name, sub: lift.situation || "Station elevator", lon: st.coord[0], lat: st.coord[1] },
     target: { type: "lift", id: lift.liftid } });
 }
 
 // ---------------------------------------------------------------------------
 // Report flow (roadmap screen 5): what, where, optional voice / photo / text, then send.
-// The API (POST /api/reports, /api/reports/analyze) belongs to chantier B; without it we say so.
+// The API (POST /api/reports, /api/reports/analyze) belongs to workstream B; without it we say so.
 // ---------------------------------------------------------------------------
 const R_CATS = [
-  { key: "ascenseur_panne", label: "Ascenseur en panne", ic: "lift", gravite: "bloquant", temporaire: true },
-  { key: "trottoir_encombre", label: "Obstacle sur le passage", ic: "cone", gravite: "genant", temporaire: true },
-  { key: "marche", label: "Marche ou rampe impossible", ic: "steps", gravite: "bloquant", temporaire: false },
-  { key: "autre", label: "Autre problème", ic: "unk", gravite: "info", temporaire: true },
+  { key: "ascenseur_panne", label: "Elevator out of order", ic: "lift", gravite: "bloquant", temporaire: true },
+  { key: "trottoir_encombre", label: "Obstacle in the way", ic: "cone", gravite: "genant", temporaire: true },
+  { key: "marche", label: "Step or unusable ramp", ic: "steps", gravite: "bloquant", temporaire: false },
+  { key: "autre", label: "Other problem", ic: "unk", gravite: "info", temporaire: true },
 ];
 const rep = { cat: null, place: null, target: null, text: "", photo: null, thumb: null, ai: null };
 
@@ -774,8 +774,8 @@ function openReportFlow({ cat = null, place = null, target = null }) {
   if (!place) {
     const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
     const near = nearestStations(pos, 1, 250)[0];
-    place = near ? { label: near.st.name, sub: "Station la plus proche de vous", lon: near.st.coord[0], lat: near.st.coord[1] }
-      : { label: "Ici", sub: S.myPos ? "Votre position" : "Le centre de la carte", lon: pos[0], lat: pos[1] };
+    place = near ? { label: near.st.name, sub: "The station closest to you", lon: near.st.coord[0], lat: near.st.coord[1] }
+      : { label: "Here", sub: S.myPos ? "Your location" : "The center of the map", lon: pos[0], lat: pos[1] };
     if (near && !target) rep.target = { type: "station", id: near.st.id };
   }
   rep.place = place;
@@ -798,12 +798,12 @@ function renderReportSummary() {
   $("#r-send").disabled = !c;
   if (!c) { $("#r-summary").innerHTML = ""; return; }
   const ai = rep.ai;
-  const grav = { bloquant: "Bloquant en fauteuil", genant: "Gênant", info: "Pour information" }[ai?.gravite || c.gravite];
+  const grav = { bloquant: "Blocking in a wheelchair", genant: "Inconvenient", info: "For information" }[ai?.gravite || c.gravite];
   $("#r-summary").innerHTML =
-    `<p class="r-sum-head">${icon(ai ? "spark" : "ok")}${ai ? "Ce que Roulib a compris de votre photo" : "Vous allez signaler"}</p>` +
-    `<p><b>${esc(ai ? (REPORT_FR[ai.categorie] || c.label) : c.label)}</b> à ${esc(rep.place.label)}. ${esc(grav)}${(ai?.temporaire ?? c.temporaire) ? ", sans doute temporaire" : ""}.</p>` +
+    `<p class="r-sum-head">${icon(ai ? "spark" : "ok")}${ai ? "What Roulib understood from your photo" : "You are about to report"}</p>` +
+    `<p><b>${esc(ai ? (REPORT_FR[ai.categorie] || c.label) : c.label)}</b> at ${esc(rep.place.label)}. ${esc(grav)}${(ai?.temporaire ?? c.temporaire) ? ", probably temporary" : ""}.</p>` +
     (ai?.description ? `<p class="muted">${esc(ai.description)}</p>` : "") +
-    (ai ? `<p class="muted">Vérifiez avant d'envoyer : c'est une proposition, pas une certitude.</p>` : "");
+    (ai ? `<p class="muted">Check before sending: this is a suggestion, not a certainty.</p>` : "");
 }
 
 $("#r-text-btn").addEventListener("click", () => { $("#r-text").hidden = false; $("#r-text").focus(); });
@@ -812,11 +812,11 @@ $("#r-text").addEventListener("input", (e) => { rep.text = e.target.value; });
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const btn = $("#r-voice");
   if (!SR) { btn.hidden = true; return; }
-  const rec = new SR(); rec.lang = "fr-FR";
+  const rec = new SR(); rec.lang = "en-US";
   rec.onresult = (e) => { const t = e.results[0][0].transcript; $("#r-text").hidden = false; $("#r-text").value = (rep.text ? rep.text + " " : "") + t; rep.text = $("#r-text").value; };
-  rec.onerror = () => toast("Je n'ai pas bien entendu. Réessayez.");
+  rec.onerror = () => toast("I didn't catch that. Try again.");
   rec.onend = () => btn.classList.remove("listening");
-  btn.addEventListener("click", () => { btn.classList.add("listening"); toast("Je vous écoute. Décrivez le problème."); try { rec.start(); } catch {} });
+  btn.addEventListener("click", () => { btn.classList.add("listening"); toast("I'm listening. Describe the problem."); try { rec.start(); } catch {} });
 })();
 
 // Photo: resized to 1024 px JPEG (Vercel refuses bodies over 4.5 MB), then analysed if B's route exists.
@@ -824,7 +824,7 @@ $("#r-photo").addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   const bmp = await createImageBitmap(file).catch(() => null);
-  if (!bmp) return toast("Je n'arrive pas à lire cette photo.");
+  if (!bmp) return toast("I can't read this photo.");
   const k = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
   const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
   cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
@@ -835,7 +835,7 @@ $("#r-photo").addEventListener("change", async (e) => {
   tv.getContext("2d").drawImage(bmp, 0, 0, tv.width, tv.height);
   rep.thumb = tv.toDataURL("image/jpeg", 0.7);
   $("#r-thumb").src = rep.photo; $("#r-thumb").hidden = false;
-  $("#r-summary").insertAdjacentHTML("afterbegin", `<p class="muted" id="r-analyzing">${icon("spark")}J'analyse la photo…</p>`);
+  $("#r-summary").insertAdjacentHTML("afterbegin", `<p class="muted" id="r-analyzing">${icon("spark")}Analyzing the photo…</p>`);
   try {
     const r = await fetch("/api/reports/analyze", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ image_base64: rep.photo.split(",")[1], lat: rep.place.lat, lon: rep.place.lon }) });
@@ -845,27 +845,27 @@ $("#r-photo").addEventListener("change", async (e) => {
     renderReportCats();
   } catch {
     $("#r-analyzing")?.remove();
-    toast("Photo ajoutée. L'analyse automatique n'est pas encore disponible.");
+    toast("Photo added. Automatic analysis isn't available yet.");
   }
 });
 
 $("#r-send").addEventListener("click", async () => {
   const c = R_CATS.find((x) => x.key === rep.cat);
   if (!c) return;
-  const btn = $("#r-send"); btn.disabled = true; btn.textContent = "Envoi…";
+  const btn = $("#r-send"); btn.disabled = true; btn.textContent = "Sending…";
   try {
     const r = await fetch("/api/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       categorie: rep.ai?.categorie || c.key, temporaire: rep.ai?.temporaire ?? c.temporaire, gravite: rep.ai?.gravite || c.gravite,
-      description: rep.text || rep.ai?.description || `${c.label} à ${rep.place.label}`, confiance: rep.ai?.confiance ?? 1,
+      description: rep.text || rep.ai?.description || `${c.label} at ${rep.place.label}`, confiance: rep.ai?.confiance ?? 1,
       user_id: userId(), lat: rep.place.lat, lon: rep.place.lon, target_type: rep.target?.type || "place", target_id: rep.target?.id || null,
       photo_thumb: rep.thumb || null,
     }) });
     if (!r.ok) throw new Error(r.status);
-    toast("Merci ! C'est sur la carte. Les autres utilisateurs pourront confirmer.");
+    toast("Thank you! It's on the map. Other users can confirm it.");
     goHome(); loadReports();
   } catch {
-    toast("Les signalements ne sont pas encore branchés : celui-ci n'a pas été envoyé. Réessayez plus tard.", 5000);
-  } finally { btn.disabled = false; btn.textContent = "Envoyer le signalement"; }
+    toast("Reports aren't connected yet: this one was not sent. Try again later.", 5000);
+  } finally { btn.disabled = false; btn.textContent = "Send report"; }
 });
 
 let reportsData = [];
@@ -887,22 +887,22 @@ function openReport(f) {
   show("detail", "half");
   flyTo(coord, 17);
   $("#detail").innerHTML =
-    (p.photo_thumb ? `<figure class="photo" id="photo"><img alt="Photo du signalement" src="${esc(p.photo_thumb)}"><figcaption>Photo prise par un utilisateur</figcaption></figure>` : "") +
-    `<h2 id="d-title" class="title">${esc(REPORT_FR[p.categorie] || "Obstacle signalé")}</h2>` +
-    `<p class="sub">Signalé par la communauté ${p.created_at ? rel(p.created_at) : ""}${p.is_demo ? " · signalement de démonstration" : ""}</p>` +
-    `<div class="verdict ${st}">${mark(st, "lg")}<span><strong>${p.gravite === "bloquant" ? "Bloquant en fauteuil" : p.gravite === "genant" ? "Gênant" : "Pour information"}</strong>${esc(p.description || "")}</span></div>` +
-    `<p class="trip-meta">${confPill(p.confidence || 2)} <span class="muted">${plural(p.confirmations || 1, "personne l'a vu", "personnes l'ont vu")}</span></p>` +
-    `<button class="btn primary block" id="still-there">${icon("ok")}C'est toujours là</button>` +
-    `<p class="src">Signalement communautaire, non vérifié par une source officielle. Il perd en confiance s'il n'est pas confirmé.</p>`;
+    (p.photo_thumb ? `<figure class="photo" id="photo"><img alt="Report photo" src="${esc(p.photo_thumb)}"><figcaption>Photo taken by a user</figcaption></figure>` : "") +
+    `<h2 id="d-title" class="title">${esc(REPORT_FR[p.categorie] || "Reported obstacle")}</h2>` +
+    `<p class="sub">Reported by the community ${p.created_at ? rel(p.created_at) : ""}${p.is_demo ? " · demo report" : ""}</p>` +
+    `<div class="verdict ${st}">${mark(st, "lg")}<span><strong>${p.gravite === "bloquant" ? "Blocking in a wheelchair" : p.gravite === "genant" ? "Inconvenient" : "For information"}</strong>${esc(p.description || "")}</span></div>` +
+    `<p class="trip-meta">${confPill(p.confidence || 2)} <span class="muted">${plural(p.confirmations || 1, "person saw it", "people saw it")}</span></p>` +
+    `<button class="btn primary block" id="still-there">${icon("ok")}Still there</button>` +
+    `<p class="src">Community report, not verified by an official source. It loses confidence if nobody confirms it.</p>`;
   $("#still-there").addEventListener("click", async (e) => {
     e.currentTarget.disabled = true;
     try {
       const r = await fetch(`/api/reports/${encodeURIComponent(p.id)}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId() }) });
       if (!r.ok) throw new Error(r.status);
       const d = await r.json().catch(() => ({}));
-      toast(`Merci ! ${d.confirmations ? plural(d.confirmations, "personne l'a confirmé", "personnes l'ont confirmé") : "Confirmation enregistrée"}.`);
+      toast(`Thank you! ${d.confirmations ? plural(d.confirmations, "person has confirmed it", "people have confirmed it") : "Confirmation saved"}.`);
       loadReports();
-    } catch { e.currentTarget.disabled = false; toast("Je n'ai pas pu enregistrer. Réessayez dans un instant."); }
+    } catch { e.currentTarget.disabled = false; toast("I couldn't save that. Try again in a moment."); }
   });
 }
 
@@ -916,13 +916,13 @@ async function openPlace(item) {
   const works = worksNear(coord, 150);
   $("#detail").innerHTML = photoSlot() +
     `<h2 id="d-title" class="title">${esc(item.label)}</h2><p class="sub">${esc(item.sub || "")}</p>` +
-    `<div id="place-access"><p class="muted">Je regarde si le lieu est accessible…</p></div>` +
-    (works.length ? `<p class="note">${icon("cone")}<span><b>${plural(works.length, "chantier", "chantiers")} sur le trottoir</b> à moins de 150 m. ${esc(works[0].p.summary || "Travaux")}, jusqu'au ${esc(works[0].p.end)}.</span></p>` : "") +
-    `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><button class="btn" id="go-from">Partir d'ici</button></div>` +
-    `<h3 class="h2">Stations avec ascenseur à côté</h3>` +
-    (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`) +
+    `<div id="place-access"><p class="muted">Checking whether this place is accessible…</p></div>` +
+    (works.length ? `<p class="note">${icon("cone")}<span><b>${plural(works.length, "sidewalk works site", "sidewalk works sites")}</b> within 150 m. ${esc(works[0].p.summary || "Roadworks")}, until ${esc(works[0].p.end)}.</span></p>` : "") +
+    `<div class="btn-row"><button class="btn primary" id="go-to">Go there</button><button class="btn" id="go-from">Start here</button></div>` +
+    `<h3 class="h2">Nearby stations with elevators</h3>` +
+    (near.length ? stationList(near) : `<p class="muted">No station with an elevator within 1.5 km.</p>`) +
     nearSlot() +
-    `<p class="src">Lieu : IGN Géoplateforme. Ascenseurs : IDFM. Chantiers : Ville de Paris.</p>`;
+    `<p class="src">Place: IGN Géoplateforme. Elevators: IDFM. Roadworks: Ville de Paris.</p>`;
   bindOpen($("#detail"));
   $("#go-to").addEventListener("click", () => openTrip(null, item));
   $("#go-from").addEventListener("click", () => openTrip(item, null));
@@ -936,8 +936,8 @@ async function openPlace(item) {
     if (!box) return;
     fillPhoto(coord, cands.length ? cands[0].f.properties.id : null);
     box.innerHTML = cands.length
-      ? acceslibreBlock(cands[0].f.properties) + `<p class="src"><a href="${esc(cands[0].f.properties.url)}" target="_blank" rel="noopener">Voir la fiche Acceslibre</a></p>`
-      : `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Pas encore décrit</strong>Ce lieu n'a pas de fiche d'accessibilité sur Acceslibre.</span></div>`;
+      ? acceslibreBlock(cands[0].f.properties) + `<p class="src"><a href="${esc(cands[0].f.properties.url)}" target="_blank" rel="noopener">See the Acceslibre page</a></p>`
+      : `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Not described yet</strong>This place has no accessibility page on Acceslibre.</span></div>`;
   } catch {
     const box = $("#place-access"); if (box) box.innerHTML = "";
   }
@@ -947,19 +947,19 @@ function openWorks(p, lngLat) {
   setPin([lngLat.lng, lngLat.lat]);
   show("detail", "half");
   $("#detail").innerHTML =
-    `<h2 id="d-title" class="title">Travaux sur le trottoir</h2><p class="sub">${esc(p.postcode || "Paris")}</p>` +
-    `<div class="verdict warn">${mark("warn", "lg")}<span><strong>${esc(p.summary || "Travaux")}</strong>Du ${esc(p.start)} au ${esc(p.end)}.</span></div>` +
-    `<ul class="facts"><li>${icon("cone")}<span><b>Où :</b> ${esc((p.where || "").replace(/EMPRISE_/g, "").toLowerCase().replace(/_/g, " "))}</span></li>` +
-    `<li>${icon("place")}<span><b>Qui :</b> ${esc(p.owner || "non précisé")}</span></li></ul>` +
-    `<p class="muted">Le passage peut être plus étroit ou dévié. Prévoyez de traverser un peu avant.</p>` +
-    `<p class="src">Source : Ville de Paris, chantiers à Paris (ODbL), emprise ${esc(p.id)}.</p>`;
+    `<h2 id="d-title" class="title">Sidewalk works</h2><p class="sub">${esc(p.postcode || "Paris")}</p>` +
+    `<div class="verdict warn">${mark("warn", "lg")}<span><strong>${esc(p.summary || "Roadworks")}</strong>From ${esc(p.start)} to ${esc(p.end)}.</span></div>` +
+    `<ul class="facts"><li>${icon("cone")}<span><b>Where:</b> ${esc((p.where || "").replace(/EMPRISE_([A-Z_]+)/g, (_, k) => ({ TROTTOIR: "sidewalk", CHAUSSEE: "roadway", STATIONNEMENT: "parking" }[k] || k.toLowerCase().replace(/_/g, " "))))}</span></li>` +
+    `<li>${icon("place")}<span><b>Who:</b> ${esc(p.owner || "not specified")}</span></li></ul>` +
+    `<p class="muted">The way may be narrower or diverted. Plan to cross a little earlier.</p>` +
+    `<p class="src">Source: Ville de Paris, Paris roadworks (ODbL), site ${esc(p.id)}.</p>`;
 }
 
 // ---------------------------------------------------------------------------
 // Trip
 // ---------------------------------------------------------------------------
 const trip = { from: null, to: null };
-const myPosItem = () => (S.myPos ? { label: "Ma position", lon: S.myPos[0], lat: S.myPos[1], kind: "me" } : null);
+const myPosItem = () => (S.myPos ? { label: "My location", lon: S.myPos[0], lat: S.myPos[1], kind: "me" } : null);
 
 $("#trip-summary").addEventListener("click", () => { $("#v-trip").classList.remove("has-result"); $("#trip-to").focus(); });
 function openTrip(from, to) {
@@ -977,24 +977,24 @@ function openTrip(from, to) {
 
 const REPLAY = new URLSearchParams(location.search).get("replay") === "demo";
 const VERDICT = {
-  passe: { st: "ok", title: () => "Ce trajet passe", sub: (p) => `Rien ne bloque pour un ${p}.` },
-  risque: { st: "warn", title: () => "Possible, avec des risques", sub: () => "Regardez les étapes en orange avant de partir." },
-  bloque: { st: "ko", title: (it) => `Bloqué${it.blocked_at ? ` à ${it.blocked_at}` : ""}`, sub: () => "Ne partez pas sur ce trajet. Voyez le plan B." },
+  passe: { st: "ok", title: () => "This trip works", sub: (p) => `Nothing in the way for a ${p}.` },
+  risque: { st: "warn", title: () => "Possible, with risks", sub: () => "Check the orange steps before you go." },
+  bloque: { st: "ko", title: (it) => `Blocked${it.blocked_at ? ` at ${it.blocked_at}` : ""}`, sub: () => "Don't take this trip. See Plan B." },
 };
 // Confidence levels (roadmap 4.3): colour + icon + words, never colour alone.
 const CONF = {
-  5: ["ok", "shield", "Officiel, en direct"], 4: ["ok", "people", "Confirmé par la communauté"],
-  3: ["unk", "shield", "Officiel, information fixe"], 2: ["warn", "people", "Un seul signalement"], 1: ["unk", "unk", "Inconnu"],
+  5: ["ok", "shield", "Official, live"], 4: ["ok", "people", "Confirmed by the community"],
+  3: ["unk", "shield", "Official, static data"], 2: ["warn", "people", "Single report"], 1: ["unk", "unk", "Unknown"],
 };
 const checkState = (c) => c.status === "ok" ? "ok" : c.status === "en_panne" || c.effect === "bloquant" ? "ko" : c.status === "inconnu" ? "unk" : "warn";
 // In replay mode a level-5 source is official but recorded, not live: say so.
 const confPill = (n, recorded) => {
   let [st, ic, label] = CONF[n] || CONF[1];
-  if (recorded && n === 5) label = "Officiel, enregistré";
+  if (recorded && n === 5) label = "Official, recorded";
   return `<span class="pill ${st}">${icon(ic)}${label}</span>`;
 };
 const whenMap = (fn) => (map.isStyleLoaded() && map.getSource("trip") ? fn() : map.once("idle", fn));
-const yyyymmddToTime = (s) => (s && s.length >= 13 ? `${s.slice(9, 11)}h${s.slice(11, 13)}` : "");
+const yyyymmddToTime = (s) => (s && s.length >= 13 ? `${s.slice(9, 11)}:${s.slice(11, 13)}` : "");
 
 // Public line colours of the Île-de-France network (signage convention), for line chips.
 const LINE_COLORS = {
@@ -1018,9 +1018,9 @@ function stepChip(s) {
   const flag = st ? `<span class="chip-flag ${st}" aria-hidden="true">${icon(st)}</span>` : "";
   if (s.type === "transit") {
     const bg = lineColor(s.mode, s.line);
-    return `<span class="lchip" style="background:${bg};color:${inkOn(bg)}" aria-label="${esc(s.mode)} ${esc(s.line)}${st ? ", attention" : ""}">${esc(modeShort(s.mode))}&nbsp;${esc(s.line || "")}${flag}</span>`;
+    return `<span class="lchip" style="background:${bg};color:${inkOn(bg)}" aria-label="${esc(s.mode)} ${esc(s.line)}${st ? ", warning" : ""}">${esc(modeShort(s.mode))}&nbsp;${esc(s.line || "")}${flag}</span>`;
   }
-  return `<span class="wchip" aria-label="${s.duration_min || ""} minutes en fauteuil${st ? ", attention" : ""}">${icon(Profile.get()?.ic || "p-manuel")}${s.duration_min ? `${s.duration_min}′` : ""}${flag}</span>`;
+  return `<span class="wchip" aria-label="${s.duration_min || ""} minutes by wheelchair${st ? ", warning" : ""}">${icon(Profile.get()?.ic || "p-manuel")}${s.duration_min ? `${s.duration_min}′` : ""}${flag}</span>`;
 }
 const chipsRow = (it) => it.steps.filter((s) => s.type !== "walk" || (s.duration_min || 0) >= 1)
   .map(stepChip).join(`<span class="chev-sep" aria-hidden="true">›</span>`);
@@ -1030,9 +1030,9 @@ let lastTrip = null;
 async function runTrip(opts = {}) {
   const out = $("#trip-result");
   const demo = opts.demo || REPLAY;
-  if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Choisissez le départ et l'arrivée dans la liste qui s'affiche.</p>`; return; }
+  if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Pick the start and the destination from the list that appears.</p>`; return; }
   document.activeElement?.blur();
-  out.innerHTML = `<p class="muted">Je vérifie chaque étape pour votre ${esc(Profile.get()?.short || "profil")}…</p>`;
+  out.innerHTML = `<p class="muted">Checking every step for your ${esc(Profile.get()?.short || "profile")}…</p>`;
   const q = new URLSearchParams({ profile: Profile.key() });
   if (demo) { q.set("replay", "demo"); q.set("from", "demo"); q.set("to", "demo"); }
   else { q.set("from", `${trip.from.lon},${trip.from.lat}`); q.set("to", `${trip.to.lon},${trip.to.lat}`); }
@@ -1043,22 +1043,22 @@ async function runTrip(opts = {}) {
     renderResults(d);
   } catch (e) {
     if (e.status === 503) renderTripFallback();
-    else out.innerHTML = `<p class="err">Je n'ai pas trouvé de trajet. ${esc(e.message)}</p>` + demoButton();
+    else out.innerHTML = `<p class="err">I couldn't find a trip. ${esc(e.message)}</p>` + demoButton();
     bindDemo();
   }
 }
-const demoButton = () => `<button class="btn block" id="trip-demo">${icon("route")}Voir un trajet d'exemple (enregistré)</button>`;
+const demoButton = () => `<button class="btn block" id="trip-demo">${icon("route")}See a sample trip (recorded)</button>`;
 const bindDemo = () => $("#trip-demo")?.addEventListener("click", () => runTrip({ demo: true }));
 
 function renderTripFallback() {
   const a = [trip.from.lon, trip.from.lat], b = [trip.to.lon, trip.to.lat];
   const block = (label, coord) => {
     const near = nearestStations(coord, 3, 1500);
-    return `<h3 class="h2">${label}</h3>` + (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`);
+    return `<h3 class="h2">${label}</h3>` + (near.length ? stationList(near) : `<p class="muted">No station with an elevator within 1.5 km.</p>`);
   };
   $("#trip-result").innerHTML =
-    `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Le calcul du trajet n'est pas encore branché</strong>En attendant, voici les stations avec ascenseur au départ et à l'arrivée.</span></div>` +
-    demoButton() + block("Au départ", a) + block("À l'arrivée", b);
+    `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Trip planning isn't connected yet</strong>Meanwhile, here are the stations with elevators at the start and at the destination.</span></div>` +
+    demoButton() + block("At the start", a) + block("At the destination", b);
   bindOpen($("#trip-result"));
   Sheet.set("half");
   fitTo([a, b]);
@@ -1066,42 +1066,42 @@ function renderTripFallback() {
 
 function stepTitle(s) {
   if (s.type === "transit") return `${esc(s.mode || "Transport")} ${esc(s.line || "")}`.trim();
-  if (s.type === "transfer") return "Correspondance";
-  return { manuel: "En fauteuil", electrique: "En fauteuil", poussette: "Avec la poussette" }[Profile.key()] || "À pied";
+  if (s.type === "transfer") return "Transfer";
+  return { manuel: "By wheelchair", electrique: "By wheelchair", poussette: "With the stroller" }[Profile.key()] || "On foot";
 }
 function checkLine(c, recorded) {
   const st = checkState(c);
   const rel = c.reliability != null
-    ? `<small>Historique : en panne environ 1 jour sur ${Math.max(2, Math.round(1 / Math.max(0.01, 1 - c.reliability)))} (${Math.round(c.reliability_window_days || 0)} derniers jours, ${esc(c.reliability_source || "")})</small>` : "";
+    ? `<small>History: out of order about 1 day in ${Math.max(2, Math.round(1 / Math.max(0.01, 1 - c.reliability)))} (last ${Math.round(c.reliability_window_days || 0)} days, ${esc(c.reliability_source || "")})</small>` : "";
   return `<li class="check">${mark(st)}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}` +
-    `<div class="meta">${confPill(c.confidence, recorded)}${c.fetched_at ? `<span class="muted">${esc(c.source || "")} · vérifié à ${hhmm(c.fetched_at)}</span>` : `<span class="muted">${esc(c.source || "")}</span>`}</div></div></li>`;
+    `<div class="meta">${confPill(c.confidence, recorded)}${c.fetched_at ? `<span class="muted">${esc(c.source || "")} · checked at ${hhmm(c.fetched_at)}</span>` : `<span class="muted">${esc(c.source || "")}</span>`}</div></div></li>`;
 }
 
 // Ranked options, like Citymapper's result list, but ordered by what works for this profile.
 function renderResults(d) {
   const its = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (x.duration_min - y.duration_min));
   const rec = d.replay === "demo";
-  const prof = Profile.get()?.short || "profil";
+  const prof = Profile.get()?.short || "profile";
   $("#v-trip").classList.add("has-result");
-  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Modifier</span>`;
-  if (!its.length) { $("#trip-result").innerHTML = `<p>Je n'ai pas trouvé de trajet.</p>` + demoButton(); bindDemo(); return; }
+  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Edit</span>`;
+  if (!its.length) { $("#trip-result").innerHTML = `<p>I couldn't find a trip.</p>` + demoButton(); bindDemo(); return; }
   const best = its[0];
   $("#trip-result").innerHTML =
-    `<p class="results-head">${best.verdict === "bloque" ? `Aucun trajet ne passe pour un ${esc(prof)} en ce moment.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "trajet possible", "trajets possibles")} pour un ${esc(prof)}`}</p>` +
-    (rec ? `<p class="rec-line">${icon("clock")}Exemple enregistré, pas en direct</p>` : "") +
+    `<p class="results-head">${best.verdict === "bloque" ? `No trip works for a ${esc(prof)} right now.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")} for a ${esc(prof)}`}</p>` +
+    (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
     `<ul class="routes">` + its.map((it, i) => {
       const V = VERDICT[it.verdict] || VERDICT.risque;
       const why = it.verdict === "bloque" ? V.title(it)
-        : it.verdict === "risque" ? `À surveiller : ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label.toLowerCase())))].slice(0, 2).join(", ") || "voir les étapes"}`
-        : "Rien ne bloque sur ce trajet";
+        : it.verdict === "risque" ? `Watch out: ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label.toLowerCase())))].slice(0, 2).join(", ") || "see the steps"}`
+        : "Nothing blocks this trip";
       return `<li><button class="route ${V.st}" data-it="${esc(it.id)}">` +
-        `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Le mieux pour vous</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
+        `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Best for you</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
         `<span class="mins"><b>${it.duration_min}</b><small>min</small></span></span>` +
-        `<span class="route-why">${mark(V.st)}<span>${esc(why)}${it.departure ? `<small>Départ ${yyyymmddToTime(it.departure)} · arrivée ${yyyymmddToTime(it.arrival)}</small>` : ""}</span></span>` +
+        `<span class="route-why">${mark(V.st)}<span>${esc(why)}${it.departure ? `<small>Leave ${yyyymmddToTime(it.departure)} · arrive ${yyyymmddToTime(it.arrival)}</small>` : ""}</span></span>` +
         `</button></li>`;
     }).join("") + `</ul>` +
-    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Ce qu'une appli classique vous aurait dit</button>` : "") +
-    `<p class="src">Trajets Navitia (option fauteuil), vérifiés étape par étape par Roulib pour le profil « ${esc(prof)} ». Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
+    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}What a regular app would have told you</button>` : "") +
+    `<p class="src">Navitia routes (wheelchair option), checked step by step by Roulib for the “${esc(prof)}” profile. Elevators checked at ${hhmm(d.lifts_fetched_at)}.</p>`;
   document.querySelectorAll("[data-it]").forEach((b) => b.addEventListener("click", () => renderItinerary(d, b.dataset.it)));
   $("#compare-btn")?.addEventListener("click", () => openCompare(d));
   whenMap(() => drawItinerary(best));
@@ -1111,22 +1111,22 @@ function renderResults(d) {
 
 function renderItinerary(d, id) {
   const it = d.itineraries.find((x) => x.id === id) || d.itineraries[0];
-  if (!it) { $("#trip-result").innerHTML = `<p>Je n'ai pas trouvé de trajet.</p>` + demoButton(); bindDemo(); return; }
-  const prof = Profile.get()?.short || "profil";
+  if (!it) { $("#trip-result").innerHTML = `<p>I couldn't find a trip.</p>` + demoButton(); bindDemo(); return; }
+  const prof = Profile.get()?.short || "profile";
   const V = VERDICT[it.verdict] || VERDICT.risque;
   const isPlanB = d.itineraries[0] && it.id !== d.itineraries[0].id;
   const planB = it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id);
   const rec = d.replay === "demo";
   $("#v-trip").classList.add("has-result");
-  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Modifier</span>`;
+  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Edit</span>`;
   $("#trip-result").innerHTML =
-    `<button class="back" id="all-routes">${icon("chev-l")}Tous les trajets</button>` +
+    `<button class="back" id="all-routes">${icon("chev-l")}All trips</button>` +
     (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
     `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong>${esc(V.title(it))}</strong>${esc(V.sub(prof))}</span></div>` +
-    `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · départ ${yyyymmddToTime(it.departure)}, arrivée ${yyyymmddToTime(it.arrival)}` : ""} ${confPill(it.confidence, rec)}</p>` +
-    (rec ? `<p class="rec-line">${icon("clock")}Exemple enregistré, pas en direct</p>` : "") +
-    (planB ? `<button class="btn primary block" id="planb">${icon("swap")}Voir le plan B (${planB.duration_min} min)</button>` : "") +
-    (isPlanB ? `<button class="btn block" id="plana">Revenir au premier trajet</button>` : "") +
+    `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · leave ${yyyymmddToTime(it.departure)}, arrive ${yyyymmddToTime(it.arrival)}` : ""} ${confPill(it.confidence, rec)}</p>` +
+    (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
+    (planB ? `<button class="btn primary block" id="planb">${icon("swap")}See Plan B (${planB.duration_min} min)</button>` : "") +
+    (isPlanB ? `<button class="btn block" id="plana">Back to the first trip</button>` : "") +
     `<ol class="timeline">` + it.steps.map((s) => {
       const st = { passe: "ok", risque: "warn", bloque: "ko" }[s.verdict] || "unk";
       const rail = s.type === "transit" ? lineColor(s.mode, s.line) : null;
@@ -1135,10 +1135,10 @@ function renderItinerary(d, id) {
         : `<span class="wchip">${icon(Profile.get()?.ic || "p-manuel")}</span>`;
       return `<li class="tl ${s.type} ${st}" style="--rail:${rail || "#b9b0a2"}">` +
         `<div class="tl-stop"><span class="tl-dot"></span><b>${esc(s.from)}</b></div>` +
-        `<div class="tl-body">${badge}<div><b>${stepTitle(s)}</b><small>${s.duration_min ? `${s.duration_min} min` : ""}${s.type === "transit" ? ` · jusqu'à ${esc(s.to)}` : ""}</small></div><span class="tl-state">${mark(st)}</span></div>` +
-        (s.checks?.length ? `<ul class="checks">${s.checks.map((c) => checkLine(c, rec)).join("")}</ul>` : `<p class="muted small">Rien de particulier signalé.</p>`) + `</li>`;
+        `<div class="tl-body">${badge}<div><b>${stepTitle(s)}</b><small>${s.duration_min ? `${s.duration_min} min` : ""}${s.type === "transit" ? ` · to ${esc(s.to)}` : ""}</small></div><span class="tl-state">${mark(st)}</span></div>` +
+        (s.checks?.length ? `<ul class="checks">${s.checks.map((c) => checkLine(c, rec)).join("")}</ul>` : `<p class="muted small">Nothing in particular reported.</p>`) + `</li>`;
     }).join("") + `<li class="tl end"><div class="tl-stop"><span class="tl-dot"></span><b>${esc(it.steps[it.steps.length - 1]?.to || "")}</b></div></li></ol>` +
-    `<p class="src">Vérification Roulib pour le profil « ${esc(prof)} ». Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
+    `<p class="src">Roulib check for the “${esc(prof)}” profile. Elevators checked at ${hhmm(d.lifts_fetched_at)}.</p>`;
   $("#planb")?.addEventListener("click", () => { renderItinerary(d, it.plan_b_id); Sheet.scrollTop(); });
   $("#plana")?.addEventListener("click", () => { renderItinerary(d, d.itineraries[0].id); Sheet.scrollTop(); });
   $("#all-routes").addEventListener("click", () => renderResults(d));
@@ -1163,12 +1163,12 @@ function openCompare(d) {
   const blockers = ours.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) !== "ok"));
   $("#compare").innerHTML =
     `<div class="cmp">` +
-    `<div class="cmp-col"><h3>Appli classique</h3><div class="verdict ok">${mark("ok")}<span><strong>« Accessible »</strong>${base.duration_min} min</span></div>` +
-    `<ul class="cmp-list">${base.steps.map((s) => `<li>${s.type === "public_transport" ? `${esc(s.mode)} ${esc(s.line)}` : "À pied"}<small>${esc(s.from)} → ${esc(s.to)}</small></li>`).join("")}</ul></div>` +
+    `<div class="cmp-col"><h3>Regular app</h3><div class="verdict ok">${mark("ok")}<span><strong>“Accessible”</strong>${base.duration_min} min</span></div>` +
+    `<ul class="cmp-list">${base.steps.map((s) => `<li>${s.type === "public_transport" ? `${esc(s.mode)} ${esc(s.line)}` : "On foot"}<small>${esc(s.from)} → ${esc(s.to)}</small></li>`).join("")}</ul></div>` +
     `<div class="cmp-col ours"><h3>Roulib</h3><div class="verdict ${VERDICT[ours.verdict].st}">${mark(VERDICT[ours.verdict].st)}<span><strong>${esc(VERDICT[ours.verdict].title(ours))}</strong>${ours.duration_min} min</span></div>` +
-    `<ul class="cmp-list">${blockers.map((c) => `<li class="hit">${mark(checkState(c))}<span>${esc(c.label)}<small>${esc(c.message || "")}</small></span></li>`).join("") || "<li>Rien à signaler</li>"}</ul></div>` +
-    `</div>` + (planB ? `<button class="btn primary block" id="cmp-planb">${icon("swap")}Roulib propose un plan B (${planB.duration_min} min)</button>` : "") +
-    `<p class="src">À gauche : la réponse de Navitia seule (option fauteuil). À droite : le même trajet vérifié étape par étape avec les données ${d.replay === "demo" ? "enregistrées le 22/10 au matin" : "en direct"}.</p>`;
+    `<ul class="cmp-list">${blockers.map((c) => `<li class="hit">${mark(checkState(c))}<span>${esc(c.label)}<small>${esc(c.message || "")}</small></span></li>`).join("") || "<li>Nothing to report</li>"}</ul></div>` +
+    `</div>` + (planB ? `<button class="btn primary block" id="cmp-planb">${icon("swap")}Roulib suggests a Plan B (${planB.duration_min} min)</button>` : "") +
+    `<p class="src">Left: Navitia's answer alone (wheelchair option). Right: the same trip checked step by step with ${d.replay === "demo" ? "data recorded on the morning of Oct 22" : "live data"}.</p>`;
   $("#cmp-planb")?.addEventListener("click", () => { show("trip", "half"); renderItinerary(d, planB.id); });
   show("compare", "full");
 }
@@ -1206,7 +1206,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
   const run = async () => {
     const q = input.value.trim(), my = ++seq;
     const head = [];
-    if (withMe && myPosItem() && (!q || norm("ma position").startsWith(norm(q)))) head.push({ ...myPosItem(), sub: "Partir d'où vous êtes" });
+    if (withMe && myPosItem() && (!q || norm("my location").startsWith(norm(q)))) head.push({ ...myPosItem(), sub: "Start from where you are" });
     if (withMe && !q) head.push(...favItems());
     if (q.length < 2) { items = head; sel = -1; render(); return; }
     const local = stations ? localStations(q) : [];
@@ -1257,7 +1257,7 @@ function locate() {
 }
 $("#locate").addEventListener("click", async () => {
   const pos = await locate();
-  if (!pos) return toast("Je ne trouve pas votre position. Autorisez la localisation dans les réglages du téléphone.");
+  if (!pos) return toast("I can't find your location. Allow location access in your phone settings.");
   flyTo(pos, 15.5);
 });
 $("#zoom-in").addEventListener("click", () => map.zoomIn());
@@ -1281,33 +1281,33 @@ document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("clic
   if (k === "works" && layerOn.works && map.getZoom() >= 14) ensureWorks();
   const minZ = { places: 15, works: 14.5 }[k];
   if (minZ && layerOn[k] && map.getZoom() < minZ) {
-    toast(k === "places" ? "Je rapproche la carte pour montrer les restos." : "Je rapproche la carte pour montrer les travaux.");
+    toast(k === "places" ? "Zooming in to show restaurants." : "Zooming in to show roadworks.");
     map.easeTo({ zoom: minZ + 0.5, padding: Sheet.padding() });
   } else if (k === "places") loadPlacesLayer();
 }));
 
 // Larger text (low vision): the app sizes text in px, so the phone's own setting does not reach it.
-// The switch lives in the profile screen ("Affichage") to keep the home screen clear.
+// The switch lives in the profile screen ("Display") to keep the home screen clear.
 const textBtn = $("#textsize");
 function setBig(on) {
   document.documentElement.classList.toggle("big", on);
   textBtn.setAttribute("aria-pressed", String(on));
 }
 setBig(store.get("big") === "1");
-textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); toast(on ? "Texte agrandi." : "Texte normal."); });
+textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); toast(on ? "Larger text." : "Normal text."); });
 
 (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const btn = $("#mic");
   if (!SR) { btn.hidden = true; return; }
-  const rec = new SR(); rec.lang = "fr-FR"; rec.interimResults = false;
+  const rec = new SR(); rec.lang = "en-US"; rec.interimResults = false;
   rec.onresult = (e) => {
-    const text = e.results[0][0].transcript.replace(/^(je veux aller|aller|emmène-moi|je vais) (à|au|aux|a)\s+/i, "");
+    const text = e.results[0][0].transcript.replace(/^(i want to go|i'm going|take me|go) to\s+/i, "");
     $("#search").value = text; $("#search").focus(); mainSearch.run();
   };
-  rec.onerror = () => toast("Je n'ai pas bien entendu. Réessayez en parlant près du téléphone.");
-  rec.onend = () => { btn.classList.remove("listening"); btn.setAttribute("aria-label", "Dire où vous allez"); };
-  btn.addEventListener("click", () => { btn.classList.add("listening"); btn.setAttribute("aria-label", "Je vous écoute"); toast("Je vous écoute. Dites par exemple : Gare de Lyon."); try { rec.start(); } catch {} });
+  rec.onerror = () => toast("I didn't catch that. Try again, speaking close to the phone.");
+  rec.onend = () => { btn.classList.remove("listening"); btn.setAttribute("aria-label", "Say where you're going"); };
+  btn.addEventListener("click", () => { btn.classList.add("listening"); btn.setAttribute("aria-label", "Listening"); toast("I'm listening. Say, for example: Gare de Lyon."); try { rec.start(); } catch {} });
 })();
 
 function applyHash() {
@@ -1318,8 +1318,8 @@ window.addEventListener("hashchange", applyHash);
 
 // Offline support: instant reloads, last known data in tunnels. Never presented as live.
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
-window.addEventListener("offline", () => toast("Hors connexion : j'affiche les dernières informations connues, avec leur heure.", 5000));
-window.addEventListener("online", () => { toast("De nouveau en ligne."); loadLifts(); loadAlerts(); });
+window.addEventListener("offline", () => toast("Offline: showing the last known information, with its time.", 5000));
+window.addEventListener("online", () => { toast("Back online."); loadLifts(); loadAlerts(); });
 renderFavs();
 
 // ---------------------------------------------------------------------------
@@ -1338,13 +1338,13 @@ $("#o-go").addEventListener("click", () => {
   Profile.save(chosen, $("#o-name").value);
   renderMe();
   show("home", "half");
-  toast(`C'est noté : je vérifierai vos trajets pour un ${Profile.get().short}.`);
+  toast(`Got it: I'll check your trips for a ${Profile.get().short}.`);
 });
 function renderMe() {
   const p = Profile.get();
   $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = p ? p.label.toLowerCase() : "votre profil";
-  $("#h-home").innerHTML = Profile.name() ? `Où allez-vous, ${esc(Profile.name())}&nbsp;?` : "Bonjour&nbsp;! Où allez-vous&nbsp;?";
+  $("#me-name").textContent = p ? p.label.toLowerCase() : "your profile";
+  $("#h-home").innerHTML = Profile.name() ? `Where to, ${esc(Profile.name())}?` : "Hi! Where are you going?";
 }
 $("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
 renderMe();

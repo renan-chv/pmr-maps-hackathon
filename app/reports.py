@@ -8,7 +8,7 @@ Routes used by the map (static/app.js, static/profiles.js, static/report.js):
   POST /api/reports/analyze      -> the report card Claude proposes from a photo (the user validates it)
 
 The description is stored in user_reports.message: the journey engine (main._reports) reads it there.
-Every input is checked here and refused with a 400 in plain French; without a database the routes answer 503.
+Every input is checked here and refused with a 400 in plain English; without a database the routes answer 503.
 """
 from __future__ import annotations
 
@@ -47,9 +47,9 @@ def _user_id(v: Any) -> Optional[int]:
     try:
         n = int(str(v).strip())
     except ValueError:
-        raise ValueError("user_id doit être un nombre")
+        raise ValueError("user_id must be a number")
     if n <= 0:
-        raise ValueError("user_id doit être un nombre positif")
+        raise ValueError("user_id must be a positive number")
     return n
 
 
@@ -67,7 +67,7 @@ class NewUser(BaseModel):
     @classmethod
     def _profile(cls, v):
         if v is not None and v not in profiles.PROFILES:
-            raise ValueError(f"profile doit être l'un de : {', '.join(profiles.PROFILES)}")
+            raise ValueError(f"profile must be one of: {', '.join(profiles.PROFILES)}")
         return v
 
 
@@ -89,35 +89,35 @@ class NewReport(BaseModel):
     @classmethod
     def _categorie(cls, v):
         if v not in CATEGORIES:
-            raise ValueError(f"categorie doit être l'une de : {', '.join(CATEGORIES)}")
+            raise ValueError(f"categorie must be one of: {', '.join(CATEGORIES)}")
         return v
 
     @field_validator("gravite")
     @classmethod
     def _gravite(cls, v):
         if v not in GRAVITES:
-            raise ValueError(f"gravite doit être l'une de : {', '.join(GRAVITES)}")
+            raise ValueError(f"gravite must be one of: {', '.join(GRAVITES)}")
         return v
 
     @field_validator("confiance")
     @classmethod
     def _confiance(cls, v):
         if v is not None and not 0 <= v <= 1:
-            raise ValueError("confiance doit être entre 0 et 1")
+            raise ValueError("confiance must be between 0 and 1")
         return v
 
     @field_validator("lat")
     @classmethod
     def _lat(cls, v):
         if not LAT_RANGE[0] <= v <= LAT_RANGE[1]:
-            raise ValueError(f"lat doit être entre {LAT_RANGE[0]} et {LAT_RANGE[1]} (Île-de-France)")
+            raise ValueError(f"lat must be between {LAT_RANGE[0]} and {LAT_RANGE[1]} (Île-de-France)")
         return v
 
     @field_validator("lon")
     @classmethod
     def _lon(cls, v):
         if not LON_RANGE[0] <= v <= LON_RANGE[1]:
-            raise ValueError(f"lon doit être entre {LON_RANGE[0]} et {LON_RANGE[1]} (Île-de-France)")
+            raise ValueError(f"lon must be between {LON_RANGE[0]} and {LON_RANGE[1]} (Île-de-France)")
         return v
 
     @field_validator("description", mode="before")
@@ -134,7 +134,7 @@ class NewReport(BaseModel):
     @classmethod
     def _target_type(cls, v):
         if v is not None and v not in TARGET_TYPES:
-            raise ValueError(f"target_type doit être l'un de : {', '.join(TARGET_TYPES)}")
+            raise ValueError(f"target_type must be one of: {', '.join(TARGET_TYPES)}")
         return v
 
     @field_validator("target_id", mode="before")
@@ -149,9 +149,9 @@ class NewReport(BaseModel):
             return None
         if not isinstance(v, str) or not v.startswith(("data:image/jpeg;base64,", "data:image/png;base64,",
                                                        "data:image/webp;base64,")):
-            raise ValueError("photo_thumb doit être une image data:image/jpeg;base64,…")
+            raise ValueError("photo_thumb must be a data:image/jpeg;base64,… image")
         if len(v) > MAX_THUMB_BYTES:
-            raise ValueError("photo_thumb trop lourde (300 Ko maximum)")
+            raise ValueError("photo_thumb too large (300 KB maximum)")
         return v
 
 
@@ -168,22 +168,22 @@ class Confirm(BaseModel):
 def parse(model: type, payload: Any):
     """Validate a JSON body and answer 400 (not FastAPI's 422) with a readable message."""
     if not isinstance(payload, dict):
-        raise HTTPException(400, "le corps de la requête doit être un objet JSON")
+        raise HTTPException(400, "the request body must be a JSON object")
     try:
         return model.model_validate(payload)
     except ValidationError as e:
         msgs = []
         for err in e.errors():
-            field = ".".join(str(p) for p in err.get("loc", ())) or "requête"
+            field = ".".join(str(p) for p in err.get("loc", ())) or "request"
             if err.get("type") == "value_error":
                 msgs.append(str(err.get("msg", "")).removeprefix("Value error, "))
             elif err.get("type") == "missing":
-                msgs.append(f"{field} manquant")
+                msgs.append(f"{field} missing")
             elif err.get("type") == "string_too_long":
-                msgs.append(f"{field} trop long ({err.get('ctx', {}).get('max_length')} caractères maximum)")
+                msgs.append(f"{field} too long ({err.get('ctx', {}).get('max_length')} characters maximum)")
             else:
-                msgs.append(f"{field} invalide")
-        raise HTTPException(400, " ; ".join(msgs))
+                msgs.append(f"{field} invalid")
+        raise HTTPException(400, "; ".join(msgs))
 
 
 # --- Database helpers -------------------------------------------------------------
@@ -191,7 +191,7 @@ def parse(model: type, payload: Any):
 def _run(fn: Callable):
     """Run fn(cursor) on the shared connection. Retries once if Aiven closed an idle connection."""
     if not db.enabled():
-        raise HTTPException(503, "base de données non configurée (DATABASE_URL) : signalements indisponibles")
+        raise HTTPException(503, "database not configured (DATABASE_URL): reports unavailable")
     import psycopg
     for attempt in (1, 2):
         try:
@@ -200,7 +200,7 @@ def _run(fn: Callable):
         except psycopg.OperationalError:
             if attempt == 2:
                 log.exception("database unreachable")
-                raise HTTPException(503, "base de données injoignable, réessayez dans un instant")
+                raise HTTPException(503, "database unreachable, try again in a moment")
             try:
                 db.conn().close()
             except Exception:
@@ -265,7 +265,7 @@ def confirm_report(report_id: int, payload: Any = Body(None)):
 
     n = _run(go)
     if n is None:
-        raise HTTPException(404, "signalement introuvable")
+        raise HTTPException(404, "report not found")
     return {"confirmations": n}
 
 
@@ -274,9 +274,9 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
     try:
         x1, y1, x2, y2 = [float(v) for v in bbox.split(",")]
     except ValueError:
-        raise HTTPException(400, "bbox doit être minLon,minLat,maxLon,maxLat")
+        raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat")
     if x1 > x2 or y1 > y2:
-        raise HTTPException(400, "bbox doit être minLon,minLat,maxLon,maxLat (min avant max)")
+        raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat (min before max)")
 
     def go(cur):
         cur.execute(
@@ -301,7 +301,7 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
                           "photo_thumb": r["photo_thumb"],
                       }})
     return {"type": "FeatureCollection", "features": feats,
-            "meta": {"source": "Signalements PMR Maps (communauté)", "count": len(feats)}}
+            "meta": {"source": "Roulib community reports", "count": len(feats)}}
 
 
 # --- B2: photo analysis by Claude --------------------------------------------------
@@ -313,26 +313,26 @@ MAX_IMAGE_BYTES = 4 * 1024 * 1024        # the screen sends a 1024 px JPEG (~150
 ANALYZE_PER_10_MIN = int(os.getenv("REPORTS_ANALYZE_LIMIT", "30"))  # per client, each call costs a few cents
 _recent_calls: dict = defaultdict(deque)
 
-PROMPT = """Tu aides des personnes en fauteuil roulant à signaler les obstacles dans la rue et les gares en \
-Île-de-France. Regarde la photo et remplis toujours la fiche en appelant l'outil `fiche`, sans texte autour.
+PROMPT = """You help wheelchair users report obstacles in the streets and stations of the Paris region \
+(Île-de-France). Look at the photo and always fill in the card by calling the `fiche` tool, with no text around it.
 
-Catégories :
-- escalier : plusieurs marches ; marche : une seule marche ou un ressaut ; bordure_haute : trottoir sans bateau
-- travaux : chantier, palissade, tranchée ; trottoir_encombre : objet qui bloque (trottinettes, poubelles, voiture, terrasse)
-- trottoir_etroit : passage de moins de 90 cm environ ; pente : pente forte ou dévers
-- ascenseur_panne / escalator_panne : appareil à l'arrêt, barrière ou affiche « hors service »
-- rampe : rampe d'accès (info utile, pas un obstacle) ; autre : rien de clair ou pas un obstacle
+Categories (use these exact keys):
+- escalier: several steps; marche: a single step or ledge; bordure_haute: curb with no curb cut
+- travaux: roadworks, hoarding, trench; trottoir_encombre: something blocking the way (scooters, bins, car, cafe terrace)
+- trottoir_etroit: passage narrower than about 90 cm; pente: steep slope or cross slope
+- ascenseur_panne / escalator_panne: machine stopped, barrier or "out of order" sign
+- rampe: access ramp (useful info, not an obstacle); autre: nothing clear or not an obstacle
 
-Gravité pour un fauteuil roulant : bloquant (impossible de passer seul), genant (passage difficile ou détour), \
-info (pas d'obstacle). temporaire = true pour travaux, objets, pannes ; false pour escaliers, marches, bordures, pentes.
+Severity for a wheelchair (gravite): bloquant (impossible to get through alone), genant (difficult passage or detour), \
+info (no obstacle). temporaire = true for roadworks, objects, breakdowns; false for stairs, steps, curbs, slopes.
 
-Description : une phrase en français, 120 caractères maximum, concrète (« Trois marches sans rampe devant l'entrée »). \
-Ne décris jamais les personnes, visages ou plaques d'immatriculation. Si la photo ne montre pas d'obstacle ou est floue, \
-mets categorie=autre, gravite=info et une confiance basse. confiance = ta certitude entre 0 et 1."""
+Description: one sentence in English, 120 characters maximum, concrete ("Three steps with no ramp in front of the entrance"). \
+Never describe people, faces or license plates. If the photo shows no obstacle or is blurry, \
+set categorie=autre, gravite=info and a low confiance. confiance = your certainty between 0 and 1."""
 
 FICHE_TOOL = {
     "name": "fiche",
-    "description": "Fiche de signalement d'obstacle proposée à l'utilisateur, qui la valide ou la corrige.",
+    "description": "Obstacle report card suggested to the user, who confirms or corrects it.",
     "strict": True,
     "input_schema": {
         "type": "object",
@@ -341,8 +341,8 @@ FICHE_TOOL = {
             "categorie": {"type": "string", "enum": list(CATEGORIES)},
             "temporaire": {"type": "boolean"},
             "gravite": {"type": "string", "enum": list(GRAVITES)},
-            "description": {"type": "string", "description": "Une phrase en français, 120 caractères maximum."},
-            "confiance": {"type": "number", "description": "Certitude entre 0 et 1."},
+            "description": {"type": "string", "description": "One sentence in English, 120 characters maximum."},
+            "confiance": {"type": "number", "description": "Certainty between 0 and 1."},
         },
         "required": ["categorie", "temporaire", "gravite", "description", "confiance"],
     },
@@ -403,7 +403,7 @@ def analyser(image_base64: str, media_type: str = "image/jpeg") -> Fiche:
         tools=[FICHE_TOOL], tool_choice={"type": "auto"}, output_config={"effort": "low"},
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_base64}},
-            {"type": "text", "text": "Quel obstacle vois-tu sur cette photo ? Remplis la fiche."},
+            {"type": "text", "text": "What obstacle do you see in this photo? Fill in the card."},
         ]}],
     )
     for block in msg.content:
@@ -430,25 +430,25 @@ def _rate_limited(key: str, now: float) -> bool:
 @router.post("/api/reports/analyze")
 def analyze_photo(request: Request, payload: Any = Body(None)):
     if not isinstance(payload, dict) or not isinstance(payload.get("image_base64"), str):
-        raise HTTPException(400, "image_base64 manquant (JPEG en base64, sans le préfixe data:)")
+        raise HTTPException(400, "image_base64 missing (base64 JPEG, without the data: prefix)")
     b64 = payload["image_base64"].strip()
     if b64.startswith("data:"):
         b64 = b64.split(",", 1)[-1]  # tolerate the prefix anyway
     if len(b64) > MAX_IMAGE_BYTES * 4 // 3 + 4:
-        raise HTTPException(400, "photo trop lourde (4 Mo maximum)")
+        raise HTTPException(400, "photo too large (4 MB maximum)")
     try:
         raw = base64.b64decode(b64, validate=True)
     except (binascii.Error, ValueError):
-        raise HTTPException(400, "image_base64 n'est pas du base64 valide")
+        raise HTTPException(400, "image_base64 is not valid base64")
     media_type = _media_type(raw)
     if not media_type:
-        raise HTTPException(400, "la photo doit être une image JPEG, PNG ou WebP")
+        raise HTTPException(400, "the photo must be a JPEG, PNG or WebP image")
     for k, (lo, hi) in (("lat", LAT_RANGE), ("lon", LON_RANGE)):
         v = payload.get(k)
         if v is not None and (not isinstance(v, (int, float)) or not lo <= v <= hi):
-            raise HTTPException(400, f"{k} doit être entre {lo} et {hi} (Île-de-France)")
+            raise HTTPException(400, f"{k} must be between {lo} and {hi} (Île-de-France)")
     if _rate_limited(_client_key(request), time.monotonic()):
-        raise HTTPException(429, "trop de photos analysées d'affilée : réessayez dans quelques minutes")
+        raise HTTPException(429, "too many photos analyzed in a row: try again in a few minutes")
 
     started = time.perf_counter()
     if not os.getenv("ANTHROPIC_API_KEY"):
