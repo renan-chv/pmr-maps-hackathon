@@ -1030,7 +1030,14 @@ let lastTrip = null;
 async function runTrip(opts = {}) {
   const out = $("#trip-result");
   const demo = opts.demo || REPLAY;
-  if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Pick the start and the destination from the list that appears.</p>`; return; }
+  // Typed but not picked (Google Maps style): take the first suggestion, never the previous trip's point.
+  if (!demo) for (const k of ["from", "to"]) {
+    const v = $(`#trip-${k}`).value.trim();
+    if (trip[k]?.label === v) continue;
+    trip[k] = v.length >= 2 ? await tripAC[k].first() : null;
+    if (trip[k]) $(`#trip-${k}`).value = trip[k].label;
+  }
+  if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Type or pick the start and the destination.</p>`; return; }
   document.activeElement?.blur();
   out.innerHTML = `<p class="muted">Checking every step for your ${esc(Profile.get()?.short || "profile")}…</p>`;
   const q = new URLSearchParams({ profile: Profile.key() });
@@ -1043,7 +1050,7 @@ async function runTrip(opts = {}) {
     renderResults(d);
   } catch (e) {
     if (e.status === 503) renderTripFallback();
-    else out.innerHTML = `<p class="err">I couldn't find a trip. ${esc(e.message)}</p>` + demoButton();
+    else out.innerHTML = `<p class="err">I couldn't find a trip. ${/not reachable|no_(origin|destination)/.test(e.message || "") ? "No public transport reaches this place: try a nearby station or address." : esc(e.message)}</p>` + demoButton();
     bindDemo();
   }
 }
@@ -1230,7 +1237,22 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
     else if (e.key === "Enter") { pick(sel >= 0 ? sel : 0); e.preventDefault(); }
     else if (e.key === "Escape") { items = []; render(); }
   });
-  return { run };
+  // First suggestion for the current text, for a search validated without picking.
+  // Stations and addresses only: the places search is too slow to wait for here.
+  const first = async () => {
+    const q = input.value.trim(); ++seq; items = []; render();
+    if (withMe && myPosItem() && norm("my location").startsWith(norm(q))) return myPosItem();
+    const local = stations ? localStations(q) : [];
+    if (local.length && norm(local[0].label).startsWith(norm(q))) return local[0];
+    // Stations without elevators (Bastille…) are not in S.stations but are valid trip ends.
+    await ensureQuais();
+    const quai = (S.quais || []).find((f) => norm(f.properties.name || "") === norm(q));
+    if (quai) return { kind: "place", label: quai.properties.name, lon: quai.geometry.coordinates[0], lat: quai.geometry.coordinates[1] };
+    const ign = await getJSON(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] }));
+    const all = [...local, ...ign.results].filter((x) => x.lon != null);
+    return all.find((x) => norm(x.label).startsWith(norm(q))) || all[0] || null;
+  };
+  return { run, first };
 }
 
 const pickMain = (it) => {
@@ -1238,8 +1260,10 @@ const pickMain = (it) => {
   return it.kind === "station" ? openStation(it.id) : it.kind === "acces" ? openAcceslibre(it.f) : openPlace(it);
 };
 const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, { onFocus: () => isPhone() && Sheet.set("full") });
-autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) runTrip(); else $("#trip-to").focus(); }, { withMe: true });
-autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true });
+const tripAC = {
+  from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) runTrip(); else $("#trip-to").focus(); }, { withMe: true }),
+  to: autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true }),
+};
 
 // ---------------------------------------------------------------------------
 // Geolocation
