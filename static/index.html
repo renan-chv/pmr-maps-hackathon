@@ -2,9 +2,14 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#1d4ed8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#f7f5f0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>PMR Maps – Île-de-France</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -12,77 +17,99 @@
   <a class="skip" href="#search">Aller à la recherche</a>
   <div id="map" role="application" aria-label="Carte de l'accessibilité en fauteuil roulant"></div>
 
-  <!-- Filters over the map -->
   <div id="chips" role="toolbar" aria-label="Afficher sur la carte">
-    <button class="chip on" data-layer="lifts" aria-pressed="true"><span class="ic">⇅</span>Ascenseurs</button>
-    <button class="chip on" data-layer="works" aria-pressed="true"><span class="ic">🚧</span>Travaux</button>
-    <button class="chip" data-layer="quais" aria-pressed="false"><span class="ic">🚇</span>Quais</button>
-    <button class="chip" data-layer="bus" aria-pressed="false"><span class="ic">🚌</span>Bus</button>
+    <button class="chip on" data-layer="lifts" aria-pressed="true"><svg class="i"><use href="#i-lift"/></svg>Ascenseurs</button>
+    <button class="chip on" data-layer="works" aria-pressed="true"><svg class="i"><use href="#i-cone"/></svg>Travaux</button>
+    <button class="chip" data-layer="quais" aria-pressed="false"><svg class="i"><use href="#i-train"/></svg>Quais</button>
+    <button class="chip" data-layer="bus" aria-pressed="false"><svg class="i"><use href="#i-bus"/></svg>Bus</button>
   </div>
 
   <div id="map-tools">
-    <button id="locate" class="round" aria-label="Me localiser" title="Me localiser">◎</button>
-    <button id="textsize" class="round" aria-label="Agrandir le texte" title="Agrandir le texte">A+</button>
+    <button id="textsize" class="fab" aria-label="Agrandir le texte" aria-pressed="false"><svg class="i"><use href="#i-type"/></svg></button>
+    <button id="locate" class="fab" aria-label="Centrer sur ma position"><svg class="i"><use href="#i-locate"/></svg></button>
   </div>
 
-  <main id="sheet" aria-label="Panneau">
-    <button id="grip" aria-label="Agrandir ou réduire le panneau"><span></span></button>
+  <main id="sheet" aria-label="Panneau d'informations" data-snap="peek">
+    <div id="grip" role="slider" tabindex="0" aria-label="Taille du panneau" aria-valuetext="réduit"><span></span></div>
+    <div id="sheet-body">
 
-    <!-- VIEW: home -->
-    <section class="view" id="v-home" aria-labelledby="h-home">
-      <h1 id="h-home" class="brand">PMR Maps <small>en fauteuil, en Île-de-France</small></h1>
+      <section class="view" id="v-home" aria-labelledby="h-home">
+        <h1 id="h-home" class="sr">PMR Maps, accessibilité en fauteuil roulant en Île-de-France</h1>
+        <div class="search" role="search">
+          <svg class="i search-i" aria-hidden="true"><use href="#i-search"/></svg>
+          <label for="search" class="sr">Où voulez-vous aller ?</label>
+          <input id="search" type="search" enterkeyhint="search" placeholder="Où voulez-vous aller ?" autocomplete="off"
+                 role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
+          <button id="mic" class="icon-btn" aria-label="Dicter la destination"><svg class="i"><use href="#i-mic"/></svg></button>
+        </div>
+        <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
 
-      <div class="search" role="search">
-        <label for="search" class="sr">Où voulez-vous aller ?</label>
-        <span class="search-ic" aria-hidden="true">🔍</span>
-        <input id="search" type="search" placeholder="Où voulez-vous aller ?" autocomplete="off"
-               role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
-        <button id="mic" class="mic" aria-label="Dicter">🎤</button>
-      </div>
-      <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
+        <div id="today" class="today" aria-live="polite"><p class="muted">Chargement de l'état des ascenseurs…</p></div>
 
-      <div id="today" class="today" aria-live="polite">
-        <div class="today-skel">Chargement de l'état des ascenseurs…</div>
-      </div>
+        <button id="nearby" class="row-btn"><svg class="i"><use href="#i-pin"/></svg><span>Stations autour de moi</span><svg class="i chev"><use href="#i-chev-r"/></svg></button>
+        <div id="nearby-list"></div>
 
-      <button id="nearby" class="big-btn">📍 Gares accessibles autour de moi</button>
-      <div id="nearby-list"></div>
+        <h2 class="h2">Changements détectés</h2>
+        <ul id="alerts" class="alerts" aria-live="polite"></ul>
 
-      <h2 class="section-title">Dernières alertes</h2>
-      <ul id="alerts" class="alerts" aria-live="polite"></ul>
+        <details class="sources">
+          <summary>D'où viennent les données</summary>
+          <ul id="sources-list"></ul>
+        </details>
+      </section>
 
-      <details class="sources">
-        <summary>D'où viennent les données ?</summary>
-        <ul id="sources-list"></ul>
-      </details>
-    </section>
+      <section class="view" id="v-detail" hidden aria-labelledby="d-title">
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
+        <div id="detail"></div>
+      </section>
 
-    <!-- VIEW: detail (station or place) -->
-    <section class="view" id="v-detail" hidden aria-labelledby="d-title">
-      <button class="back" data-back>‹ Retour</button>
-      <div id="detail"></div>
-    </section>
+      <section class="view" id="v-trip" hidden aria-labelledby="t-title">
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
+        <h2 id="t-title" class="title">Vérifier un trajet</h2>
+        <div class="trip-fields">
+          <div class="trip-row"><span class="pin a" aria-hidden="true"></span>
+            <label for="trip-from" class="sr">Départ</label>
+            <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="Départ" autocomplete="off"></div>
+          <ul id="suggest-from" class="suggest" role="listbox" aria-label="Suggestions de départ" hidden></ul>
+          <div class="trip-row"><span class="pin b" aria-hidden="true"></span>
+            <label for="trip-to" class="sr">Arrivée</label>
+            <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="Arrivée" autocomplete="off"></div>
+          <ul id="suggest-to" class="suggest" role="listbox" aria-label="Suggestions d'arrivée" hidden></ul>
+          <button id="trip-go" class="btn primary block">Vérifier le trajet</button>
+        </div>
+        <div id="trip-result" aria-live="polite"></div>
+      </section>
 
-    <!-- VIEW: journey -->
-    <section class="view" id="v-trip" hidden aria-labelledby="t-title">
-      <button class="back" data-back>‹ Retour</button>
-      <h2 id="t-title" class="title">Itinéraire en fauteuil</h2>
-      <div class="trip-fields">
-        <div class="trip-row"><span class="pin a" aria-hidden="true">A</span>
-          <label for="trip-from" class="sr">Départ</label>
-          <input id="trip-from" class="field" type="search" placeholder="Départ" autocomplete="off"></div>
-        <ul id="suggest-from" class="suggest" role="listbox" aria-label="Suggestions départ" hidden></ul>
-        <div class="trip-row"><span class="pin b" aria-hidden="true">B</span>
-          <label for="trip-to" class="sr">Arrivée</label>
-          <input id="trip-to" class="field" type="search" placeholder="Arrivée" autocomplete="off"></div>
-        <ul id="suggest-to" class="suggest" role="listbox" aria-label="Suggestions arrivée" hidden></ul>
-        <button id="trip-go" class="big-btn primary">Vérifier le trajet</button>
-      </div>
-      <div id="trip-result" aria-live="polite"></div>
-    </section>
+    </div>
   </main>
 
   <div id="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Icon set: authored SVG, 24px grid, 2px stroke, round caps -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+      <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+      <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V5h10v2M9 5v14M7 19h4M14 13v-1h6v1M17 12v7M15.5 19h3"/></symbol>
+      <symbol id="i-lift" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m9 9 2-2 2 2M9 15l2 2 2-2M11 7v4M11 13v4" transform="translate(1 0)"/></symbol>
+      <symbol id="i-cone" viewBox="0 0 24 24"><path d="M10 3h4l5 16H5z"/><path d="M3 21h18M8 11h8M7 15h10"/></symbol>
+      <symbol id="i-train" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 14h.01M15 14h.01M8 21l2-4M16 21l-2-4"/></symbol>
+      <symbol id="i-bus" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="2"/><path d="M4 11h16M8 15h.01M16 15h.01M7 18v3M17 18v3"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></symbol>
+      <symbol id="i-place" viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12"/><path d="M9 21v-6h6v6"/></symbol>
+      <symbol id="i-address" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v12h14V9"/></symbol>
+      <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+      <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-ko" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 5v9M12 19h.01"/></symbol>
+      <symbol id="i-unk" viewBox="0 0 24 24"><path d="M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></symbol>
+      <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="13" cy="4.5" r="1.5"/><path d="M10 21l2-6 3 3v3M9 12l2-4 4 3 3 1M11 8l-3 2v3"/></symbol>
+    </defs>
+  </svg>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="/static/app.js"></script>
