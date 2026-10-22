@@ -58,9 +58,20 @@ const fmtDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000
 const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
 
 function toast(msg, ms = 3800) {
-  const t = $("#toast"); t.textContent = msg; t.hidden = false;
-  clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms);
+  const t = $("#toast"); t.textContent = "";
+  requestAnimationFrame(() => { t.textContent = msg; });
+  clearTimeout(toast._t); toast._t = setTimeout(() => (t.textContent = ""), ms);
 }
+// Short message for screen readers (results, errors), without re-reading the whole list.
+function announce(msg) {
+  const r = $("#sr-status"); if (!r) return;
+  r.textContent = ""; requestAnimationFrame(() => { r.textContent = msg; });
+}
+// Move keyboard / screen reader focus to freshly rendered content.
+function focusEl(el) { if (!el) return; el.setAttribute("tabindex", "-1"); el.focus({ preventScroll: true }); }
+// Text equivalent of a state mark, for screen readers (the mark itself is an icon).
+const SR_STATE = { ok: "OK", warn: "Watch out", ko: "Blocked", unk: "Unknown" };
+const srState = (st) => `<span class="sr">${SR_STATE[st] || ""}</span>`;
 
 // ---------------------------------------------------------------------------
 // Bottom sheet: three heights on phones, side panel elsewhere (CSS)
@@ -364,7 +375,9 @@ function quickPopup(e, kind) {
 }
 
 function setPin(coord) { map.getSource("pin")?.setData(coord ? { type: "Feature", geometry: { type: "Point", coordinates: coord } } : empty()); }
-const flyTo = (coord, zoom = 15.5) => map.flyTo({ center: coord, zoom, padding: Sheet.padding(), essential: true });
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const flyTo = (coord, zoom = 15.5) => (reduceMotion() ? map.jumpTo({ center: coord, zoom, padding: Sheet.padding() })
+  : map.flyTo({ center: coord, zoom, padding: Sheet.padding(), essential: true }));
 function fitTo(coords) {
   const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
   coords.forEach((c) => b.extend(c));
@@ -512,6 +525,7 @@ function bindOpen(root) { root.querySelectorAll("[data-open]").forEach((b) => b.
 // Views
 // ---------------------------------------------------------------------------
 function show(view, snap) {
+  if (view !== "home" && !$("#v-home").hidden) show.opener = document.activeElement;
   for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== `v-${view}`;
   // Restaurant pins stay visible while a restaurant list or detail is open, even with the chip off.
   const foodView = (view === "list" && /^Eat/.test($("#l-title").textContent)) || (view === "detail" && $("#detail")?.dataset.kind === "place");
@@ -519,14 +533,16 @@ function show(view, snap) {
   if (map.getLayer("places")) map.setLayoutProperty("places", "visibility", wantPlaces ? "visible" : "none");
   Sheet.scrollTop();
   if (snap) Sheet.set(snap);
-  const h = $(`#v-${view} .title`);
-  if (h && view !== "home") { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
+  // After the caller has injected its content (next frame), focus the view title.
+  if (view !== "home") requestAnimationFrame(() => focusEl($(`#v-${view} .title`) || $(`#v-${view} h2, #v-${view} h3`)));
   if (view !== "home" && !history.state?.roulib) history.pushState({ roulib: true }, "", location.href);
 }
 function goHome() {
   show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty());
   if (!layerOn.places) showPlacesOnMap([]);
   history.replaceState(null, "", location.pathname);
+  const back = show.opener && document.contains(show.opener) ? show.opener : $("#search");
+  if (document.activeElement === document.body || !document.activeElement) back?.focus({ preventScroll: true });
 }
 window.addEventListener("popstate", () => {
   if ($("#all-routes") && !$("#v-trip").hidden && lastTrip) return renderResults(lastTrip);  // detail -> list
@@ -698,7 +714,7 @@ function openStation(id) {
       const s = l.status === "available" ? "ok" : l.status === "notavailable" ? "ko" : "unk";
       const old = ageH(l.source_update) > STALE_H;
       return `<div class="lift">${mark(s)}<div class="lift-body"><div class="st">${esc(LIFT_FR[l.status] || l.status)}</div>` +
-        `<div class="where">${esc(l.situation || "Location not specified")}</div>${l.direction ? `<small>${esc(l.direction)}</small>` : ""}` +
+        `<div class="where">${l.situation ? `<span lang="fr">${esc(l.situation)}</span>` : "Location not specified"}</div>${l.direction ? `<small lang="fr">${esc(l.direction)}</small>` : ""}` +
         `<small class="${old ? "old" : ""}">IDFM update ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small>` +
         `<small class="rel" data-rel="${esc(l.liftid)}"></small>` +
         (l.status !== "notavailable" ? `<button class="linkish report-lift" data-lift="${esc(l.liftid)}">Report an outage</button>` : "") +
@@ -794,7 +810,7 @@ function openReportFlow({ cat = null, place = null, target = null }) {
 
 function renderReportCats() {
   $("#r-cats").innerHTML = R_CATS.map((c) => `<button class="r-cat" role="radio" aria-checked="${rep.cat === c.key}" data-cat="${c.key}">${icon(c.ic)}<span>${c.label}</span></button>`).join("");
-  document.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { rep.cat = b.dataset.cat; renderReportCats(); }));
+  document.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { rep.cat = b.dataset.cat; renderReportCats(); $(`[data-cat="${rep.cat}"]`)?.focus(); }));
   renderReportSummary();
 }
 
@@ -817,7 +833,7 @@ $("#r-text").addEventListener("input", (e) => { rep.text = e.target.value; });
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const btn = $("#r-voice");
   if (!SR) { btn.hidden = true; return; }
-  const rec = new SR(); rec.lang = "en-US";
+  const rec = new SR(); rec.lang = navigator.language || "fr-FR";
   rec.onresult = (e) => { const t = e.results[0][0].transcript; $("#r-text").hidden = false; $("#r-text").value = (rep.text ? rep.text + " " : "") + t; rep.text = $("#r-text").value; };
   rec.onerror = () => toast("I didn't catch that. Try again.");
   rec.onend = () => btn.classList.remove("listening");
@@ -983,7 +999,7 @@ function openTrip(from, to) {
 const REPLAY = new URLSearchParams(location.search).get("replay") === "demo";
 const VERDICT = {
   passe: { st: "ok", title: () => "This trip works", sub: (p) => (Profile.key() === "valide" ? "Nothing in the way." : `Nothing in the way for a ${p}.`) },
-  risque: { st: "warn", title: () => "Possible, with risks", sub: () => "Check the orange steps before you go." },
+  risque: { st: "warn", title: () => "Possible, with risks", sub: () => "Check the steps marked “Watch out” before you go." },
   bloque: { st: "ko", title: (it) => blockedTitle(it), sub: () => "Don't take this trip." },
 };
 // "Blocked: Stepped street after Bastille", "Too far to go on foot", never a bare "Blocked at Long walk".
@@ -1021,9 +1037,13 @@ function lineColor(mode, line) {
   const c = m && LINE_COLORS[m][String(line || "").toUpperCase().replace("BIS", "B")];
   return c || (/(bus)/i.test(mode || "") ? "#1e1a16" : /tram/i.test(mode || "") ? "#00643c" : "#3d3bd6");
 }
+// Text colour on a line colour: whichever of white / ink gives the higher WCAG contrast ratio.
 function inkOn(hex) {
-  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
-  return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#1e1a16" : "#ffffff";
+  const n = parseInt(hex.slice(1), 16);
+  const lum = (v) => [v >> 16, (v >> 8) & 255, v & 255].map((c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; })
+    .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0);
+  const L = lum(n), white = 1.05 / (L + 0.05), ink = (L + 0.05) / (lum(0x1e1a16) + 0.05);
+  return ink >= white ? "#1e1a16" : "#ffffff";
 }
 const modeShort = (mode) => (/rer/i.test(mode || "") ? "RER" : /m[ée]tro/i.test(mode || "") ? "M" : /tram/i.test(mode || "") ? "T" : /bus/i.test(mode || "") ? "Bus"
   : /train|transilien|ter/i.test(mode || "") ? "Train" : "");
@@ -1033,9 +1053,9 @@ function stepChip(s) {
   const flag = st ? `<span class="chip-flag ${st}" aria-hidden="true">${icon(st)}</span>` : "";
   if (s.type === "transit") {
     const bg = lineColor(s.mode, s.line);
-    return `<span class="lchip" style="background:${bg};color:${inkOn(bg)}" aria-label="${esc(s.mode)} ${esc(s.line)}${st ? ", warning" : ""}">${esc(modeShort(s.mode))}&nbsp;${esc(s.line || "")}${flag}</span>`;
+    return `<span class="lchip" style="background:${bg};color:${inkOn(bg)}" aria-label="${esc(s.mode)} ${esc(s.line)}${st ? `, ${SR_STATE[st].toLowerCase()}` : ""}">${esc(modeShort(s.mode))}&nbsp;${esc(s.line || "")}${flag}</span>`;
   }
-  return `<span class="wchip" aria-label="${s.duration_min || ""} minutes by wheelchair${st ? ", warning" : ""}">${icon(Profile.get()?.ic || "p-manuel")}${s.duration_min ? `${s.duration_min}′` : ""}${flag}</span>`;
+  return `<span class="wchip" aria-label="${s.duration_min || ""} minutes ${stepTitle(s).toLowerCase()}${st ? `, ${SR_STATE[st].toLowerCase()}` : ""}">${icon(Profile.get()?.ic || "p-manuel")}${s.duration_min ? `${s.duration_min}′` : ""}${flag}</span>`;
 }
 const chipsRow = (it) => it.steps.filter((s) => s.type !== "walk" || (s.duration_min || 0) >= 1)
   .map(stepChip).join(`<span class="chev-sep" aria-hidden="true">›</span>`);
@@ -1066,7 +1086,7 @@ async function runTrip(opts = {}) {
     renderResults(d);
   } catch (e) {
     if (e.status === 503) renderTripFallback();
-    else out.innerHTML = `<p class="err">I couldn't find a trip. ${/not reachable|no_(origin|destination)/.test(e.message || "") ? "No public transport reaches this place: try a nearby station or address." : esc(e.message)}</p>` + demoButton();
+    else announce("I couldn't find a trip."), out.innerHTML = `<p class="err">I couldn't find a trip. ${/not reachable|no_(origin|destination)/.test(e.message || "") ? "No public transport reaches this place: try a nearby station or address." : esc(e.message)}</p>` + demoButton();
     bindDemo();
   }
 }
@@ -1134,6 +1154,8 @@ function renderResults(d) {
   whenMap(() => drawItinerary(best));
   Sheet.set("half");
   Sheet.scrollTop();
+  focusEl($("#trip-result .results-head"));
+  announce(`${$("#trip-result .results-head").textContent}. Best: ${best.duration_min} minutes, ${best.verdict === "bloque" ? blockedTitle(best) : VERDICT[best.verdict].title(best)}.`);
 }
 
 function renderItinerary(d, id, fromId = null) {
@@ -1165,7 +1187,7 @@ function renderItinerary(d, id, fromId = null) {
         : `<span class="wchip">${icon(Profile.get()?.ic || "p-manuel")}</span>`;
       return `<li class="tl ${s.type} ${st}" style="--rail:${rail || "#b9b0a2"}">` +
         `<div class="tl-stop"><span class="tl-dot"></span><b>${esc(s.from)}</b></div>` +
-        `<div class="tl-body">${badge}<div><b>${stepTitle(s)}</b><small>${s.duration_min ? `${s.duration_min} min` : ""}${s.type === "transit" ? ` · to ${esc(s.to)}` : ""}</small></div><span class="tl-state">${mark(st)}</span></div>` +
+        `<div class="tl-body">${badge}<div><b>${stepTitle(s)}</b><small>${s.duration_min ? `${s.duration_min} min` : ""}${s.type === "transit" ? ` · to ${esc(s.to)}` : ""}</small></div><span class="tl-state">${mark(st)}${srState(st)}</span></div>` +
         (s.checks?.length ? `<ul class="checks">${s.checks.map((c) => checkLine(c, rec)).join("")}</ul>` : `<p class="muted small">Nothing in particular reported.</p>`) + `</li>`;
     }).join("") + `<li class="tl end"><div class="tl-stop"><span class="tl-dot"></span><b>${esc(it.steps[it.steps.length - 1]?.to || "")}</b></div></li></ol>` +
     `<p class="src">Roulib check for the “${esc(prof)}” profile. Elevators checked at ${hhmm(d.lifts_fetched_at)}.</p>`;
@@ -1177,6 +1199,7 @@ function renderItinerary(d, id, fromId = null) {
   whenMap(() => drawItinerary(it));
   Sheet.set("half");
   Sheet.scrollTop();
+  focusEl($("#trip-result .verdict"));
 }
 
 function drawItinerary(it) {
@@ -1368,7 +1391,7 @@ textBtn.addEventListener("click", () => { const on = !document.documentElement.c
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const btn = $("#mic");
   if (!SR) { btn.hidden = true; return; }
-  const rec = new SR(); rec.lang = "en-US"; rec.interimResults = false;
+  const rec = new SR(); rec.lang = navigator.language || "fr-FR"; rec.interimResults = false;
   rec.onresult = (e) => {
     const text = e.results[0][0].transcript.replace(/^(i want to go|i'm going|take me|go) to\s+/i, "");
     $("#search").value = text; $("#search").focus(); mainSearch.run();
@@ -1397,7 +1420,7 @@ let chosen = Profile.get()?.key || null;
 function renderOnboard() {
   $("#ptiles").innerHTML = PMR_PROFILES.map((p) =>
     `<button class="ptile${p.sub ? " community" : ""}" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><span><b>${esc(p.label)}</b>${p.sub ? `<small>${esc(p.sub)}</small>` : ""}</span></button>`).join("");
-  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; }));
+  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; $(`[data-p="${chosen}"]`)?.focus(); }));
   $("#o-go").disabled = !chosen;
   $("#o-name").value = Profile.name();
 }

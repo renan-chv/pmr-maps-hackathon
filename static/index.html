@@ -19,8 +19,8 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <a class="skip" href="#search">Skip to search</a>
-  <div id="map" role="application" aria-label="Map"></div>
+  <a class="skip" href="#sheet-body">Skip to content</a>
+  <div id="map" aria-label="Map"></div>
 
   <div id="chips" role="toolbar" aria-label="What the map shows">
     <button class="chip on" data-layer="lifts" aria-pressed="true"><svg class="i"><use href="#i-lift"/></svg>Stations</button>
@@ -40,7 +40,7 @@
 
   <main id="sheet" aria-label="Main panel">
     <div id="grip" role="slider" tabindex="0" aria-label="Panel size" aria-valuetext="half"><span></span></div>
-    <div id="sheet-body">
+    <div id="sheet-body" tabindex="-1">
 
       <!-- FIRST LAUNCH: mobility profile -->
       <section class="view" id="v-onboard" hidden aria-labelledby="o-title">
@@ -96,7 +96,7 @@
         <div id="today" class="today" aria-live="polite"><p class="muted">Checking elevator status…</p></div>
 
         <h2 class="h2">Just changed</h2>
-        <ul id="alerts" class="list" aria-live="polite"></ul>
+        <ul id="alerts" class="list"></ul>
 
         <details class="sources">
           <summary>Where the information comes from</summary>
@@ -122,7 +122,7 @@
         <h3 class="h2">Add details <span class="muted">(optional)</span></h3>
         <div class="r-adds">
           <button class="r-add" id="r-voice"><svg class="i"><use href="#i-mic"/></svg>Voice</button>
-          <label class="r-add" id="r-photo-btn"><svg class="i"><use href="#i-camera"/></svg>Photo<input id="r-photo" type="file" accept="image/*" capture="environment" hidden></label>
+          <label class="r-add" id="r-photo-btn"><svg class="i"><use href="#i-camera"/></svg>Photo<input id="r-photo" class="sr" type="file" accept="image/*" capture="environment"></label>
           <button class="r-add" id="r-text-btn"><svg class="i"><use href="#i-keyboard"/></svg>Text</button>
         </div>
         <img id="r-thumb" class="r-thumb" alt="Your photo" hidden>
@@ -143,25 +143,26 @@
       <section class="view" id="v-trip" hidden aria-labelledby="t-title">
         <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Back</button>
         <h2 id="t-title" class="title">Where do you want to go?</h2>
-        <button id="trip-summary" class="trip-summary" aria-label="Change the start or destination"></button>
+        <button id="trip-summary" class="trip-summary"></button>
         <div class="trip-fields">
           <div class="trip-row"><span class="pin a" aria-hidden="true"></span>
             <label for="trip-from" class="sr">From</label>
-            <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="From…" autocomplete="off"></div>
+            <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="From…" autocomplete="off" role="combobox" aria-controls="suggest-from" aria-autocomplete="list" aria-expanded="false"></div>
           <ul id="suggest-from" class="suggest" role="listbox" aria-label="Start suggestions" hidden></ul>
           <div class="trip-row"><span class="pin b" aria-hidden="true"></span>
             <label for="trip-to" class="sr">To</label>
-            <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="To…" autocomplete="off"></div>
+            <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="To…" autocomplete="off" role="combobox" aria-controls="suggest-to" aria-autocomplete="list" aria-expanded="false"></div>
           <ul id="suggest-to" class="suggest" role="listbox" aria-label="Destination suggestions" hidden></ul>
           <button id="trip-go" class="btn primary block">Check my trip</button>
         </div>
-        <div id="trip-result" aria-live="polite"></div>
+        <div id="trip-result"></div>
+        <div id="sr-status" class="sr" role="status"></div>
       </section>
 
     </div>
   </main>
 
-  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <!-- Icon set: authored SVG, 24px grid, 2px stroke, round caps -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
