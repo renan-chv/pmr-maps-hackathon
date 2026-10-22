@@ -104,6 +104,33 @@ const Sheet = (() => {
     set(Object.entries(hs).sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0]);
   };
   grip.addEventListener("pointerup", end);
+  // Drag from anywhere in the sheet: swipe up to expand before scrolling, pull down from the top to lower it.
+  let pull = null;
+  body.addEventListener("touchstart", (e) => { if (isPhone()) pull = { y: e.touches[0].clientY, h: cur, on: false }; }, { passive: true });
+  body.addEventListener("touchmove", (e) => {
+    if (!pull) return;
+    const dy = e.touches[0].clientY - pull.y;
+    if (!pull.on) {
+      const down = dy > 8 && body.scrollTop <= 0, up = dy < -8 && snap !== "full";
+      if (down || up) { pull.on = true; pull.y = e.touches[0].clientY; el.classList.add("dragging"); }
+      else if (Math.abs(dy) > 8) { pull = null; return; }
+      else return;
+    }
+    e.preventDefault();
+    const hs = heights();
+    apply(Math.max(hs.peek * 0.7, Math.min(hs.full, pull.h - (e.touches[0].clientY - pull.y))));
+  }, { passive: false });
+  body.addEventListener("touchend", () => {
+    if (pull?.on) {
+      el.classList.remove("dragging");
+      const hs = heights(), moved = cur - pull.h;
+      // A short flick still changes level in its direction.
+      const order = ["peek", "half", "full"], i = order.indexOf(snap);
+      if (Math.abs(moved) > 40 && Math.abs(moved) < 140) set(order[Math.max(0, Math.min(2, i + (moved > 0 ? 1 : -1)))]);
+      else set(Object.entries(hs).sort((x, y) => Math.abs(x[1] - cur) - Math.abs(y[1] - cur))[0][0]);
+    }
+    pull = null;
+  });
   grip.addEventListener("pointercancel", end);
   grip.addEventListener("keydown", (e) => {
     const order = ["peek", "half", "full"], i = order.indexOf(snap);
@@ -309,6 +336,12 @@ map.on("load", () => {
   let moveT = null;
   map.on("moveend", () => { clearTimeout(moveT); moveT = setTimeout(() => { loadBus(); loadPlacesLayer(); loadReports(); }, 250); });
   map.on("dragstart", () => { if (isPhone() && Sheet.get() === "full") Sheet.set("half"); });
+  const TAPPABLE = ["stations", "stations-dot", "places", "reports", "works-fill", "quais", "bus"];
+  map.on("click", (e) => {
+    if (!isPhone() || Sheet.get() === "peek") return;
+    if (map.queryRenderedFeatures(e.point, { layers: TAPPABLE.filter((id) => map.getLayer(id)) }).length) return;
+    Sheet.set(Sheet.get() === "full" ? "half" : "peek");
+  });
 
   loadLifts().then(applyHash);
   loadStatic();
@@ -510,12 +543,14 @@ function show(view, snap) {
   if (snap) Sheet.set(snap);
   const h = $(`#v-${view} .title`);
   if (h && view !== "home") { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
+  if (view !== "home" && !history.state?.roulib) history.pushState({ roulib: true }, "", location.href);
 }
 function goHome() {
   show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty());
   if (!layerOn.places) showPlacesOnMap([]);
   history.replaceState(null, "", location.pathname);
 }
+window.addEventListener("popstate", () => { if ($("#v-home").hidden) goHome(); });
 document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", goHome));
 
 document.querySelectorAll("[data-go]").forEach((t) => t.addEventListener("click", () => {
