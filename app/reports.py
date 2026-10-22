@@ -1,21 +1,27 @@
 """Community reports (chantier B): light accounts, obstacle reports, confirmations.
 
-Routes used by the map (static/app.js, static/profiles.js):
+Routes used by the map (static/app.js, static/profiles.js, static/report.js):
   POST /api/users                -> {"id": 12}
   POST /api/reports              -> {"id": 34}
   POST /api/reports/{id}/confirm -> {"confirmations": 2}
   GET  /api/reports?bbox=...     -> GeoJSON FeatureCollection
+  POST /api/reports/analyze      -> the report card Claude proposes from a photo (the user validates it)
 
 The description is stored in user_reports.message: the journey engine (main._reports) reads it there.
 Every input is checked here and refused with a 400 in plain French; without a database the routes answer 503.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
+import os
+import time
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from . import db, profiles, verify
@@ -296,3 +302,165 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
                       }})
     return {"type": "FeatureCollection", "features": feats,
             "meta": {"source": "Signalements PMR Maps (communauté)", "count": len(feats)}}
+
+
+# --- B2: photo analysis by Claude --------------------------------------------------
+# The user always validates (or changes) the card: Claude only pre-fills it. On any error or refusal the
+# route still answers 200 with an empty card, so the screen falls back to manual input.
+
+ANALYZE_MODEL = os.getenv("REPORTS_MODEL", "claude-sonnet-5-5")  # set REPORTS_MODEL=claude-haiku-5-5 if > 3 s
+MAX_IMAGE_BYTES = 4 * 1024 * 1024        # the screen sends a 1024 px JPEG (~150 Ko); this is a safety cap
+ANALYZE_PER_10_MIN = int(os.getenv("REPORTS_ANALYZE_LIMIT", "30"))  # per client, each call costs a few cents
+_recent_calls: dict = defaultdict(deque)
+
+PROMPT = """Tu aides des personnes en fauteuil roulant à signaler les obstacles dans la rue et les gares en \
+Île-de-France. Regarde la photo et remplis toujours la fiche en appelant l'outil `fiche`, sans texte autour.
+
+Catégories :
+- escalier : plusieurs marches ; marche : une seule marche ou un ressaut ; bordure_haute : trottoir sans bateau
+- travaux : chantier, palissade, tranchée ; trottoir_encombre : objet qui bloque (trottinettes, poubelles, voiture, terrasse)
+- trottoir_etroit : passage de moins de 90 cm environ ; pente : pente forte ou dévers
+- ascenseur_panne / escalator_panne : appareil à l'arrêt, barrière ou affiche « hors service »
+- rampe : rampe d'accès (info utile, pas un obstacle) ; autre : rien de clair ou pas un obstacle
+
+Gravité pour un fauteuil roulant : bloquant (impossible de passer seul), genant (passage difficile ou détour), \
+info (pas d'obstacle). temporaire = true pour travaux, objets, pannes ; false pour escaliers, marches, bordures, pentes.
+
+Description : une phrase en français, 120 caractères maximum, concrète (« Trois marches sans rampe devant l'entrée »). \
+Ne décris jamais les personnes, visages ou plaques d'immatriculation. Si la photo ne montre pas d'obstacle ou est floue, \
+mets categorie=autre, gravite=info et une confiance basse. confiance = ta certitude entre 0 et 1."""
+
+FICHE_TOOL = {
+    "name": "fiche",
+    "description": "Fiche de signalement d'obstacle proposée à l'utilisateur, qui la valide ou la corrige.",
+    "strict": True,
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "categorie": {"type": "string", "enum": list(CATEGORIES)},
+            "temporaire": {"type": "boolean"},
+            "gravite": {"type": "string", "enum": list(GRAVITES)},
+            "description": {"type": "string", "description": "Une phrase en français, 120 caractères maximum."},
+            "confiance": {"type": "number", "description": "Certitude entre 0 et 1."},
+        },
+        "required": ["categorie", "temporaire", "gravite", "description", "confiance"],
+    },
+}
+
+
+class Fiche(BaseModel):
+    categorie: str = "autre"
+    temporaire: bool = False
+    gravite: str = "info"
+    description: str = ""
+    confiance: float = 0.0
+
+    @field_validator("categorie")
+    @classmethod
+    def _categorie(cls, v):
+        return v if v in CATEGORIES else "autre"
+
+    @field_validator("gravite")
+    @classmethod
+    def _gravite(cls, v):
+        return v if v in GRAVITES else "info"
+
+    @field_validator("description")
+    @classmethod
+    def _description(cls, v):
+        v = " ".join(str(v).split())
+        return v if len(v) <= 160 else v[:157].rstrip() + "…"
+
+    @field_validator("confiance")
+    @classmethod
+    def _confiance(cls, v):
+        return min(max(float(v), 0.0), 1.0)
+
+
+EMPTY = Fiche()
+
+
+def _media_type(raw: bytes) -> Optional[str]:
+    if raw[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def analyser(image_base64: str, media_type: str = "image/jpeg") -> Fiche:
+    """Ask Claude to fill the card. Raises on API errors; the route turns that into the empty card."""
+    import anthropic  # imported here: the rest of the app works without the package or the key
+
+    client = anthropic.Anthropic(timeout=20.0, max_retries=1)  # reads ANTHROPIC_API_KEY
+    msg = client.messages.create(
+        model=ANALYZE_MODEL, max_tokens=1024, system=PROMPT,
+        # Forcing a tool (tool_choice "tool") is refused with a 400 by the current models: auto + strict schema
+        # + the prompt asking for the tool. Low effort keeps the answer fast (target: under 3 s).
+        tools=[FICHE_TOOL], tool_choice={"type": "auto"}, output_config={"effort": "low"},
+        messages=[{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_base64}},
+            {"type": "text", "text": "Quel obstacle vois-tu sur cette photo ? Remplis la fiche."},
+        ]}],
+    )
+    for block in msg.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "fiche":
+            return Fiche.model_validate(block.input)
+    raise ValueError(f"no card in Claude's answer (stop_reason={msg.stop_reason})")
+
+
+def _client_key(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
+
+
+def _rate_limited(key: str, now: float) -> bool:
+    calls = _recent_calls[key]
+    while calls and now - calls[0] > 600:
+        calls.popleft()
+    if len(calls) >= ANALYZE_PER_10_MIN:
+        return True
+    calls.append(now)
+    return False
+
+
+@router.post("/api/reports/analyze")
+def analyze_photo(request: Request, payload: Any = Body(None)):
+    if not isinstance(payload, dict) or not isinstance(payload.get("image_base64"), str):
+        raise HTTPException(400, "image_base64 manquant (JPEG en base64, sans le préfixe data:)")
+    b64 = payload["image_base64"].strip()
+    if b64.startswith("data:"):
+        b64 = b64.split(",", 1)[-1]  # tolerate the prefix anyway
+    if len(b64) > MAX_IMAGE_BYTES * 4 // 3 + 4:
+        raise HTTPException(400, "photo trop lourde (4 Mo maximum)")
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "image_base64 n'est pas du base64 valide")
+    media_type = _media_type(raw)
+    if not media_type:
+        raise HTTPException(400, "la photo doit être une image JPEG, PNG ou WebP")
+    for k, (lo, hi) in (("lat", LAT_RANGE), ("lon", LON_RANGE)):
+        v = payload.get(k)
+        if v is not None and (not isinstance(v, (int, float)) or not lo <= v <= hi):
+            raise HTTPException(400, f"{k} doit être entre {lo} et {hi} (Île-de-France)")
+    if _rate_limited(_client_key(request), time.monotonic()):
+        raise HTTPException(429, "trop de photos analysées d'affilée : réessayez dans quelques minutes")
+
+    started = time.perf_counter()
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        log.warning("analyze: ANTHROPIC_API_KEY missing, empty card returned")
+        fiche, status = EMPTY, "indisponible"
+    else:
+        try:
+            fiche, status = analyser(b64, media_type), "ok"
+        except Exception as e:  # refusal, timeout, quota...: the user fills the card by hand
+            log.warning("analyze failed (%s): %r", ANALYZE_MODEL, e)
+            fiche, status = EMPTY, "erreur"
+    ms = round((time.perf_counter() - started) * 1000)
+    log.info("analyze %s in %d ms (%s, %d Ko): %s / %s / %.2f", status, ms, ANALYZE_MODEL, len(raw) // 1024,
+             fiche.categorie, fiche.gravite, fiche.confiance)
+    return {**fiche.model_dump(), "analyse": status, "latency_ms": ms}
