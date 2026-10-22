@@ -146,3 +146,99 @@ def test_unknown_user_is_kept_anonymous(database):
 
 def test_confirm_unknown_report_is_404(database):
     assert client.post("/api/reports/99999999/confirm", json={}).status_code == 404
+
+
+# --- B2: photo analysis (Claude is mocked: no key, no cost) ----------------------
+
+import base64  # noqa: E402
+
+JPEG = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
+
+
+@pytest.fixture(autouse=False)
+def fresh_limit(monkeypatch):
+    monkeypatch.setattr(reports, "_recent_calls", reports.defaultdict(reports.deque))
+
+
+def test_analyze_returns_claude_card(monkeypatch, fresh_limit):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    seen = {}
+
+    def fake(b64, media_type):
+        seen.update(b64=b64, media_type=media_type)
+        return reports.Fiche(categorie="escalier", temporaire=False, gravite="bloquant",
+                             description="Trois marches sans rampe", confiance=0.92)
+
+    monkeypatch.setattr(reports, "analyser", fake)
+    r = client.post("/api/reports/analyze", json={"image_base64": JPEG, "lat": 48.88, "lon": 2.25})
+    assert r.status_code == 200
+    d = r.json()
+    assert {k: d[k] for k in ("categorie", "temporaire", "gravite", "description", "confiance")} == {
+        "categorie": "escalier", "temporaire": False, "gravite": "bloquant",
+        "description": "Trois marches sans rampe", "confiance": 0.92}
+    assert d["analyse"] == "ok" and isinstance(d["latency_ms"], int)
+    assert seen == {"b64": JPEG, "media_type": "image/jpeg"}
+
+
+def test_analyze_error_gives_empty_card(monkeypatch, fresh_limit):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+    def boom(*_):
+        raise RuntimeError("overloaded")
+
+    monkeypatch.setattr(reports, "analyser", boom)
+    d = client.post("/api/reports/analyze", json={"image_base64": "data:image/jpeg;base64," + JPEG}).json()
+    assert (d["categorie"], d["temporaire"], d["gravite"], d["description"], d["confiance"], d["analyse"]) == (
+        "autre", False, "info", "", 0, "erreur")
+
+
+def test_analyze_without_key_gives_empty_card(monkeypatch, fresh_limit):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    d = client.post("/api/reports/analyze", json={"image_base64": JPEG}).json()
+    assert d["categorie"] == "autre" and d["analyse"] == "indisponible"
+
+
+@pytest.mark.parametrize("body", [
+    {}, {"image_base64": 12}, {"image_base64": "pas du base64 !"},
+    {"image_base64": base64.b64encode(b"GIF89a....").decode()},
+    {"image_base64": JPEG, "lat": 43.3, "lon": 5.4},
+])
+def test_analyze_bad_input_is_400(body, fresh_limit):
+    assert client.post("/api/reports/analyze", json=body).status_code == 400
+
+
+def test_analyze_is_rate_limited(monkeypatch, fresh_limit):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(reports, "ANALYZE_PER_10_MIN", 2)
+    codes = [client.post("/api/reports/analyze", json={"image_base64": JPEG}).status_code for _ in range(3)]
+    assert codes == [200, 200, 429]
+
+
+def test_card_is_cleaned():
+    f = reports.Fiche.model_validate({"categorie": "licorne", "temporaire": True, "gravite": "grave",
+                                      "description": "  trop   long " + "x" * 300, "confiance": 3})
+    assert f.categorie == "autre" and f.gravite == "info" and f.confiance == 1 and len(f.description) <= 160
+
+
+def test_analyser_reads_the_tool_call(monkeypatch):
+    """analyser() sends the photo with the forced `fiche` tool and reads its input back."""
+    import sys
+    import types
+
+    calls = {}
+
+    class Messages:
+        def create(self, **kw):
+            calls.update(kw)
+            block = types.SimpleNamespace(type="tool_use", name="fiche", input={
+                "categorie": "travaux", "temporaire": True, "gravite": "genant",
+                "description": "Palissade sur le trottoir", "confiance": 0.8})
+            return types.SimpleNamespace(content=[block], stop_reason="tool_use")
+
+    fake = types.SimpleNamespace(Anthropic=lambda **kw: types.SimpleNamespace(messages=Messages()))
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+    f = reports.analyser(JPEG, "image/jpeg")
+    assert f.categorie == "travaux" and f.temporaire is True and f.confiance == 0.8
+    assert calls["tool_choice"] == {"type": "tool", "name": "fiche"}
+    img = calls["messages"][0]["content"][0]
+    assert img["source"] == {"type": "base64", "media_type": "image/jpeg", "data": JPEG}
