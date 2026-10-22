@@ -180,16 +180,36 @@ function stationStatus(lifts) {
   return "unk";
 }
 
+// "You can get through in a wheelchair." only for wheelchairs: each profile gets its own words.
+const THROUGH = { manuel: "in a wheelchair", electrique: "in a wheelchair", poussette: "with a stroller", deambulateur: "without stairs" };
+const throughText = () => `You can get through ${THROUGH[Profile.key()] || "without stairs"}.`;
+// Lines whose elevators report working and none out of order: ["14", "A", "D"].
+const workingLines = (lifts) => liftGroups(lifts).filter((g) => g.code && g.lifts.some((l) => l.status === "available")
+  && !g.lifts.some((l) => l.status === "notavailable")).map((g) => g.code);
+// Station verdict: what works first, unknowns second ("Elevators working on lines 14, A, D").
 function verdictText(st) {
   const n = st.lifts.length, ko = st.lifts.filter((l) => l.status === "notavailable").length;
-  const unk = st.lifts.filter((l) => l.status === "unknown").length;
+  const ok = st.lifts.filter((l) => l.status === "available").length, unk = n - ko - ok;
+  const lines = st.status === "warn" ? workingLines(st.lifts) : [];
+  const onLines = lines.length ? `${lines.length > 1 ? "lines" : "line"} ${lines.join(", ")}` : "";
   switch (st.status) {
-    case "ok": return [n > 1 ? `All ${n} elevators are working` : "The elevator is working", "You can get through in a wheelchair."];
+    case "ok": return [n > 1 ? `All ${n} elevators are working` : "The elevator is working", throughText()];
     case "ko": return [n > 1 ? `None of the ${n} elevators is working` : "The elevator is out of order", "Better avoid this station for now."];
-    case "warn": return [ko ? `${ko} of ${n} elevators out of order` : `Status unknown for ${unk} of ${n} elevators`,
-      "Check that the one you need is working."];
+    case "warn": return ko
+      ? [`${ko} of ${n} elevators out of order`, `${onLines ? `Working on ${onLines}. ` : ""}Check that the one you need is working.`]
+      : [onLines ? `Elevators working on ${onLines}` : `${ok} of ${n} elevators working`,
+        `Status unknown for ${unk} of ${n}. Check that the one you need is working.`];
     default: return ["Unknown", "IDFM has no recent information."];
   }
+}
+// Shared by the station sheet and the search suggestions, so both give the same counts:
+// passenger elevators only (staff and service lifts aside), all of them when none looks like a passenger one.
+function stationLiftVerdict(st) {
+  const pub = st.lifts.filter((l) => !isServiceLift(l));
+  const lifts = pub.length ? pub : st.lifts;
+  const status = stationStatus(lifts);
+  const [title, sub] = verdictText({ ...st, lifts, status });
+  return { lifts, status, title, sub };
 }
 
 function buildStations(fc) {
@@ -737,8 +757,7 @@ function openStation(id) {
   flyTo(st.coord, 16);
   // Service lifts would drown the answer: the verdict, the summary and the groups only count passenger ones.
   const pub = st.lifts.filter((l) => !isServiceLift(l)), other = st.lifts.filter(isServiceLift);
-  const base = pub.length ? pub : st.lifts;
-  const [title, sub] = verdictText({ ...st, lifts: base, status: stationStatus(base) });
+  const { lifts: base, title, sub } = stationLiftVerdict(st);
   const groups = liftGroups(pub);
   const stale = base.filter((l) => ageH(liftTime(l.source_update)) > STALE_H).length;
   const oldest = base.map((l) => liftTime(l.source_update)).filter(Boolean).sort((a, b) => a - b)[0];
@@ -1181,24 +1200,33 @@ const VERDICT = {
 // "Blocked: Stepped street after Bastille", "Too far to go on foot", never a bare "Blocked at Long walk".
 function blockedTitle(it) {
   const why = it.blocked_reason || "";
-  if (why === "Long walk") return "Too far to go on foot";
+  if (why === "Long walk") return ["manuel", "electrique"].includes(Profile.key()) ? "Too far to roll" : "Too far to go on foot";
   if (!why) return it.blocked_at ? `Blocked at ${it.blocked_at}` : "Blocked";
   return `Blocked: ${why}${it.blocked_near && !why.includes(it.blocked_near) ? ` near ${it.blocked_near}` : ""}`;
 }
 // "for a manual wheelchair", nothing for the able-bodied helper profile.
 const forWho = () => (Profile.key() === "valide" ? "" : ` for a ${Profile.get()?.short || "your profile"}`);
-// Confidence levels (roadmap 4.3): colour + icon + words, never colour alone.
+// Confidence levels (roadmap 4.3): colour + icon + words, never colour alone. Shown for community reports only.
 const CONF = {
   5: ["ok", "shield", "Live info"], 4: ["ok", "people", "Confirmed by users"],
   3: ["unk", "shield", "Not live"], 2: ["warn", "people", "Reported once"], 1: ["unk", "unk", "Unknown"],
 };
-const checkState = (c) => c.status === "ok" ? "ok" : c.status === "en_panne" || c.effect === "bloquant" ? "ko" : c.status === "inconnu" ? "unk" : "warn";
+// "info": worth knowing, nothing to do (roadworks that leave a way round).
+const checkState = (c) => c.status === "ok" ? "ok" : c.status === "en_panne" || c.effect === "bloquant" ? "ko"
+  : c.status === "inconnu" ? "unk" : c.status === "info" ? "info" : "warn";
 // In replay mode a level-5 source is official but recorded, not live: say so.
 const confPill = (n, recorded) => {
   let [st, ic, label] = CONF[n] || CONF[1];
   if (recorded && n === 5) label = "Recorded info";
   return `<span class="pill ${st}">${icon(ic)}${label}</span>`;
 };
+// Freshness only where it means something: elevator status (live IDFM data) and community reports.
+// Checks computed by Roulib (walk length) or from static registers (announcements, crossings) carry no pill.
+function freshPill(c, recorded) {
+  if (c.kind === "report" || (c.kind === "lift" && /report/i.test(c.source || ""))) return confPill(c.confidence);
+  if (c.kind !== "lift" || c.status === "inconnu" || !c.fetched_at) return "";
+  return `<span class="pill ok">${icon("clock")}${recorded ? "Recorded" : `Updated ${rel(c.fetched_at)}`}</span>`;
+}
 const whenMap = (fn) => (map.isStyleLoaded() && map.getSource("trip") ? fn() : map.once("idle", fn));
 const yyyymmddToTime = (s) => (s && s.length >= 13 ? `${s.slice(9, 11)}:${s.slice(11, 13)}` : "");
 
@@ -1363,15 +1391,40 @@ function checkLine(c, recorded) {
   // A lift that is not plainly OK: one tap to that station's elevators (state, history, report).
   const zd = c.kind === "lift" && st !== "ok" && c.zdcid != null && [c.zdcid, String(c.zdcid), Number(c.zdcid)].find((k) => S.stations.has(k));
   const link = zd != null && zd !== undefined && zd !== false ? `<button class="linkish" data-open="${esc(zd)}">See the elevators at this station</button>` : "";
-  return `<li class="check">${mark(st)}${srState(st)}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}${link}` +
-    `<div class="meta">${confPill(c.confidence, recorded)}${c.fetched_at ? `<span class="muted">${esc(c.source || "")} · checked at ${hhmm(c.fetched_at)}</span>` : `<span class="muted">${esc(c.source || "")}</span>`}</div></div></li>`;
+  const lead = st === "info" ? `<span class="mark neutral" aria-hidden="true">${icon(c.kind === "works" ? "cone" : "unk")}</span><span class="sr">For information</span>`
+    : mark(st) + srState(st);
+  return `<li class="check">${lead}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}${link}` +
+    `<div class="meta">${freshPill(c, recorded)}<span class="muted">${esc(c.source || "")}</span></div></div></li>`;
+}
+
+// Every option blocked: never a dead end. The option closest to working, another time, nearby stations, PAM 75.
+function wayOutHTML(d, skipId = null) {
+  const w = d.way_out;
+  if (!w) return "";
+  const least = w.least_blocked_id !== skipId && d.itineraries.find((x) => x.id === w.least_blocked_id);
+  const to = d.to || trip.to;
+  const near = to?.lon != null ? nearestStations([to.lon, to.lat], 6, 1000).filter((x) => x.st.status === "ok").slice(0, 3) : [];
+  return `<section class="way-out" aria-labelledby="way-h"><h3 class="h2" id="way-h">What you can do</h3>` +
+    (least ? `<button class="btn block" id="way-least" data-way="${esc(least.id)}">${icon("route")}See the option closest to working (${least.duration_min} min)</button>` : "") +
+    (w.try_other_time && d.replay !== "demo" ? `<button class="btn block" id="way-time">${icon("clock")}Try another time</button>` : "") +
+    (near.length ? `<p class="muted">Stations with all elevators working near your destination:</p>${stationList(near)}` : "") +
+    (w.pam ? `<p class="note"><span><b>PAM 75</b>, the door-to-door transport service for people with reduced mobility in Paris, can take you there. Book it ahead.</span></p>` : "") +
+    `</section>`;
+}
+function bindWayOut(d, stations = true) {
+  $("#way-least")?.addEventListener("click", (e) => renderItinerary(d, e.currentTarget.dataset.way));
+  $("#way-time")?.addEventListener("click", () => openWhen());
+  const box = $("#trip-result .way-out");
+  if (stations && box) bindOpen(box);
 }
 
 // Ranked options, like Citymapper's result list, but ordered by what works for this profile.
 function renderResults(d) {
   // Same verdict: rank by time, counting 15 extra minutes per lift that often breaks down.
   const cost = (it) => it.duration_min + 15 * it.steps.flatMap((s) => s.checks || []).filter((c) => c.reliability != null && c.reliability < 0.8).length;
-  const sorted = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (cost(x) - cost(y)));
+  // All blocked: the option closest to working comes first.
+  const least = d.way_out?.least_blocked_id;
+  const sorted = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || ((y.id === least) - (x.id === least)) || (cost(x) - cost(y)));
   // Like Google Maps: an option more than twice as long as the fastest one that works (and 30 min more) is noise.
   const fastest = Math.min(...sorted.filter((x) => x.verdict !== "bloque").map((x) => x.duration_min));
   const its = sorted.filter((x, i) => i === 0 || !Number.isFinite(fastest) || x.duration_min <= Math.max(2 * fastest, fastest + 30));
@@ -1392,16 +1445,19 @@ function renderResults(d) {
         : it.verdict === "risque" ? `Watch out: ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label)))].slice(0, 2).join(", ") || "see the steps"}`
         : "Nothing blocks this trip";
       return `<li><button class="route ${V.st}" data-it="${esc(it.id)}">` +
-        `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Best for you</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
+        `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Best for you</span>` : it.id === least ? `<span class="tag">Closest to working</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
         `<span class="mins"><b>${it.duration_min}</b><small>min</small></span></span>` +
         `<span class="route-why">${mark(V.st)}<span>${esc(why)}${it.departure ? `<small>Leave ${yyyymmddToTime(it.departure)} · arrive ${yyyymmddToTime(it.arrival)}</small>` : ""}</span></span>` +
         `</button></li>`;
     }).join("") + `</ul>` +
-    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Compare with a regular app</button>` : "") +
+    (best.verdict === "bloque" ? wayOutHTML(d) : "") +
+    // The side-by-side comparison is a demo tool: only with the recorded example.
+    (rec && d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Compare with a regular app</button>` : "") +
     `<p class="src">Routes from Île-de-France Mobilités, checked step by step by Roulib${esc(forWho())}. Elevator status from ${hhmm(d.lifts_fetched_at)}.</p>` +
     (Profile.key() === "malvoyant" ? `<p class="note"><span>Checked for you: audio announcements at stops and on board (IDFM), SNCF staff assistance and platform warning strips, audible traffic signals on walks in Paris. Not checked: tactile guidance paths inside stations, and traffic signals outside Paris.</span></p>` : "");
   document.querySelectorAll("[data-it]").forEach((b) => b.addEventListener("click", () => renderItinerary(d, b.dataset.it)));
   $("#compare-btn")?.addEventListener("click", () => openCompare(d));
+  bindWayOut(d);
   whenMap(() => drawItinerary(best));
   Sheet.set("half");
   Sheet.scrollTop();
@@ -1418,7 +1474,7 @@ function renderItinerary(d, id, fromId = null) {
   // Plan B for any trip that does not fully work: the server's pick, else the best better-ranked option.
   const planB = (it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id)) || (it.verdict === "passe" ? null
     : [...d.itineraries].filter((x) => RANK[x.verdict] < RANK[it.verdict]).sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (x.duration_min - y.duration_min))[0]);
-  const sub = it.verdict === "bloque" ? (planB ? "Don't take this trip. A Plan B is below." : "Don't take this trip. No other trip avoids it right now.") : V.sub(prof);
+  const sub = it.verdict === "bloque" ? (planB ? "Don't take this trip. A Plan B is below." : "Don't take this trip. No other trip avoids it right now: see what you can do below.") : V.sub(prof);
   const rec = d.replay === "demo";
   $("#v-trip").classList.add("has-result");
   $("#trip-summary").innerHTML = `<span class="t">${esc(trip.from?.label || d.from?.label || "")} → ${esc(trip.to?.label || d.to?.label || "")}</span><span class="linkish">Edit</span>`;
@@ -1426,7 +1482,7 @@ function renderItinerary(d, id, fromId = null) {
     `<button class="back" id="all-routes">${icon("chev-l")}All trips</button>` +
     (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
     `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong>${esc(V.title(it))}</strong>${esc(sub)}</span></div>` +
-    `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · leave ${yyyymmddToTime(it.departure)}, arrive ${yyyymmddToTime(it.arrival)}` : ""} ${confPill(it.confidence, rec)}</p>` +
+    `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · leave ${yyyymmddToTime(it.departure)}, arrive ${yyyymmddToTime(it.arrival)}` : ""}</p>` +
     (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
     (planB ? `<button class="btn primary block" id="planb">${icon("swap")}See Plan B (${planB.duration_min} min)</button>` : "") +
     (isPlanB ? `<button class="btn block" id="plana">Back to the previous trip</button>` : "") +
@@ -1441,7 +1497,9 @@ function renderItinerary(d, id, fromId = null) {
         `<div class="tl-body">${badge}<div><b>${stepTitle(s)}</b><small>${s.duration_min ? `${s.duration_min} min` : ""}${s.type === "transit" ? ` · to ${esc(s.to)}` : ""}</small></div><span class="tl-state">${mark(st)}${srState(st)}</span></div>` +
         (s.checks?.length ? `<ul class="checks">${s.checks.map((c) => checkLine(c, rec)).join("")}</ul>` : `<p class="muted small">Nothing in particular reported.</p>`) + `</li>`;
     }).join("") + `<li class="tl end"><div class="tl-stop"><span class="tl-dot"></span><b>${esc(it.steps[it.steps.length - 1]?.to || "")}</b></div></li></ol>` +
+    (it.verdict === "bloque" && !planB ? wayOutHTML(d, it.id) : "") +
     `<p class="src">Roulib check for the “${esc(prof)}” profile. Elevators checked at ${hhmm(d.lifts_fetched_at)}.</p>`;
+  bindWayOut(d, false);  // its station links are bound with the others below
   $("#planb")?.addEventListener("click", () => { renderItinerary(d, planB.id, it.id); Sheet.scrollTop(); });
   $("#plana")?.addEventListener("click", () => { renderItinerary(d, fromId); Sheet.scrollTop(); });
   // Phone Back from a trip detail returns to the list of trips, like Google Maps.
@@ -1469,7 +1527,7 @@ function openCompare(d) {
   const base = d.baseline[0];
   const ours = d.itineraries[0];
   const planB = ours.plan_b_id && d.itineraries.find((x) => x.id === ours.plan_b_id);
-  const blockers = ours.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) !== "ok"));
+  const blockers = ours.steps.flatMap((s) => (s.checks || []).filter((c) => !["ok", "info"].includes(checkState(c))));
   $("#compare").innerHTML =
     `<div class="cmp">` +
     `<div class="cmp-col"><h3>Regular app</h3><div class="verdict ok">${mark("ok")}<span><strong>“Accessible”</strong>${base.duration_min} min</span></div>` +
