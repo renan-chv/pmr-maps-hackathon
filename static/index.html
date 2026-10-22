@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#fff9f1">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="PMR Maps">
+  <meta name="apple-mobile-web-app-title" content="Roulib">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-180.png">
-  <title>PMR Maps – Se déplacer en fauteuil en Île-de-France</title>
+  <title>Roulib – Se déplacer en fauteuil en Île-de-France</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap">
@@ -71,6 +71,7 @@
           <button id="mic" class="mic" aria-label="Dire où vous allez"><svg class="i"><use href="#i-mic"/></svg></button>
         </div>
         <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
+        <div class="favs" id="favs" role="group" aria-label="Mes endroits"></div>
 
         <div class="tiles">
           <button class="tile t-trip" data-go="trip"><span class="tile-ic"><svg class="i"><use href="#i-route"/></svg></span><b>Aller quelque part</b><small>Trajet en fauteuil</small></button>
@@ -88,8 +89,6 @@
           <li><span class="hatch" aria-hidden="true"></span>Travaux sur le trottoir</li>
         </ul>
 
-        <h2 class="h2">Mes endroits</h2>
-        <ul class="list" id="favs"></ul>
 
         <div id="today" class="today" aria-live="polite"><p class="muted">Je regarde l'état des ascenseurs…</p></div>
 
