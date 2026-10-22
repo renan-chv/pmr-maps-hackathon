@@ -7,6 +7,8 @@ const LIFT_FR = { available: "En service", notavailable: "En panne", unknown: "�
 const ACCESS_FR = { true: "accessible", partial: "partiellement accessible", false: "non accessible", unknown: "inconnu" };
 const TYPE_FR = { metro: "Métro", rail: "Train / RER", tram: "Tram", cableway: "Câble", bus: "Bus" };
 const MODE_FR = { Metro: "Métro", RapidTransit: "RER / Train", Tramway: "Tram", LocalTrain: "Train" };
+const CAT_FR = { restaurant: "Restaurant", cafe: "Café / bar", food_shop: "Commerce alimentaire", shop: "Commerce", other: "Lieu" };
+const VENUE_FR = { ok: "Accessible en fauteuil", warn: "Accessible avec réserves", ko: "Pas accessible en fauteuil", unk: "Accessibilité non renseignée" };
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -52,6 +54,7 @@ function toast(msg, ms = 3500) {
 const S = {
   stations: new Map(), // zdcid -> {id, name, mode, coord, lifts[], status}
   quais: [], train: [], worksCenters: [], meta: {}, myPos: null,
+  places: new Map(), // place id -> properties from /api/places (access, reasons, sources…)
 };
 
 function stationStatus(lifts) {
@@ -144,7 +147,7 @@ map.on("load", () => {
     map.addImage(`st-${k}`, image, { pixelRatio: ratio });
   }
   const src = (id) => map.addSource(id, { type: "geojson", data: empty() });
-  ["works", "quais", "bus", "trip", "stations", "pin"].forEach(src);
+  ["works", "quais", "bus", "places", "trip", "stations", "pin"].forEach(src);
 
   map.addLayer({ id: "works-fill", type: "fill", source: "works", paint: { "fill-color": C.works, "fill-opacity": 0.22 } });
   map.addLayer({ id: "works-line", type: "line", source: "works", paint: { "line-color": C.works, "line-width": 1.2 } });
@@ -153,6 +156,13 @@ map.on("load", () => {
     paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 16, 7], "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 1 } });
   map.addLayer({ id: "bus", type: "circle", source: "bus", minzoom: 14.5, layout: { visibility: "none" },
     paint: { "circle-radius": 5, "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+  map.addLayer({ id: "places", type: "circle", source: "places", minzoom: 15, layout: { visibility: "none" },
+    paint: {
+      "circle-radius": ["match", ["get", "verdict"], "unk", 4, 7],
+      "circle-color": ["match", ["get", "verdict"], "ok", C.ok, "warn", C.warn, "ko", C.ko, C.unk],
+      "circle-opacity": ["match", ["get", "verdict"], "unk", 0.6, 1],
+      "circle-stroke-color": "#fff", "circle-stroke-width": 1.5,
+    } });
   map.addLayer({ id: "trip", type: "line", source: "trip", layout: { "line-cap": "round", "line-join": "round" },
     paint: { "line-color": C.accent, "line-width": 6, "line-opacity": 0.85 } });
   map.addLayer({ id: "stations", type: "symbol", source: "stations",
@@ -170,11 +180,13 @@ map.on("load", () => {
   map.on("click", "works-fill", (e) => openWorks(e.features[0].properties, e.lngLat));
   map.on("click", "quais", (e) => quickPopup(e, "Quai"));
   map.on("click", "bus", (e) => quickPopup(e, "Arrêt de bus"));
-  for (const id of ["stations", "works-fill", "quais", "bus"]) {
+  map.on("click", "places", (e) => openVenue(e.features[0].properties.id));
+  for (const id of ["stations", "works-fill", "quais", "bus", "places"]) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
   }
   map.on("moveend", loadBus);
+  map.on("moveend", loadPlaces);
 
   loadLifts().then(() => applyHash());
   loadStatic();
@@ -237,6 +249,30 @@ async function loadBus() {
   try { map.getSource("bus").setData(await getJSON(`/api/bus-stops?bbox=${bbox}`)); } catch (e) { console.warn("bus", e); }
 }
 
+const viewBbox = () => { const b = map.getBounds(); return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; };
+const bboxAround = ([lon, lat], m) => { const dy = m / 111320, dx = dy / Math.cos(lat * Math.PI / 180); return [lon - dx, lat - dy, lon + dx, lat + dy]; };
+
+async function fetchPlaces(bbox) {
+  const d = await getJSON(`/api/places?bbox=${bbox.map((v) => v.toFixed(5)).join(",")}`);
+  d.features.forEach((f) => S.places.set(f.properties.id, f.properties));
+  S.meta.places = d.meta;
+  return d;
+}
+
+let placesSeq = 0;
+async function loadPlaces() {
+  if (!layerOn.places || map.getZoom() < 15) return;
+  const my = ++placesSeq;
+  try {
+    const d = await fetchPlaces(viewBbox());
+    if (my !== placesSeq) return;
+    map.getSource("places").setData(d);
+    if (!d.meta.configured && !loadPlaces.warned) { loadPlaces.warned = true; toast("Restos et commerces : aucune source branchée pour l'instant."); }
+    else if (d.meta.sources.some((s) => s.error) && !loadPlaces.failed) { loadPlaces.failed = true; toast("Une source de lieux ne répond pas, données partielles."); }
+    renderSources();
+  } catch (e) { console.warn("places", e); }
+}
+
 async function loadAlerts() {
   try {
     const d = await getJSON("/api/alerts");
@@ -277,6 +313,10 @@ function renderSources() {
   const items = Object.values(S.meta).filter((m) => m && m.source).map((m) =>
     `<li><a href="${esc(m.source.url)}" target="_blank" rel="noopener">${esc(m.source.name)}</a> – ${esc(m.source.license)}` +
     ` · ${m.count} éléments · récupéré à ${hhmm(m.fetched_at)}</li>`);
+  for (const m of S.meta.places?.sources || []) {
+    items.push(`<li><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a> – ${esc(m.license)}` +
+      ` · ${m.error ? "injoignable" : `${m.count} lieux dans la zone · récupéré à ${hhmm(m.fetched_at)}`}${m.stale ? " (version précédente)" : ""}</li>`);
+  }
   $("#sources-list").innerHTML = items.join("") + `<li>Recherche de lieux : IGN Géoplateforme</li><li>Fond de carte © OpenStreetMap, OpenFreeMap</li>`;
 }
 
@@ -287,6 +327,14 @@ function stationCard(st, d) {
 }
 function bindCards(root) {
   root.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openStation(b.dataset.open)));
+  root.querySelectorAll("[data-venue]").forEach((b) => b.addEventListener("click", () => openVenue(b.dataset.venue)));
+}
+
+function venueCard(p, d) {
+  const why = p.reasons.find((r) => r.kind === "ok" || r.kind === "ko") || p.reasons[0];
+  return `<button class="card" data-venue="${esc(p.id)}"><span class="badge ${p.verdict}" aria-hidden="true">${SYM[p.verdict]}</span>` +
+    `<span><b>${esc(p.name)}</b><small>${esc(CAT_FR[p.category] || "")}${d != null ? " · à " + fmtDist(d) : ""}</small><br>` +
+    `${esc(VENUE_FR[p.verdict])}${why ? ` · ${esc(why.text)}` : ""}</span></button>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,13 +405,79 @@ function openPlace(item) {
       `${esc(works[0].p.summary || "")}, jusqu'au ${esc(works[0].p.end)}</span></div>` : "") +
     `<h3 class="section-title">Stations avec ascenseur les plus proches</h3>` +
     (near.length ? near.map((x) => stationCard(x.st, x.d)).join("") : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`) +
-    `<p class="muted">Accessibilité du lieu lui-même (entrée, marches, toilettes) : bientôt, via Acceslibre.</p>` +
+    `<div id="place-access"></div>` +
     `<p class="src">Lieu : IGN Géoplateforme · Ascenseurs : IDFM · Chantiers : Ville de Paris</p>`;
   bindCards($("#detail"));
+  placeAccess(item, coord);
   $("#go-to").addEventListener("click", () => openTrip(null, item));
   $("#go-from").addEventListener("click", () => openTrip(item, null));
   show("detail");
 }
+
+// Accessibility of the searched place itself, then accessible places around it.
+async function placeAccess(item, coord) {
+  const box = $("#place-access");
+  box.innerHTML = `<p class="muted">Recherche de l'accessibilité du lieu…</p>`;
+  let d;
+  try { d = await fetchPlaces(bboxAround(coord, 300)); } catch { box.innerHTML = ""; return; }
+  if (!box.isConnected) return; // the user opened something else meanwhile
+  if (!d.meta.configured) { box.innerHTML = `<p class="muted">Accessibilité des restaurants et commerces (entrée, marches, toilettes) : bientôt.</p>`; return; }
+  const all = d.features.map((f) => ({ p: f.properties, d: distM(coord, f.geometry.coordinates) }));
+  const key = norm(item.label);
+  const self = all.find((x) => x.d < 40 && key && (norm(x.p.name).includes(key) || key.includes(norm(x.p.name))));
+  const around = all.filter((x) => x !== self && ["ok", "warn"].includes(x.p.verdict)).sort((a, b) => a.d - b.d).slice(0, 5);
+  box.innerHTML =
+    `<h3 class="section-title">Accessibilité du lieu</h3>` +
+    (self ? venueCard(self.p, null) : `<p class="muted">Ce lieu n'est pas encore dans nos sources d'accessibilité.</p>`) +
+    (around.length ? `<h3 class="section-title">Restos et commerces accessibles à moins de 300 m</h3>` + around.map((x) => venueCard(x.p, x.d)).join("") : "");
+  bindCards(box);
+}
+
+function openVenue(id) {
+  const p = S.places.get(String(id));
+  if (!p) { toast("Lieu introuvable, rapprochez la carte."); return; }
+  const coord = [p.lon, p.lat];
+  setPin(coord);
+  flyTo(coord, 17);
+  const a = p.access;
+  const yn = (v, yes, no) => (v == null ? `<span class="muted">non renseigné</span>` : v ? yes : no);
+  const entrance = a.step_free || a.steps === 0 ? "de plain-pied"
+    : a.steps ? `${a.steps} marche${a.steps > 1 ? "s" : ""}${a.ramp ? ", rampe disponible" : a.ramp === false ? ", sans rampe" : ""}`
+    : a.ramp ? "rampe disponible" : `<span class="muted">non renseigné</span>`;
+  const near = nearestStations(coord, 3, 1000);
+  const works = worksNear(coord, 150);
+  const main = p.reasons.find((r) => r.kind === "ok" || r.kind === "ko");
+  const srcs = p.sources.map((s) => {
+    const m = (S.meta.places?.sources || []).find((x) => x.key === s.source) || {};
+    const name = s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(m.name || s.source)}</a>` : esc(m.name || s.source);
+    return `${name}${s.updated_at ? `, info du ${esc(new Date(s.updated_at).toLocaleDateString("fr-FR"))}` : ""}`;
+  });
+  $("#detail").innerHTML =
+    `<h2 id="d-title" class="title">${esc(p.name)}</h2><p class="muted">${esc(CAT_FR[p.category] || "")}${p.address ? " · " + esc(p.address) : ""}</p>` +
+    `<div class="verdict ${p.verdict}"><span class="badge ${p.verdict}" aria-hidden="true">${SYM[p.verdict]}</span>` +
+    `<span><strong>${esc(VENUE_FR[p.verdict])}</strong>${main ? esc(main.text) : ""}</span></div>` +
+    (p.conflicts.length ? `<p class="stale">⚠ <b>Sources en désaccord</b> sur ${p.conflicts.map((c) => esc(FIELD_FR[c.field] || c.field)).join(", ")} : à confirmer sur place.</p>` : "") +
+    `<div class="btn-row"><button class="big-btn primary" id="go-to">Y aller</button><button class="big-btn secondary" id="go-from">Partir d'ici</button></div>` +
+    `<dl class="facts">` +
+    `<dt>Entrée</dt><dd>${entrance}</dd>` +
+    `<dt>Porte</dt><dd>${a.door_width_cm != null ? `${a.door_width_cm} cm` : `<span class="muted">non renseigné</span>`}</dd>` +
+    `<dt>Toilettes adaptées</dt><dd>${yn(a.toilets, "oui", "non")}</dd>` +
+    `<dt>Stationnement PMR</dt><dd>${yn(a.parking, "à proximité", "non")}</dd></dl>` +
+    p.reasons.filter((r) => r.kind === "caveat").map((r) => `<p class="muted">⏱ ${esc(r.text)}</p>`).join("") +
+    a.notes.map((n) => `<p>« ${esc(n)} »</p>`).join("") +
+    (works.length ? `<p>🚧 <b>${works.length} chantier${works.length > 1 ? "s" : ""}</b> sur le trottoir à moins de 150 m</p>` : "") +
+    `<h3 class="section-title">Stations avec ascenseur les plus proches</h3>` +
+    (near.length ? near.map((x) => stationCard(x.st, x.d)).join("") : `<p class="muted">Aucune station avec ascenseur à moins de 1 km.</p>`) +
+    `<p class="src">Accessibilité : ${srcs.join(" · ")} · vérifié par nous à ${hhmm(S.meta.places?.fetched_at)}</p>`;
+  bindCards($("#detail"));
+  const here = { label: p.name, lon: p.lon, lat: p.lat };
+  $("#go-to").addEventListener("click", () => openTrip(null, here));
+  $("#go-from").addEventListener("click", () => openTrip(here, null));
+  history.replaceState(null, "", location.pathname);
+  show("detail");
+}
+const FIELD_FR = { level: "l'accessibilité générale", step_free: "l'entrée de plain-pied", steps: "le nombre de marches", ramp: "la rampe",
+  door_width_cm: "la largeur de porte", toilets: "les toilettes", parking: "le stationnement" };
 
 function openWorks(p, lngLat) {
   setPin([lngLat.lng, lngLat.lat]);
@@ -542,14 +656,17 @@ $("#locate").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 // Chips, text size, sheet, voice, deep links
 // ---------------------------------------------------------------------------
-const layerOn = { lifts: true, works: true, quais: false, bus: false };
-const LAYER_IDS = { lifts: ["stations"], works: ["works-fill", "works-line"], quais: ["quais"], bus: ["bus"] };
+const layerOn = { lifts: true, works: true, quais: false, bus: false, places: false };
+const LAYER_IDS = { lifts: ["stations"], works: ["works-fill", "works-line"], quais: ["quais"], bus: ["bus"], places: ["places"] };
 document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => {
   const k = chip.dataset.layer; layerOn[k] = !layerOn[k];
   chip.classList.toggle("on", layerOn[k]); chip.setAttribute("aria-pressed", String(layerOn[k]));
   for (const id of LAYER_IDS[k]) map.setLayoutProperty(id, "visibility", layerOn[k] ? "visible" : "none");
   if (k === "bus" && layerOn.bus) {
     if (map.getZoom() < 14.5) { toast("Arrêts de bus affichés en zoomant."); map.easeTo({ zoom: 15 }); } else loadBus();
+  }
+  if (k === "places" && layerOn.places) {
+    if (map.getZoom() < 15) { toast("Restos et commerces affichés en zoomant."); map.easeTo({ zoom: 15.5 }); } else loadPlaces();
   }
 }));
 

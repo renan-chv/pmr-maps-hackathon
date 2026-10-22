@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -13,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, poller, sources
+from . import db, place_providers, places, poller, sources  # noqa: F401  (place_providers registers the APIs)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -142,6 +141,22 @@ def api_works():
     return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="chantiers actifs aujourd'hui occupant le trottoir")
 
 
+@app.get("/api/places")
+def api_places(
+    bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat (max 0.05° de côté)"),
+    category: Optional[str] = Query(None, description="restaurant,cafe,food_shop,shop,other"),
+    width_cm: Optional[int] = Query(None, ge=40, le=120, description="largeur du fauteuil"),
+    max_steps: int = Query(0, ge=0, le=5, description="marches franchissables"),
+):
+    """Restaurants and shops with their accessibility, merged across sources, judged for this wheelchair."""
+    try:
+        box = places.parse_bbox(bbox)
+    except ValueError as e:
+        raise HTTPException(400, f"bbox invalide : {e}")
+    cats = [c for c in (category or "").split(",") if c] or None
+    return places.query(box, cats, width_cm, max_steps)
+
+
 @app.get("/api/alerts")
 def api_alerts():
     if SERVERLESS:
@@ -151,18 +166,11 @@ def api_alerts():
 
 # --- Journey (PRIM / Navitia, needs PRIM_API_KEY) --------------------------
 
-def _dist_m(lon1, lat1, lon2, lat2) -> float:
-    k = math.pi / 180
-    x = (lon2 - lon1) * k * math.cos((lat1 + lat2) * k / 2)
-    y = (lat2 - lat1) * k
-    return 6371000 * math.hypot(x, y)
-
-
 def _lifts_near(lon: float, lat: float, radius: float = 150) -> List[dict]:
     out = []
     for r in sources.lifts()["rows"]:
         c = r.get("centroidzdc") or {}
-        if c.get("lon") is not None and _dist_m(lon, lat, c["lon"], c["lat"]) <= radius:
+        if c.get("lon") is not None and sources.dist_m(lon, lat, c["lon"], c["lat"]) <= radius:
             out.append({"liftid": r["liftid"], "station": r.get("zdcname"), "status": r.get("liftstatus"),
                         "reason": r.get("liftreason"), "situation": r.get("liftsituation"),
                         "source_update": r.get("liftstateupdate")})
@@ -234,7 +242,8 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
 
 @app.get("/health")
 def health():
-    return {"ok": True, "db": db.enabled(), "prim": bool(PRIM_API_KEY), "poller": poller.state}
+    return {"ok": True, "db": db.enabled(), "prim": bool(PRIM_API_KEY), "poller": poller.state,
+            "places_providers": [p.key for p in places.active()]}
 
 
 @app.get("/")

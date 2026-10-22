@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -54,6 +55,13 @@ _client = httpx.Client(timeout=httpx.Timeout(180, connect=15), headers={"User-Ag
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def dist_m(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    k = math.pi / 180
+    x = (lon2 - lon1) * k * math.cos((lat1 + lat2) * k / 2)
+    y = (lat2 - lat1) * k
+    return 6371000 * math.hypot(x, y)
 
 
 def _disk(key: str) -> Path:

@@ -145,3 +145,8 @@ button.card:hover { border-color: var(--accent); }
 
 .stale { background: var(--warn-soft); border-radius: 12px; padding: 10px 12px; margin: -4px 0 12px; font-size: .92em; }
 .stale-txt { color: var(--warn); font-size: .88em; font-weight: 600; }
+
+/* ---- Place facts (restaurants, shops) ---- */
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 14px 0; padding: 12px 14px; border-radius: 12px; background: var(--bg-soft); }
+.facts dt { font-weight: 600; }
+.facts dd { margin: 0; }

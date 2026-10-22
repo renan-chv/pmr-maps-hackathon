@@ -13,6 +13,22 @@ CREATE TABLE IF NOT EXISTS lift_status_history (
 );
 CREATE INDEX IF NOT EXISTS lift_status_history_lift_idx ON lift_status_history (liftid, fetched_at DESC);
 
+-- Restaurants and shops, last known version per source row (see app/places.py).
+CREATE TABLE IF NOT EXISTS places (
+    source            TEXT NOT NULL,   -- provider key
+    source_id         TEXT NOT NULL,
+    name              TEXT,
+    category          TEXT,            -- restaurant / cafe / food_shop / shop / other
+    lon DOUBLE PRECISION, lat DOUBLE PRECISION,
+    address           TEXT,
+    access            JSONB,           -- level, step_free, steps, ramp, door_width_cm, toilets, parking, notes
+    url               TEXT,
+    source_updated_at TEXT,            -- date of the accessibility info at the source
+    fetched_at        TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS places_geo_idx ON places (lat, lon);
+
 -- Fictional demo user only (no real personal data).
 CREATE TABLE IF NOT EXISTS user_profile (
     id            SERIAL PRIMARY KEY,
