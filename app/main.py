@@ -170,11 +170,28 @@ def api_geocode(q: str):
     return res
 
 
+@app.get("/api/suggest")
+def api_suggest(q: str = Query(..., min_length=2)):
+    return {"results": sources.suggest(q)}
+
+
+def _resolve(q: str) -> Optional[dict]:
+    """Accept "lon,lat" (from the UI) or free text (geocoded)."""
+    parts = q.split(",")
+    if len(parts) == 2:
+        try:
+            lon, lat = float(parts[0]), float(parts[1])
+            return {"label": q, "lon": lon, "lat": lat}
+        except ValueError:
+            pass
+    return sources.geocode(q)
+
+
 @app.get("/api/journey")
 def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., alias="to")):
     if not PRIM_API_KEY:
         raise HTTPException(503, "PRIM_API_KEY manquante : itinéraire indisponible")
-    a, b = sources.geocode(from_q), sources.geocode(to_q)
+    a, b = _resolve(from_q), _resolve(to_q)
     if not a or not b:
         raise HTTPException(404, "adresse de départ ou d'arrivée introuvable")
     r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params={

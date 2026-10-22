@@ -203,3 +203,50 @@ def warm_up() -> None:
             fn()
         except Exception:
             log.exception("warm-up failed for %s", fn.__name__)
+
+
+# IDF bounding box, used to drop homonyms elsewhere in France.
+IDF_BBOX = (1.40, 48.10, 3.60, 49.25)
+
+
+def _in_idf(lon: float, lat: float) -> bool:
+    return IDF_BBOX[0] <= lon <= IDF_BBOX[2] and IDF_BBOX[1] <= lat <= IDF_BBOX[3]
+
+
+def suggest(q: str, limit: int = 6) -> List[dict]:
+    """Places (POI) + addresses in Île-de-France for the search box."""
+    out, seen = [], set()
+    for index in ("poi", "address"):
+        params = {"q": q, "index": index, "limit": 10, "lat": 48.8566, "lon": 2.3522}
+        if index == "address":
+            params["autocomplete"] = 1
+        try:
+            r = _client.get(GEOCODER, params=params, timeout=8)
+            r.raise_for_status()
+        except httpx.HTTPError:
+            continue
+        for f in r.json().get("features", []):
+            lon, lat = f["geometry"]["coordinates"]
+            if not _in_idf(lon, lat):
+                continue
+            pr = f["properties"]
+            if index == "poi":
+                name = pr.get("toponym") or (pr.get("name") or [""])[0]
+                city = pr.get("city")
+                city = city[-1] if isinstance(city, list) and city else city
+                cat = pr.get("category") or []
+                if any("transport" in c for c in cat):
+                    continue  # stations come from our own data
+                item = {"kind": "place", "label": name, "sub": ", ".join([c for c in [cat[0] if cat else None, city] if c]),
+                        "lon": lon, "lat": lat}
+            else:
+                item = {"kind": "address", "label": pr.get("name") or pr.get("label"),
+                        "sub": f'{pr.get("postcode", "")} {pr.get("city", "")}'.strip(), "lon": lon, "lat": lat}
+            key = (item["label"], round(lon, 3), round(lat, 3))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+            if len(out) >= limit:
+                return out
+    return out
