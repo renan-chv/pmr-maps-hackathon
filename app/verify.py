@@ -259,6 +259,26 @@ def apply_lift_reports(rows: List[dict], reports: Iterable[dict], now: datetime)
     return out
 
 
+def _nearby_lift_reports(reports: List[dict], lon: float, lat: float, relevant: List[dict],
+                         now: datetime) -> List[dict]:
+    """Broken-elevator reports made near this station without naming a lift (photo, voice, text),
+    less than REPORT_MAX_AGE_H old and newer than the latest official update of its elevators."""
+    official = [d for d in (_as_dt(r.get("liftstateupdate_official") or r.get("liftstateupdate")) for r in relevant) if d]
+    latest = max(official) if official else None
+    out = []
+    for r in reports:
+        if r.get("categorie") != "ascenseur_panne" or r.get("target_type") == "lift" or r.get("lon") is None:
+            continue
+        created = _as_dt(r.get("created_at"))
+        if created is None or (now - created).total_seconds() > REPORT_MAX_AGE_H * 3600:
+            continue
+        if latest is not None and created <= latest:
+            continue
+        if dist_m(lon, lat, float(r["lon"]), float(r["lat"])) <= LIFT_RADIUS_M:
+            out.append(r)
+    return out
+
+
 def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: Optional[str],
                lifts_rows: Iterable[dict], fetched_at: Optional[str], profile: str,
                reliability: Optional[Dict[str, dict]] = None, direction: Optional[str] = None,
@@ -269,7 +289,9 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
     Only lifts that mention the line count when some do; among them, only those serving the
     platform of the travel direction (or "toutes directions") when the descriptions say so.
     """
-    lifts_rows = apply_lift_reports(list(lifts_rows), reports, now or datetime.now(timezone.utc))
+    reports = list(reports)
+    now = now or datetime.now(timezone.utc)
+    lifts_rows = apply_lift_reports(list(lifts_rows), reports, now)
     zdc = (stop_area or "").rsplit(":", 1)[-1]  # Navitia stop_area:IDFM:71485 <-> IDFM zdcid 71485
     near = [r for r in lifts_rows if zdc and str(r.get("zdcid")) == zdc]
     if not near:  # big stations: the stop point can be far from the station centroid
@@ -322,6 +344,17 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
         return {**base, "status": "en_panne", "confidence": conf, "obstacle": "ascenseur_panne", "effect": full,
                 "label": label(False),
                 "message": f"{_of(down, relevant)} out of order{since}{extra}, none confirmed working.{rel_text}"}
+    nearby = _nearby_lift_reports(reports, lon, lat, relevant, now)
+    if nearby and not down:
+        # a photo, voice or text report of a broken elevator here, newer than the official data,
+        # corrects it: the step becomes risky until someone confirms or IDFM updates
+        r = max(nearby, key=lambda x: _as_dt(x["created_at"]))
+        at = _as_dt(r["created_at"]).astimezone(PARIS)
+        return {**base, "status": "signale", "confidence": _report_confidence(r, now), "obstacle": "ascenseur_panne",
+                "effect": _at_most_genant(full), "label": label(True),
+                "source": "Roulib report (photo, voice or text), newer than the IDFM data",
+                "message": f"A user reported a broken elevator here at {at:%H:%M}, after the latest official update. "
+                           f"Check before you go.{rel_text}", "report_id": r.get("id")}
     if down:
         eff = _at_most_genant(full)
         return {**base, "status": "partiel", "confidence": conf, "obstacle": "ascenseur_panne", "effect": eff,

@@ -141,3 +141,15 @@ def test_report_older_than_a_day_no_longer_overrides():
     c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel",
                           reports=[_lift_report("a", "2026-10-22T09:00:00+00:00")], now=now)
     assert c["status"] == "ok"
+
+
+def test_photo_report_near_station_makes_a_working_lift_risky():
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
+    rows = [lift("available", "Ligne M1", liftid="a", lon=2.0, lat=48.0)]
+    photo = {"id": 7, "categorie": "ascenseur_panne", "target_type": "photo", "target_id": None,
+             "lon": 2.0003, "lat": 48.0002, "created_at": "2026-10-22T11:40:00+00:00", "confirmations": 1}
+    c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reports=[photo], now=now)
+    assert c["status"] == "signale" and c["effect"] == "genant" and c["report_id"] == 7
+    far = {**photo, "lon": 2.05}
+    assert verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reports=[far], now=now)["status"] == "ok"
