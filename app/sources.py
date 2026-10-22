@@ -348,7 +348,7 @@ def geocode(q: str) -> Optional[dict]:
 
 def warm_up() -> None:
     """Preload every layer so the first visitor does not wait for the downloads."""
-    for fn in (stations, train_stations, works, bus_stops):
+    for fn in (stations, train_stations, works, bus_stops, low_vision):
         try:
             fn()
         except Exception:
@@ -528,9 +528,6 @@ def _suggest_ign(q: str, limit: int = 6) -> List[dict]:
 # Only what the open data really says: audio/visual information per stop and per line (IDFM),
 # SNCF assistance and equipment in train stations, audible pedestrian signals in Paris.
 
-# PARIS is reassigned above to the (lon, lat) of Paris for Photon: keep our own copy of the URL.
-PARIS_OPENDATA = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets"
-
 SOURCES.update({
     "stop_signals": {
         "name": "IDFM – Stop register (audio and visual information)",
@@ -609,7 +606,7 @@ def sncf_equipment() -> dict:
 def crossing_lights() -> dict:
     """Pedestrian signal heads of Paris traffic lights (one installation = one cod_ouvrag, several heads)."""
     def load():
-        rows = _export(PARIS_OPENDATA, "signalisation-tricolore",
+        rows = _export(PARIS, "signalisation-tricolore",
                        where='lib_lumi_1 = "Caisson Piéton" or lib_lumi_1 = "Caisson Piéton R25"',
                        select="cod_ouvrag,geo_point_2d")
         return {"fetched_at": now_iso(), "rows": rows}
@@ -620,7 +617,7 @@ def crossing_lights() -> dict:
 def sound_modules() -> dict:
     """Audible pedestrian signals (répétiteurs sonores), at most one per traffic light installation."""
     def load():
-        rows = _export(PARIS_OPENDATA, "modules-sonores-passages-pietons", select="code_ouvrage,date_inst_accessoire")
+        rows = _export(PARIS, "modules-sonores-passages-pietons", select="code_ouvrage,date_inst_accessoire")
         return {"fetched_at": now_iso(), "rows": rows}
 
     return cached("sound_modules", 86400, load)
