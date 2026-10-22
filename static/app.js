@@ -573,6 +573,8 @@ function goHome() {
   if (document.activeElement === document.body || !document.activeElement) back?.focus({ preventScroll: true });
 }
 window.addEventListener("popstate", () => {
+  // A #station= link fires popstate before hashchange: open that station instead of going home (which clears the hash).
+  if (/station=/.test(location.hash)) return applyHash();
   if ($("#all-routes") && !$("#v-trip").hidden && lastTrip) return renderResults(lastTrip);  // detail -> list
   if ($("#v-home").hidden) goHome();
 });
@@ -833,10 +835,12 @@ function liftName(l, g) {
   if (!bits.length) bits.push((l.situation || "location not specified").split(/[.,]/)[0].replace(/\s+/g, " ").slice(0, 70));
   return `${g && g.key !== "all" && g.key !== "access" ? `${g.label} elevator` : "Elevator"}, ${bits.join(", ")}`;
 }
-function liftRowHTML(l, showDir = true) {
+// withState false: the group header already says it (a group with a single elevator).
+function liftRowHTML(l, showDir = true, withState = true) {
   const s = liftStatusSt(l), t = liftTime(l.source_update), { dir, exit } = liftWay(l);
   const way = [showDir && dir ? (dir === "all" ? "All directions" : `Toward <span lang="fr">${esc(dir)}</span>`) : "", exit ? `Exit <span lang="fr">${esc(exit)}</span>` : ""].filter(Boolean).join(" · ");
-  return `<li class="lift">${mark(s)}<div class="lift-body"><div class="st">${esc(LIFT_FR[l.status] || l.status)}${way ? `<span class="ls-way">${way}</span>` : ""}</div>` +
+  const head = withState ? esc(LIFT_FR[l.status] || l.status) : "";
+  return `<li class="lift${withState ? "" : " no-state"}">${withState ? mark(s) : ""}<div class="lift-body">${head || way ? `<div class="st">${head}${way ? `<span class="ls-way">${way}</span>` : ""}</div>` : ""}` +
     `<div class="where">${l.situation ? `<span lang="fr">${esc(l.situation)}</span>` : "Location not specified"}</div>` +
     (l.direction && !dir ? `<small lang="fr">${esc(l.direction)}</small>` : "") +
     (t ? `<small class="${ageH(t) > STALE_H ? "old" : ""}">IDFM update ${rel(t.toISOString())} (${esc(dayTime(t))})</small>` : `<small class="old">Status time unknown</small>`) +
@@ -852,7 +856,7 @@ function liftGroupHTML(g, i, only) {
   const body = byDir
     ? [...dirs, null].map((d) => { const ls = lifts.filter((l) => (liftWay(l).dir || null) === d); return ls.length
       ? `<h5 class="ls-dir">${d ? (d === "all" ? "All directions" : `Toward <span lang="fr">${esc(d)}</span>`) : "Direction not specified"}</h5><ul class="ls-lifts">${ls.map((l) => liftRowHTML(l, false)).join("")}</ul>` : ""; }).join("")
-    : `<ul class="ls-lifts">${lifts.map((l) => liftRowHTML(l)).join("")}</ul>`;
+    : `<ul class="ls-lifts">${lifts.map((l) => liftRowHTML(l, true, lifts.length > 1)).join("")}</ul>`;
   const can = lifts.filter((l) => l.status !== "notavailable");
   const report = !can.length ? "" : can.length === 1
     ? `<button class="linkish ls-report" data-g="${i}" data-lift="${esc(can[0].liftid)}" aria-label="Report an outage, ${esc(liftName(can[0], g))}">Report an outage</button>`
