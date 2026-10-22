@@ -53,6 +53,11 @@ SOURCES = {
         "url": "https://opendata.paris.fr/explore/dataset/chantiers-a-paris/",
         "license": "ODbL",
     },
+    "stairs": {
+        "name": "Ville de Paris – Plan de voirie, voies en escalier",
+        "url": "https://opendata.paris.fr/explore/dataset/plan-de-voirie-voies-en-escalier/",
+        "license": "ODbL",
+    },
     "places": {
         "name": "Acceslibre – Accessibilité des ERP (export data.gouv.fr)",
         "url": "https://www.data.gouv.fr/fr/datasets/60a528e8b656ce01b4c0c0a6/",
@@ -199,6 +204,17 @@ def works() -> dict:
         return {"fetched_at": now_iso(), "rows": rows}
 
     return cached("works", 3600, load)
+
+
+# --- Stairs in the street (static, ~550 objects in Paris) ------------------
+
+def stairs() -> dict:
+    """Public stairs on the street network: the only way through for some passages (Montmartre, Belleville…)."""
+    def load():
+        rows = _export(PARIS, "plan-de-voirie-voies-en-escalier", select="objectid,num_pave,lib_classe,geo_shape")
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("stairs", 86400, load)
 
 
 # --- Places: restaurants, shops… (Acceslibre) -----------------------------

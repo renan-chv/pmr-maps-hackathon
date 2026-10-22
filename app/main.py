@@ -148,6 +148,14 @@ def api_works():
     return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="chantiers actifs aujourd'hui occupant le trottoir")
 
 
+@app.get("/api/stairs")
+def api_stairs():
+    data = sources.stairs()
+    feats = [{"type": "Feature", "geometry": r["geo_shape"]["geometry"], "properties": {"id": r.get("objectid")}}
+             for r in data["rows"] if (r.get("geo_shape") or {}).get("geometry")]
+    return fc(feats, "stairs", data["fetched_at"], stale=data.get("stale", False))
+
+
 # --- Places (Acceslibre): wheelchair verdict computed from the raw fields --
 
 FOOD = re.compile(r"\b(restaura\w*|caf[ée]s?|bars?|brasseries?|glaciers?|salons? de th[ée]|cr[êe]peries?|pizzerias?|traiteurs?|sandwich\w*)\b", re.I)
