@@ -475,8 +475,9 @@ def _check_all(journeys: List[dict], profile: str, lifts: dict, prefix: str = "i
     reports = _reports()
     if rel is None:
         rel = reliability.for_lifts(_lifts_on_route(journeys, lifts["rows"]))
+    low_vision = sources.low_vision() if verify.cares_about_low_vision(profile) else None
     return [verify.verify_journey(j, profile, lifts["rows"], lifts.get("fetched_at"), works, works_at,
-                                  stairs, reports, reliability=rel, it_id=f"{prefix}{i + 1}")
+                                  stairs, reports, reliability=rel, it_id=f"{prefix}{i + 1}", low_vision=low_vision)
             for i, j in enumerate(journeys)]
 
 

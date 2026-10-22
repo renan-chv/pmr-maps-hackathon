@@ -1253,7 +1253,7 @@ function renderResults(d) {
     }).join("") + `</ul>` +
     (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Compare with a regular app</button>` : "") +
     `<p class="src">Routes from Île-de-France Mobilités, checked step by step by Roulib${esc(forWho())}. Elevator status from ${hhmm(d.lifts_fetched_at)}.</p>` +
-    (Profile.key() === "malvoyant" ? `<p class="note"><span>Roulib checks elevators, steps and roadworks. Audio announcements and tactile paving are not checked yet.</span></p>` : "");
+    (Profile.key() === "malvoyant" ? `<p class="note"><span>Checked for you: audio announcements at stops and on board (IDFM), SNCF staff assistance and platform warning strips, audible traffic signals on walks in Paris. Not checked: tactile guidance paths inside stations, and traffic signals outside Paris.</span></p>` : "");
   document.querySelectorAll("[data-it]").forEach((b) => b.addEventListener("click", () => renderItinerary(d, b.dataset.it)));
   $("#compare-btn")?.addEventListener("click", () => openCompare(d));
   whenMap(() => drawItinerary(best));
