@@ -1,4 +1,4 @@
-// PMR Maps – mobility profile (chantier A). Chosen once on first launch, kept on this phone,
+// Roulib – mobility profile (chantier A). Chosen once on first launch, kept on this phone,
 // sent as ?profile= with every /api/journey call. Keys match app/profiles.py.
 "use strict";
 

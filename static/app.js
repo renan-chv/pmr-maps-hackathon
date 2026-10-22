@@ -1,4 +1,4 @@
-// PMR Maps – front-end (mobile first, friendly). Big tiles, plain words, freshness always visible.
+// Roulib – front-end (mobile first, friendly). Big tiles, plain words, freshness always visible.
 "use strict";
 
 const C = { ok: "#157a3c", warn: "#9a5800", ko: "#b42318", unk: "#5f6670", works: "#c2410c", brand: "#3d3bd6", ink: "#1e1a16" };
@@ -405,10 +405,9 @@ let pendingFav = null;
 function renderFavs() {
   $("#favs").innerHTML = FAVS.map((f) => {
     const v = store.json(`fav-${f.key}`);
-    return `<li><div class="item"><span class="fav-ic">${icon(f.ic)}</span>` +
-      `<button class="t linkish" style="text-align:left;color:inherit;font-weight:400;padding:0" data-fav="${f.key}"><b>${f.label}</b>` +
-      `<small>${v ? esc(v.label) : "Toucher pour ajouter l'adresse"}</small></button>` +
-      (v ? `<button class="linkish" data-fav-edit="${f.key}">Changer</button>` : "") + `</div></li>`;
+    return `<div class="fav"><button class="fav-go" data-fav="${f.key}"><span class="fav-ic">${icon(f.ic)}</span><span class="t"><b>${f.label}</b>` +
+      `<small>${v ? esc(v.label) : "Ajouter"}</small></span></button>` +
+      (v ? `<button class="fav-edit" data-fav-edit="${f.key}" aria-label="Changer l'adresse ${f.label}">Changer</button>` : "") + `</div>`;
   }).join("");
   document.querySelectorAll("[data-fav]").forEach((b) => b.addEventListener("click", () => {
     const v = store.json(`fav-${b.dataset.fav}`);
@@ -452,8 +451,8 @@ $("#o-go").addEventListener("click", () => {
 function renderMe() {
   const p = Profile.get();
   $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = Profile.name() ? `Bonjour ${Profile.name()}` : "Votre profil";
-  $("#me-prof").textContent = p ? p.label : "Pas encore choisi";
+  $("#me-name").textContent = p ? p.label.toLowerCase() : "votre profil";
+  $("#h-home").innerHTML = Profile.name() ? `Où allez-vous, ${esc(Profile.name())}&nbsp;?` : "Bonjour&nbsp;! Où allez-vous&nbsp;?";
 }
 $("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
 renderMe();
@@ -602,8 +601,8 @@ function openAcceslibre(f) {
 // Photos: the place's own website, else a free-licence photo taken nearby. Never invented.
 // ---------------------------------------------------------------------------
 // Top slot: only a photo of the place itself. Bottom slot: a photo taken nearby, kept small and below the verdict.
-const photoSlot = () => `<figure class="photo" id="photo" hidden><img alt="" decoding="async"><figcaption></figcaption></figure>`;
-const nearSlot = () => `<section id="photo-near" hidden><h3 class="h2">Aux alentours</h3><figure class="photo small"><img alt="" decoding="async"><figcaption></figcaption></figure></section>`;
+const photoSlot = () => `<figure class="photo" id="photo" hidden><figcaption></figcaption></figure>`;
+const nearSlot = () => `<section id="photo-near" hidden><h3 class="h2">Aux alentours</h3><figure class="photo small"><figcaption></figcaption></figure></section>`;
 async function fillPhoto(coord, placeId) {
   const top = $("#photo"), near = $("#photo-near");
   const q = new URLSearchParams({ lat: coord[1].toFixed(5), lon: coord[0].toFixed(5) });
@@ -612,7 +611,10 @@ async function fillPhoto(coord, placeId) {
     const { photo } = await getJSON(`/api/photo?${q}`);
     const box = photo && (photo.kind === "site" ? top : near);
     if (!box || !box.isConnected) return;
-    const img = box.querySelector("img");
+    // The <img> only exists once a real photo is known: no empty image box in the page.
+    const img = document.createElement("img");
+    img.decoding = "async";
+    (box.tagName === "FIGURE" ? box : box.querySelector("figure")).prepend(img);
     img.alt = photo.kind === "site" ? "Photo du lieu" : "Photo prise à proximité";
     img.onload = () => { box.hidden = false; };
     img.onerror = () => box.remove();
@@ -842,6 +844,36 @@ const confPill = (n, recorded) => {
 };
 const whenMap = (fn) => (map.isStyleLoaded() && map.getSource("trip") ? fn() : map.once("idle", fn));
 const yyyymmddToTime = (s) => (s && s.length >= 13 ? `${s.slice(9, 11)}h${s.slice(11, 13)}` : "");
+
+// Public line colours of the Île-de-France network (signage convention), for line chips.
+const LINE_COLORS = {
+  "Métro": { 1: "#FFCD00", 2: "#003CA6", 3: "#837902", "3B": "#6EC4E8", 4: "#CF009E", 5: "#FF7E2E", 6: "#6ECA97", 7: "#FA9ABA", "7B": "#6ECA97",
+    8: "#E19BDF", 9: "#B6BD00", 10: "#C9910D", 11: "#704B1C", 12: "#007852", 13: "#6EC4E8", 14: "#62259D" },
+  "RER": { A: "#E2231A", B: "#5291CE", C: "#FFCD00", D: "#00814F", E: "#C04191" },
+};
+function lineColor(mode, line) {
+  const m = /rer/i.test(mode || "") ? "RER" : /m[ée]tro/i.test(mode || "") ? "Métro" : null;
+  const c = m && LINE_COLORS[m][String(line || "").toUpperCase().replace("BIS", "B")];
+  return c || (/(bus)/i.test(mode || "") ? "#1e1a16" : /tram/i.test(mode || "") ? "#00643c" : "#3d3bd6");
+}
+function inkOn(hex) {
+  const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#1e1a16" : "#ffffff";
+}
+const modeShort = (mode) => (/rer/i.test(mode || "") ? "RER" : /m[ée]tro/i.test(mode || "") ? "M" : /tram/i.test(mode || "") ? "T" : /bus/i.test(mode || "") ? "Bus" : "");
+// One Citymapper-style chip per step: wheelchair + minutes for walks, coloured line badge for transit.
+function stepChip(s) {
+  const st = { bloque: "ko", risque: "warn" }[s.verdict];
+  const flag = st ? `<span class="chip-flag ${st}" aria-hidden="true">${icon(st)}</span>` : "";
+  if (s.type === "transit") {
+    const bg = lineColor(s.mode, s.line);
+    return `<span class="lchip" style="background:${bg};color:${inkOn(bg)}" aria-label="${esc(s.mode)} ${esc(s.line)}${st ? ", attention" : ""}">${esc(modeShort(s.mode))}&nbsp;${esc(s.line || "")}${flag}</span>`;
+  }
+  return `<span class="wchip" aria-label="${s.duration_min || ""} minutes en fauteuil${st ? ", attention" : ""}">${icon(Profile.get()?.ic || "p-manuel")}${s.duration_min ? `${s.duration_min}′` : ""}${flag}</span>`;
+}
+const chipsRow = (it) => it.steps.filter((s) => s.type !== "walk" || (s.duration_min || 0) >= 1)
+  .map(stepChip).join(`<span class="chev-sep" aria-hidden="true">›</span>`);
+const RANK = { passe: 0, risque: 1, bloque: 2 };
 let lastTrip = null;
 
 async function runTrip(opts = {}) {
@@ -857,7 +889,7 @@ async function runTrip(opts = {}) {
     const d = await getJSON(`/api/journey?${q}`);
     if (demo) { trip.from = d.from; trip.to = d.to; $("#trip-from").value = d.from.label; $("#trip-to").value = d.to.label; }
     lastTrip = d;
-    renderItinerary(d, d.itineraries[0]?.id);
+    renderResults(d);
   } catch (e) {
     if (e.status === 503) renderTripFallback();
     else out.innerHTML = `<p class="err">Je n'ai pas trouvé de trajet. ${esc(e.message)}</p>` + demoButton();
@@ -884,7 +916,7 @@ function renderTripFallback() {
 function stepTitle(s) {
   if (s.type === "transit") return `${esc(s.mode || "Transport")} ${esc(s.line || "")}`.trim();
   if (s.type === "transfer") return "Correspondance";
-  return "En fauteuil, à pied";
+  return { manuel: "En fauteuil", electrique: "En fauteuil", poussette: "Avec la poussette" }[Profile.key()] || "À pied";
 }
 function checkLine(c, recorded) {
   const st = checkState(c);
@@ -892,6 +924,38 @@ function checkLine(c, recorded) {
     ? `<small>Historique : en panne environ 1 jour sur ${Math.max(2, Math.round(1 / Math.max(0.01, 1 - c.reliability)))} (${Math.round(c.reliability_window_days || 0)} derniers jours, ${esc(c.reliability_source || "")})</small>` : "";
   return `<li class="check">${mark(st)}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}` +
     `<div class="meta">${confPill(c.confidence, recorded)}${c.fetched_at ? `<span class="muted">${esc(c.source || "")} · vérifié à ${hhmm(c.fetched_at)}</span>` : `<span class="muted">${esc(c.source || "")}</span>`}</div></div></li>`;
+}
+
+// Ranked options, like Citymapper's result list, but ordered by what works for this profile.
+function renderResults(d) {
+  const its = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (x.duration_min - y.duration_min));
+  const rec = d.replay === "demo";
+  const prof = Profile.get()?.short || "profil";
+  $("#v-trip").classList.add("has-result");
+  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Modifier</span>`;
+  if (!its.length) { $("#trip-result").innerHTML = `<p>Je n'ai pas trouvé de trajet.</p>` + demoButton(); bindDemo(); return; }
+  const best = its[0];
+  $("#trip-result").innerHTML =
+    `<p class="results-head">${best.verdict === "bloque" ? `Aucun trajet ne passe pour un ${esc(prof)} en ce moment.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "trajet possible", "trajets possibles")} pour un ${esc(prof)}`}</p>` +
+    (rec ? `<p class="rec-line">${icon("clock")}Exemple enregistré, pas en direct</p>` : "") +
+    `<ul class="routes">` + its.map((it, i) => {
+      const V = VERDICT[it.verdict] || VERDICT.risque;
+      const why = it.verdict === "bloque" ? V.title(it)
+        : it.verdict === "risque" ? `À surveiller : ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label.toLowerCase())))].slice(0, 2).join(", ") || "voir les étapes"}`
+        : "Rien ne bloque sur ce trajet";
+      return `<li><button class="route ${V.st}" data-it="${esc(it.id)}">` +
+        `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Le mieux pour vous</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
+        `<span class="mins"><b>${it.duration_min}</b><small>min</small></span></span>` +
+        `<span class="route-why">${mark(V.st)}<span>${esc(why)}${it.departure ? `<small>Départ ${yyyymmddToTime(it.departure)} · arrivée ${yyyymmddToTime(it.arrival)}</small>` : ""}</span></span>` +
+        `</button></li>`;
+    }).join("") + `</ul>` +
+    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Ce qu'une appli classique vous aurait dit</button>` : "") +
+    `<p class="src">Trajets Navitia (option fauteuil), vérifiés étape par étape par Roulib pour le profil « ${esc(prof)} ». Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
+  document.querySelectorAll("[data-it]").forEach((b) => b.addEventListener("click", () => renderItinerary(d, b.dataset.it)));
+  $("#compare-btn")?.addEventListener("click", () => openCompare(d));
+  whenMap(() => drawItinerary(best));
+  Sheet.set("half");
+  Sheet.scrollTop();
 }
 
 function renderItinerary(d, id) {
@@ -903,24 +967,30 @@ function renderItinerary(d, id) {
   const planB = it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id);
   const rec = d.replay === "demo";
   $("#v-trip").classList.add("has-result");
-  $("#trip-summary").innerHTML = `<span class="t"><b>${esc(d.from?.label || trip.from?.label || "")}</b><small>vers ${esc(d.to?.label || trip.to?.label || "")}</small></span><span class="linkish">Modifier</span>`;
+  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Modifier</span>`;
   $("#trip-result").innerHTML =
+    `<button class="back" id="all-routes">${icon("chev-l")}Tous les trajets</button>` +
     (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
     `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong>${esc(V.title(it))}</strong>${esc(V.sub(prof))}</span></div>` +
     `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · départ ${yyyymmddToTime(it.departure)}, arrivée ${yyyymmddToTime(it.arrival)}` : ""} ${confPill(it.confidence, rec)}</p>` +
-    (rec ? `<p class="note">${icon("clock")}<span><b>Exemple enregistré.</b> Relevé des ascenseurs du 22/10 au matin, rejoué pour la démo. Ce n'est pas l'état en direct.</span></p>` : "") +
+    (rec ? `<p class="rec-line">${icon("clock")}Exemple enregistré, pas en direct</p>` : "") +
     (planB ? `<button class="btn primary block" id="planb">${icon("swap")}Voir le plan B (${planB.duration_min} min)</button>` : "") +
     (isPlanB ? `<button class="btn block" id="plana">Revenir au premier trajet</button>` : "") +
-    `<ol class="steps">` + it.steps.map((s) => {
+    `<ol class="timeline">` + it.steps.map((s) => {
       const st = { passe: "ok", risque: "warn", bloque: "ko" }[s.verdict] || "unk";
-      return `<li class="step ${st}"><div class="step-head">${mark(st)}<div><b>${stepTitle(s)}</b><small>${esc(s.from)} → ${esc(s.to)}${s.duration_min ? ` · ${s.duration_min} min` : ""}</small></div></div>` +
+      const rail = s.type === "transit" ? lineColor(s.mode, s.line) : null;
+      const badge = s.type === "transit"
+        ? `<span class="lchip" style="background:${rail};color:${inkOn(rail)}">${esc(modeShort(s.mode))}&nbsp;${esc(s.line || "")}</span>`
+        : `<span class="wchip">${icon(Profile.get()?.ic || "p-manuel")}</span>`;
+      return `<li class="tl ${s.type} ${st}" style="--rail:${rail || "#b9b0a2"}">` +
+        `<div class="tl-stop"><span class="tl-dot"></span><b>${esc(s.from)}</b></div>` +
+        `<div class="tl-body">${badge}<div><b>${stepTitle(s)}</b><small>${s.duration_min ? `${s.duration_min} min` : ""}${s.type === "transit" ? ` · jusqu'à ${esc(s.to)}` : ""}</small></div><span class="tl-state">${mark(st)}</span></div>` +
         (s.checks?.length ? `<ul class="checks">${s.checks.map((c) => checkLine(c, rec)).join("")}</ul>` : `<p class="muted small">Rien de particulier signalé.</p>`) + `</li>`;
-    }).join("") + `</ol>` +
-    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Comparer avec une appli classique</button>` : "") +
-    `<p class="src">Trajets : ${esc(d.source || "Navitia")}. Vérification PMR Maps pour le profil « ${esc(prof)} ». Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
+    }).join("") + `<li class="tl end"><div class="tl-stop"><span class="tl-dot"></span><b>${esc(it.steps[it.steps.length - 1]?.to || "")}</b></div></li></ol>` +
+    `<p class="src">Vérification Roulib pour le profil « ${esc(prof)} ». Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
   $("#planb")?.addEventListener("click", () => { renderItinerary(d, it.plan_b_id); Sheet.scrollTop(); });
   $("#plana")?.addEventListener("click", () => { renderItinerary(d, d.itineraries[0].id); Sheet.scrollTop(); });
-  $("#compare-btn")?.addEventListener("click", () => openCompare(d));
+  $("#all-routes").addEventListener("click", () => renderResults(d));
   whenMap(() => drawItinerary(it));
   Sheet.set("half");
   Sheet.scrollTop();
@@ -944,14 +1014,14 @@ function openCompare(d) {
     `<div class="cmp">` +
     `<div class="cmp-col"><h3>Appli classique</h3><div class="verdict ok">${mark("ok")}<span><strong>« Accessible »</strong>${base.duration_min} min</span></div>` +
     `<ul class="cmp-list">${base.steps.map((s) => `<li>${s.type === "public_transport" ? `${esc(s.mode)} ${esc(s.line)}` : "À pied"}<small>${esc(s.from)} → ${esc(s.to)}</small></li>`).join("")}</ul></div>` +
-    `<div class="cmp-col ours"><h3>PMR Maps</h3><div class="verdict ${VERDICT[ours.verdict].st}">${mark(VERDICT[ours.verdict].st)}<span><strong>${esc(VERDICT[ours.verdict].title(ours))}</strong>${ours.duration_min} min</span></div>` +
+    `<div class="cmp-col ours"><h3>Roulib</h3><div class="verdict ${VERDICT[ours.verdict].st}">${mark(VERDICT[ours.verdict].st)}<span><strong>${esc(VERDICT[ours.verdict].title(ours))}</strong>${ours.duration_min} min</span></div>` +
     `<ul class="cmp-list">${blockers.map((c) => `<li class="hit">${mark(checkState(c))}<span>${esc(c.label)}<small>${esc(c.message || "")}</small></span></li>`).join("") || "<li>Rien à signaler</li>"}</ul></div>` +
-    `</div>` + (planB ? `<button class="btn primary block" id="cmp-planb">${icon("swap")}PMR Maps propose un plan B (${planB.duration_min} min)</button>` : "") +
+    `</div>` + (planB ? `<button class="btn primary block" id="cmp-planb">${icon("swap")}Roulib propose un plan B (${planB.duration_min} min)</button>` : "") +
     `<p class="src">À gauche : la réponse de Navitia seule (option fauteuil). À droite : le même trajet vérifié étape par étape avec les données ${d.replay === "demo" ? "enregistrées le 22/10 au matin" : "en direct"}.</p>`;
   $("#cmp-planb")?.addEventListener("click", () => { show("trip", "half"); renderItinerary(d, planB.id); });
   show("compare", "full");
 }
-document.querySelector("[data-back-trip]")?.addEventListener("click", () => show("trip", "half"));
+document.querySelector("[data-back-trip]")?.addEventListener("click", () => { show("trip", "half"); if (lastTrip) renderResults(lastTrip); });
 
 $("#trip-go").addEventListener("click", () => runTrip());
 
@@ -1124,8 +1194,8 @@ $("#o-go").addEventListener("click", () => {
 function renderMe() {
   const p = Profile.get();
   $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = Profile.name() ? `Bonjour ${Profile.name()}` : "Votre profil";
-  $("#me-prof").textContent = p ? p.label : "Pas encore choisi";
+  $("#me-name").textContent = p ? p.label.toLowerCase() : "votre profil";
+  $("#h-home").innerHTML = Profile.name() ? `Où allez-vous, ${esc(Profile.name())}&nbsp;?` : "Bonjour&nbsp;! Où allez-vous&nbsp;?";
 }
 $("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
 renderMe();
