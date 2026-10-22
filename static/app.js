@@ -1284,9 +1284,7 @@ $("#locate").addEventListener("click", async () => {
   if (!pos) return toast("Je ne trouve pas votre position. Autorisez la localisation dans les réglages du téléphone.");
   flyTo(pos, 15.5);
 });
-$("#zoom-in").addEventListener("click", () => map.zoomIn());
 $("#snap").addEventListener("click", () => openReportFlow({}));
-$("#zoom-out").addEventListener("click", () => map.zoomOut());
 
 // ---------------------------------------------------------------------------
 // Chips, text size, voice, deep links
