@@ -58,3 +58,13 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     cost_usd     REAL,
     mode         TEXT DEFAULT 'live' -- live / recorded
 );
+
+-- Community reports (chantier B). The description stays in user_reports.message (read by the journey engine).
+ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS profile TEXT;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS categorie TEXT;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS temporaire BOOLEAN;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS gravite TEXT;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS confiance REAL;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS confirmations INT DEFAULT 1;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS photo_thumb TEXT;
+CREATE INDEX IF NOT EXISTS user_reports_lonlat_idx ON user_reports (lon, lat);
