@@ -1,0 +1,36 @@
+# Photon auto-hébergé pour Roulib : Photon + Caddy (HTTPS automatique Let's Encrypt).
+# Prérequis : un nom de domaine (ex. photon.example.org) qui pointe vers l'IP du serveur,
+# et l'index déjà téléchargé par ./update-index.sh (dans ./data/current/photon_data).
+# Lancer :   PHOTON_DOMAIN=photon.example.org docker compose up -d --build
+services:
+  photon:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Mémoire Java. 3 Go suffisent pour un index France sur une machine de 8 Go (estimation, à ajuster).
+      JAVA_OPTS: "-Xmx3g"
+    volumes:
+      # Lecture-écriture : l'OpenSearch embarqué écrit ses verrous dans le dossier de l'index.
+      - ./data:/photon
+    # Pas de port publié : seul Caddy parle à Photon, sur le réseau interne Docker.
+    expose:
+      - "2322"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - photon
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PHOTON_DOMAIN: "${PHOTON_DOMAIN:?définir PHOTON_DOMAIN, ex. photon.example.org}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

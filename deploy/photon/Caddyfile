@@ -1,0 +1,18 @@
+# Caddy obtient et renouvelle seul le certificat HTTPS du domaine.
+{$PHOTON_DOMAIN} {
+	encode gzip
+
+	# Seules les routes de recherche sont publiques. Le reste (dont /nominatim-update) reste fermé.
+	@public path /api /api/* /reverse /reverse/* /status
+	handle @public {
+		reverse_proxy photon:2322
+	}
+	handle {
+		respond "Not found" 404
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
