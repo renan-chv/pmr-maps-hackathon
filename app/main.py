@@ -8,8 +8,10 @@ import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
@@ -330,8 +332,6 @@ FIXTURES = STATIC / "fixtures"
 
 
 # Trip time (Google Maps style "Depart at" / "Arrive by"): local Paris time, as Navitia expects it.
-from datetime import datetime, timedelta  # noqa: E402
-from zoneinfo import ZoneInfo  # noqa: E402
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 WHEN_PAST_TOLERANCE = timedelta(minutes=10)  # the user picked "now" a few minutes ago: still fine
