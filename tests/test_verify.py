@@ -48,11 +48,20 @@ def test_no_lift_data_is_unknown_with_lowest_confidence():
     assert c["status"] == "inconnu" and c["confidence"] == 1 and c["effect"] == "genant"
 
 
-def test_stairs_near_walk_block_wheelchair():
+def square(x, y, d=0.00005):
+    return {"type": "Polygon", "coordinates": [[[x - d, y - d], [x + d, y - d], [x + d, y + d], [x - d, y + d], [x - d, y - d]]]}
+
+
+def test_stairs_crossed_by_walk_block_wheelchair():
     line = [[2.3500, 48.8500], [2.3510, 48.8500]]
-    stairs = [{"geometry": {"type": "LineString", "coordinates": [[2.3505, 48.85005], [2.3505, 48.8502]]}}]
-    checks = verify.walk_checks(line, "manuel", stairs=stairs)
+    checks = verify.walk_checks(line, "manuel", stairs=[{"geometry": square(2.3505, 48.8500)}])
     assert [c["kind"] for c in checks] == ["stairs"] and checks[0]["effect"] == "bloquant"
+
+
+def test_stairs_beside_the_walk_are_ignored():
+    line = [[2.3500, 48.8500], [2.3510, 48.8500]]
+    # 8 m north of the walking line: next to it, not on it
+    assert verify.walk_checks(line, "manuel", stairs=[{"geometry": square(2.3505, 48.85015)}]) == []
 
 
 def test_far_works_are_ignored():
@@ -92,3 +101,10 @@ def test_lifts_found_by_station_id_even_far_from_centroid():
     rows = [dict(lift("notavailable", "Ligne M1", liftid="a", lon=2.10, lat=48.10), zdcid="71485")]
     c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", stop_area="stop_area:IDFM:71485")
     assert c["status"] == "en_panne"
+
+
+def test_crow_fly_line_is_not_checked_for_obstacles():
+    j = {"duration": 600, "sections": [{"type": "crow_fly", "duration": 600, "from": {"name": "A"}, "to": {"name": "B"},
+                                         "geojson": {"type": "LineString", "coordinates": [[2.3500, 48.85], [2.3510, 48.85]]}}]}
+    it = verify.verify_journey(j, "manuel", [], stairs=[{"geometry": square(2.3505, 48.8500)}])
+    assert it["verdict"] == "passe"
