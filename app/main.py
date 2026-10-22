@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, poller, profiles, sources, verify
+from . import db, poller, profiles, reliability, sources, verify
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -378,12 +378,29 @@ def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
     return feats, data.get("fetched_at")
 
 
-def _check_all(journeys: List[dict], profile: str, lifts: dict, prefix: str = "it") -> List[dict]:
+def _lifts_on_route(journeys: List[dict], rows: List[dict]) -> List[dict]:
+    stops = []
+    for j in journeys:
+        for s in j.get("sections", []):
+            if s.get("type") == "public_transport":
+                for end in ("from", "to"):
+                    c = ((s.get(end) or {}).get("stop_point") or {}).get("coord") or {}
+                    if c.get("lon") is not None:
+                        stops.append((float(c["lon"]), float(c["lat"])))
+    return [r for r in rows if (r.get("centroidzdc") or {}).get("lon") is not None and any(
+        verify.dist_m(lon, lat, r["centroidzdc"]["lon"], r["centroidzdc"]["lat"]) <= verify.LIFT_RADIUS_M
+        for lon, lat in stops)]
+
+
+def _check_all(journeys: List[dict], profile: str, lifts: dict, prefix: str = "it",
+               rel: Optional[dict] = None) -> List[dict]:
     works, works_at = _layer("works")
     stairs, _ = _layer("stairs")
     reports = _reports()
+    if rel is None:
+        rel = reliability.for_lifts(_lifts_on_route(journeys, lifts["rows"]))
     return [verify.verify_journey(j, profile, lifts["rows"], lifts.get("fetched_at"), works, works_at,
-                                  stairs, reports, it_id=f"{prefix}{i + 1}")
+                                  stairs, reports, reliability=rel, it_id=f"{prefix}{i + 1}")
             for i, j in enumerate(journeys)]
 
 
@@ -400,6 +417,7 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
         except FileNotFoundError:
             raise HTTPException(404, "fichiers de démo absents (static/fixtures)")
         a, b, journeys = demo["from"], demo["to"], demo["journeys"]
+        rel = reliability.load_fixture(FIXTURES / "reliability_demo.json")
     else:
         if not PRIM_API_KEY:
             raise HTTPException(503, "PRIM_API_KEY manquante : itinéraire indisponible")
@@ -408,7 +426,8 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
             raise HTTPException(404, "adresse de départ ou d'arrivée introuvable")
         journeys = _navitia(a, b)
         lifts = sources.lifts()
-    itineraries = _check_all(journeys, profile, lifts)
+        rel = None
+    itineraries = _check_all(journeys, profile, lifts, rel=rel)
     if replay != "demo" and itineraries and all(it["verdict"] == "bloque" for it in itineraries):
         forbidden = verify.blocking_stop_areas(itineraries[0])
         if forbidden:

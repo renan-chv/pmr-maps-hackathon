@@ -72,3 +72,17 @@ def test_demo_journey_blocks_at_esplanade_and_offers_plan_b():
 def test_demo_journey_passes_for_blind_profile():
     it = verify.verify_journey(DEMO["journeys"][0], "malvoyant", LIFTS)
     assert it["verdict"] != "bloque"
+
+
+def test_unreliable_lift_warns_even_when_in_service():
+    rows = [lift("available", "Ligne M1", liftid="a")]
+    rel = {"a": {"availability": 0.6, "window_days": 11.2, "outages": 4, "source": "Dispotrains"}}
+    c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reliability=rel)
+    assert c["status"] == "ok" and c["effect"] == "genant" and c["reliability"] == 0.6
+    assert "60 %" in c["message"] and "11.2" in c["message"] and "4 panne" in c["message"]
+
+
+def test_reliable_lift_stays_clear():
+    rows = [lift("available", "Ligne M1", liftid="a")]
+    rel = {"a": {"availability": 0.99, "window_days": 10, "outages": 0, "source": "Dispotrains"}}
+    assert verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reliability=rel)["effect"] == "sans_effet"
