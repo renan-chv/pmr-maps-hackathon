@@ -18,7 +18,6 @@ from . import profiles
 
 LIFT_RADIUS_M = 150     # lifts are geolocated at the station centroid
 NEAR_WALK_M = 15        # fallback distance for obstacles given as lines or points
-LONG_WALK_M = 400       # beyond this a walking step is flagged as long
 REPORT_MAX_AGE_H = 24    # a live breakdown report older than this no longer overrides official data
 PARIS = ZoneInfo("Europe/Paris")
 UNRELIABLE_BELOW = 0.85  # lift in service less than this share of the time: warn (estimate)
@@ -396,17 +395,10 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
     out: List[dict] = []
     xs, ys = [p[0] for p in line], [p[1] for p in line]
     box = (min(xs), min(ys), max(xs), max(ys))
-    for f in works:
-        if _bbox_apart(f, box, 1e-4):
-            continue
-        if _crosses(f.get("geometry"), line, f.get("_bbox")):
-            p = f.get("properties") or {}
-            # a sidewalk worksite usually leaves a way round: never more than "genant" on its own
-            eff = _at_most_genant(profiles.effect("trottoir_etroit", profile))
-            out.append({"kind": "works", "status": "obstacle", "confidence": 5, "obstacle": "trottoir_etroit",
-                        "effect": eff, "source": "Ville de Paris – Roadworks in Paris", "fetched_at": works_fetched_at,
-                        "label": "Sidewalk works",
-                        "message": f"{p.get('summary') or 'Roadworks'}" + (f" (until {p['end']})" if p.get("end") else "")})
+    crossed = [f for f in works if not _bbox_apart(f, box, 1e-4) and _crosses(f.get("geometry"), line, f.get("_bbox"))]
+    works_line = works_summary(crossed, profile, works_fetched_at)
+    if works_line:
+        out.append(works_line)
     for f in stairs:
         if _bbox_apart(f, box, 1e-4):
             continue
@@ -427,12 +419,47 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
                     "label": f"Reported: {REPORT_LABELS.get(r.get('categorie') or '', (r.get('categorie') or 'obstacle').replace('_', ' '))}",
                     "message": r.get("description") or "", "report_id": r.get("id")})
     length = line_length_m(line) if len(line) > 1 else 0.0
-    if length > LONG_WALK_M:
-        eff = profiles.effect("long_trajet_pied", profile, walk_m=length)
-        out.append({"kind": "walk", "status": "obstacle", "confidence": 5, "obstacle": "long_trajet_pied",
-                    "effect": eff, "source": "Roulib calculation", "fetched_at": None,
-                    "label": "Long walk", "message": f"{round(length)} m on foot"})
+    walk = long_walk_check(length, profile)
+    if walk:
+        out.append(walk)
     return out
+
+
+def works_summary(crossed: List[dict], profile: str, fetched_at: Optional[str] = None) -> Optional[dict]:
+    """One line for all the sidewalk worksites along a walk, never one per worksite.
+
+    The open-data layer only says that a worksite takes up part of the sidewalk, and a way round is almost
+    always left: it is information, not something to act on, so it never raises the verdict.
+    """
+    if not crossed or profiles.effect("trottoir_etroit", profile) == "sans_effet":
+        return None
+    n = len(crossed)
+    first = crossed[0].get("properties") or {}
+    what = first.get("summary") or "Roadworks"
+    until = f" until {first['end']}" if first.get("end") else ""
+    return {"kind": "works", "status": "info", "confidence": 5, "obstacle": None, "effect": "sans_effet",
+            "count": n, "source": "Ville de Paris – Roadworks in Paris", "fetched_at": fetched_at,
+            "label": "Roadworks on the sidewalk",
+            "message": (f"Roadworks on the sidewalk along this walk ({what}{until}); usually passable, "
+                        "the sidewalk may be narrower." if n == 1 else
+                        f"{n} roadworks on the sidewalk along this walk; usually passable, the sidewalk may be "
+                        f"narrower. First one: {what}{until}.")}
+
+
+def long_walk_check(length: float, profile: str) -> Optional[dict]:
+    """A walk (or roll) long enough to matter for this profile: a risk past its warning threshold,
+    blocking past its limit (profiles.LONG_WALK_WARN_M and LONG_WALK_BLOCKING_M). Nothing below."""
+    eff = profiles.effect("long_trajet_pied", profile, walk_m=length)
+    if eff == "sans_effet":
+        return None
+    word = profiles.walk_word(profile)
+    limit = profiles.LONG_WALK_BLOCKING_M.get(profiles.normalize(profile))
+    advice = (f"more than {limit:,} m, too far for this profile." if eff == "bloquant"
+              else "plan a rest on the way.")
+    # Computed by Roulib from the route: no live data behind it, hence no confidence level.
+    return {"kind": "walk", "status": "obstacle", "confidence": None, "obstacle": "long_trajet_pied",
+            "effect": eff, "source": "Roulib calculation", "fetched_at": None, "length_m": round(length),
+            "label": "Long walk", "message": f"{round(length):,} m to {word}: {advice}"}
 
 
 # --- Visually impaired travellers ------------------------------------------------
@@ -672,7 +699,7 @@ def sources_weekday(now: datetime) -> str:
 
 def crossing_check(line: List[List[float]], idx: dict, profile: str) -> Optional[dict]:
     """Traffic lights along the walk and how many have an audible signal (répétiteur sonore, Paris only)."""
-    base = {"kind": "crossings", "label": "Audible traffic signals", "source": LV_SRC["lights"],
+    base = {"kind": "crossings", "label": "Crossings with sound", "source": LV_SRC["lights"],
             "fetched_at": idx["at"].get("sound_modules"), "confidence": 3}
     if len(line) < 2:
         return None
@@ -685,27 +712,32 @@ def crossing_check(line: List[List[float]], idx: dict, profile: str) -> Optional
                for p in line for x, y, _ in _grid_near(idx["lights"], p[0], p[1], COVERAGE_M)):
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
                 "message": "Audible traffic signals are only mapped inside Paris."}
-    xs, ys = [p[0] for p in line], [p[1] for p in line]
+    # Segment by segment, only the grid cells around that segment: the bounding box of a long diagonal walk
+    # holds thousands of lights, and testing each against every segment took seconds per walk.
     pad = 0.0003
-    gx0, gy0 = _grid_key(min(xs) - pad, min(ys) - pad)
-    gx1, gy1 = _grid_key(max(xs) + pad, max(ys) + pad)
-    heads = [h for gx in range(gx0, gx1 + 1) for gy in range(gy0, gy1 + 1) for h in idx["lights"].get((gx, gy), ())]
-    near = {code for x, y, code in heads if point_to_line_m([x, y], line) <= CROSSING_NEAR_M}
+    near: set = set()
+    for a, b in zip(line, line[1:]):
+        gx0, gy0 = _grid_key(min(a[0], b[0]) - pad, min(a[1], b[1]) - pad)
+        gx1, gy1 = _grid_key(max(a[0], b[0]) + pad, max(a[1], b[1]) + pad)
+        near.update(code for gx in range(gx0, gx1 + 1) for gy in range(gy0, gy1 + 1)
+                    for x, y, code in idx["lights"].get((gx, gy), ())
+                    if code not in near and _point_segment_m([x, y], a, b) <= CROSSING_NEAR_M)
     if not near:
         return None  # no traffic light along this walk: nothing to say
     audible = near & idx["sound"]
-    n = len(near)
-    if len(audible) == n:
+    n, a = len(near), len(audible)
+    remote = "with the universal remote (the standard blind-user remote)"
+    if a == n:
         return {**base, "status": "ok", "obstacle": None, "effect": "sans_effet",
-                "message": f"{'The' if n == 1 else f'All {n}'} traffic {'light' if n == 1 else 'lights'} along this walk "
-                           f"{'has' if n == 1 else 'have'} an audible signal (standard remote control)."}
+                "message": f"{'The crossing' if n == 1 else f'All {n} crossings'} on this walk "
+                           f"{'has' if n == 1 else 'have'} sound {remote}."}
     obstacle = "feu_sans_son"
-    silent = n - len(audible)
+    silent = n - a
+    with_sound = f"; {a} {'has' if a == 1 else 'have'} sound {remote}" if a else ""
     return {**base, "status": "partiel" if audible else "absent", "obstacle": obstacle,
-            "effect": _at_most_genant(profiles.effect(obstacle, profile)),
-            "message": f"{len(audible)} of {_count(n, 'traffic light')} along this walk "
-                       f"{'has' if len(audible) == 1 else 'have'} an audible signal (standard remote control); "
-                       f"{silent} {'is' if silent == 1 else 'are'} silent."}
+            "label": "Crossings without sound", "effect": _at_most_genant(profiles.effect(obstacle, profile)),
+            "message": f"{_count(silent, 'crossing')} without sound on this walk{with_sound}. "
+                       f"At a silent one, cross with other people or ask for help."}
 
 
 # --- Journeys ------------------------------------------------------------------
@@ -810,6 +842,42 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
         "steps": steps,
         "plan_b_id": None,
     }
+
+
+def _blockers(itinerary: dict) -> List[dict]:
+    return [c for st in itinerary.get("steps") or [] for c in st.get("checks") or [] if c.get("effect") == "bloquant"]
+
+
+def least_blocked(itineraries: List[dict]) -> Optional[dict]:
+    """When every option is blocked, the one closest to working: fewest blocking checks, then a walk only a
+    little too long rather than a broken elevator, then the shortest."""
+    blocked = [it for it in itineraries if it["verdict"] == "bloque"]
+    if not blocked or len(blocked) < len(itineraries):
+        return None
+
+    def cost(it: dict) -> Tuple[int, int, int]:
+        bl = _blockers(it)
+        over = sum((c.get("length_m") or 0) for c in bl if c["kind"] == "walk")
+        lifts = sum(1 for c in bl if c["kind"] != "walk")
+        return len(bl), lifts * 100000 + over, it.get("duration_min") or 0
+    return min(blocked, key=cost)
+
+
+# Door-to-door service for people with reduced mobility in Paris (PAM 75, Île-de-France Mobilités).
+# Only for disabilities it serves: not for a stroller or the able-bodied helper.
+PAM_PROFILES = ("manuel", "electrique", "deambulateur", "malvoyant")
+
+
+def way_out(itineraries: List[dict], profile: str) -> Optional[dict]:
+    """Every option blocked: never a dead end. The least blocked option, other times, and PAM 75."""
+    best = least_blocked(itineraries)
+    if best is None:
+        return None
+    profile = profiles.normalize(profile)
+    return {"least_blocked_id": best["id"],
+            "least_blocked_reason": best.get("blocked_reason"),
+            "try_other_time": True,
+            "pam": profile in PAM_PROFILES}
 
 
 def blocking_stop_areas(itinerary: dict) -> List[str]:

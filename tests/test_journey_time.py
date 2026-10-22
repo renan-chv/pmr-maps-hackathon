@@ -92,6 +92,30 @@ def test_navitia_arrive_by_in_paris_time(monkeypatch):
     assert calls[0]["forbidden_uris[]"] == "stop_area:X"
 
 
+def test_navitia_gets_the_walking_limits_of_the_profile(monkeypatch):
+    calls = capture_params(monkeypatch)
+    main._navitia(A, B, profile="deambulateur")
+    p = calls[0]
+    assert p["wheelchair"] == "true" and p["walking_speed"] == 0.7
+    # never a walk to or from transit longer than a walker can do (1000 m at 0.7 m/s)
+    assert p["max_walking_duration_to_pt"] == p["max_walking_direct_path_duration"] == 1429
+    assert p["min_nb_journeys"] == 3 and p["max_nb_journeys"] == 5 and "count" not in p
+
+
+def test_navitia_stairs_free_only_when_stairs_matter(monkeypatch):
+    calls = capture_params(monkeypatch)
+    main._navitia(A, B, profile="malvoyant")
+    main._navitia(A, B, profile="valide")
+    assert calls[0]["wheelchair"] == "false" and "max_walking_duration_to_pt" not in calls[0]
+    assert calls[1]["wheelchair"] == "false" and "walking_speed" not in calls[1]
+
+
+def test_navitia_never_raises_the_default_walk_cap(monkeypatch):
+    calls = capture_params(monkeypatch)
+    main._navitia(A, B, profile="manuel")
+    assert calls[0]["max_walking_duration_to_pt"] == 1800  # 2500 m at 0.9 m/s would be more
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(main, "PRIM_API_KEY", "test")
@@ -109,7 +133,7 @@ def test_api_journey_rejects_bad_when(client):
 
 def test_api_journey_passes_time_to_main_and_plan_b(client, monkeypatch):
     seen = []
-    monkeypatch.setattr(main, "_navitia", lambda a, b, forbidden=(), when=None, arrive=False:
+    monkeypatch.setattr(main, "_navitia", lambda a, b, forbidden=(), when=None, arrive=False, profile=None:
                         seen.append((tuple(forbidden), when, arrive)) or [{"sections": []}])
     monkeypatch.setattr(main, "_check_all", lambda js, *a, prefix="it", **k: [{"id": f"{prefix}1", "verdict": "bloque"}])
     monkeypatch.setattr(main.verify, "blocking_stop_areas", lambda it: ["stop_area:X"])
@@ -126,9 +150,18 @@ def test_api_journey_passes_time_to_main_and_plan_b(client, monkeypatch):
 
 def test_api_journey_leave_now_has_no_note(client, monkeypatch):
     seen = []
-    monkeypatch.setattr(main, "_navitia", lambda a, b, forbidden=(), when=None, arrive=False: seen.append(when) or [])
+    monkeypatch.setattr(main, "_navitia", lambda a, b, forbidden=(), when=None, arrive=False, profile=None:
+                        seen.append(when) or [])
     d = client.get("/api/journey", params={"from": "a", "to": "b"}).json()
     assert seen == [None] and d["when"] is None and d["arrive"] is False and d["time_note"] is None
+
+
+def test_api_journey_sends_the_profile_to_navitia(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(main, "_navitia", lambda a, b, forbidden=(), when=None, arrive=False, profile=None:
+                        seen.append(profile) or [])
+    client.get("/api/journey", params={"from": "a", "to": "b", "profile": "deambulateur"})
+    assert seen == ["deambulateur"]
 
 
 def test_replay_demo_ignores_the_time(monkeypatch):

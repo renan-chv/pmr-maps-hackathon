@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#fff9f1">
   <!-- Text size step before the first paint (no flash of small text for low-vision users) -->
-  <script>try { var t = localStorage.getItem("text") ?? (localStorage.getItem("big") === "1" ? "1" : null); if (t) document.documentElement.dataset.text = t; } catch (e) {}</script>
+  <script>try { var t = localStorage.getItem("text") ?? (localStorage.getItem("big") === "1" ? "1" : null), d = document.documentElement;
+    /* Phone or browser text at 200 % (root 20 px or more): the "Larger" layouts, at the size the user chose (data-tz) */
+    if (parseFloat(getComputedStyle(d).fontSize) >= 20 && !(+t >= 2)) { d.dataset.tz = +t || 0; t = "2"; }
+    if (t) d.dataset.text = t; } catch (e) {}</script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Roulib">
   <link rel="manifest" href="/static/manifest.webmanifest">
@@ -160,6 +163,7 @@
         <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Back</button>
         <h2 id="t-title" class="title">Where do you want to go?</h2>
         <button id="trip-summary" class="trip-summary"></button>
+        <p id="trip-hint" class="trip-hint" role="status" hidden></p>
         <div class="trip-fields">
           <div class="trip-row"><span class="pin a" aria-hidden="true"></span>
             <label for="trip-from" class="sr">From</label>
@@ -182,7 +186,7 @@
               <label for="when-at" class="when-at-l">Date and time</label>
               <input id="when-at" class="field" type="datetime-local" step="300" aria-describedby="when-err">
               <p id="when-err" class="err when-err" role="alert"></p>
-              <div class="when-actions"><button id="when-cancel" class="btn" type="button">Cancel</button><button id="when-ok" class="btn primary" type="button">Done</button></div>
+              <div class="when-actions"><button id="when-ok" class="btn primary" type="button">Done</button><button id="when-cancel" class="btn" type="button">Cancel</button></div>
             </div>
           </div>
           <button id="trip-go" class="btn primary block">Check my trip</button>
