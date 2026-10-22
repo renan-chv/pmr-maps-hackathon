@@ -499,3 +499,107 @@ body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }
 .r-where { display: flex; align-items: center; gap: var(--sp-2); }
 .r-where .linkish { margin-left: auto; min-height: 44px; }
 @media (max-width: 1023px) { #toast { top: auto; bottom: calc(var(--safe-b) + 24px); } }  /* not over the Back button */
+
+/* ---------- Departure time ---------- */
+/* Compact "Leave now" button under From/To; opens a small inline picker (native datetime-local). */
+.when { margin: var(--sp-2) 0 0; }
+.when-btn { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 44px; padding: 8px 14px 8px 10px; border: 2px solid var(--line-2); border-radius: 99px; background: var(--surface); color: var(--ink); font-weight: 700; }
+.when-btn .i { width: 20px; height: 20px; color: var(--brand); }
+.when-btn[aria-expanded="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.when-panel { margin-top: var(--sp-2); padding: var(--sp-3); border: 2px solid var(--line-2); border-radius: var(--r-m); background: var(--surface); box-shadow: var(--shadow-1); }
+.when-panel[hidden] { display: none; }
+.when-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: var(--r-s); background: var(--raised); }
+.when-seg label { position: relative; display: block; }
+/* Radios stay real (keyboard arrows, screen readers); the visible part is the span. */
+.when-seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.when-seg span { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 4px 6px; border-radius: 9px; text-align: center; font-size: var(--t-meta); font-weight: 800; color: var(--ink-2); }
+.when-seg input:checked + span { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-1); }
+.when-seg input:focus-visible + span { outline: 3px solid var(--brand); outline-offset: 2px; }
+.when-at-l { display: block; margin: var(--sp-3) 0 var(--sp-1); font-size: var(--t-meta); font-weight: 700; color: var(--ink-2); }
+.when-at-l.off { opacity: .5; }
+#when-at { display: block; width: 100%; }
+#when-at:disabled { opacity: .5; }
+.when-err { margin: var(--sp-2) 0 0; font-size: var(--t-meta); font-weight: 700; }
+.when-err:empty { display: none; }
+.when-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); margin-top: var(--sp-3); }
+.when-actions .btn { min-height: 48px; }
+/* Results header: chosen time, then the honest note that lift statuses are today's. */
+.when-line { display: flex; align-items: flex-start; gap: var(--sp-2); margin: var(--sp-2) 0; }
+.when-line .i { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--brand); }
+.when-line small { display: block; margin-top: 2px; font-size: var(--t-meta); color: var(--warn); font-weight: 700; }
+/* ---------- Home (maps-app layout) ---------- */
+/* One question ("Where to?"), then one-tap places, then a few shortcuts. Network status stays below, as text. */
+#v-home .home-greet { margin: 0 0 var(--sp-2); font-size: 1.25em; line-height: 1.2; }
+#v-home .home-me { margin: 2px 0 0; min-height: 44px; }
+#v-home .home-me .linkish { padding: 0 6px; min-height: 44px; display: inline-flex; align-items: center; }
+
+/* Places: Home, Work, recents. A horizontal row of pills, like Google Maps (swipe for more). */
+.home-places { display: flex; gap: var(--sp-2); margin: var(--sp-1) calc(-1 * var(--sp-4)) 0; padding: var(--sp-1) var(--sp-4) var(--sp-2);
+  list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scroll-padding: 0 var(--sp-4); scrollbar-width: none; }
+.home-places::-webkit-scrollbar { display: none; }
+.home-places:empty { display: none; }
+.hp { flex: none; display: flex; align-items: stretch; max-width: 78%; border-radius: 99px; background: var(--surface); box-shadow: var(--shadow-1); }
+.hp-go { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 52px; padding: 4px var(--sp-4) 4px var(--sp-3); border: 0; border-radius: 99px; background: none; text-align: left; }
+.hp.set .hp-go { padding-right: var(--sp-2); }
+.hp-go > .i { color: var(--brand); }
+.hp-go[data-recent] > .i { color: var(--ink-2); }
+.hp-go .t { min-width: 0; line-height: 1.2; }
+.hp-go b, .hp-go small { display: block; max-width: 13em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-go b { font-size: var(--t-meta); font-weight: 800; }
+.hp-go small { font-size: var(--t-meta); color: var(--ink-2); }
+.hp-go:not([data-recent]) b { font-size: var(--t-body); }
+.hp-edit { flex: none; width: 44px; min-height: 44px; display: grid; place-items: center; margin: 4px 4px 4px 0; padding: 0; border: 0; border-radius: 99px; background: var(--raised); color: var(--brand); }
+.hp-edit .i { width: 18px; height: 18px; }
+.hp-go:focus-visible, .hp-edit:focus-visible { outline-offset: -3px; border-radius: 99px; }
+.hp-go:active, .hp-edit:active { background: var(--raised); }
+
+/* Shortcuts: compact rows in one card (not tiles), one hue per job kept from the old tiles. */
+.home-acts { margin: var(--sp-2) 0 0; padding: 0; list-style: none; background: var(--surface); border-radius: var(--r-m); box-shadow: var(--shadow-1); overflow: hidden; }
+.home-acts > li + li { border-top: 1px solid var(--line); }
+.home-act { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 56px; padding: 6px var(--sp-3); border: 0; background: none; text-align: left; }
+.home-act:active { background: var(--raised); }
+.home-act:focus-visible { outline-offset: -3px; }
+.home-act .t { flex: 1; min-width: 0; line-height: 1.25; }
+.home-act b { display: block; font-size: var(--t-title); font-weight: 700; }
+.home-act small { display: block; font-size: var(--t-meta); color: var(--ink-2); }
+.home-act .chev { color: var(--ink-2); }
+.home-act-ic { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 11px; color: #fff; }
+.home-act-ic .i { width: 20px; height: 20px; }
+.a-food .home-act-ic { background: var(--t-food); } .a-near .home-act-ic { background: var(--t-near); } .a-lift .home-act-ic { background: var(--t-lift); }
+.a-lift .home-act-ic .i { stroke-width: 3; }
+
+/* Below the fold: the status, the feed and the legend (the text alternative to the map). */
+#v-home .home-status { margin-top: var(--sp-6); padding-top: var(--sp-4); border-top: 1px solid var(--line-2); }
+#v-home .home-status + .today { margin-top: 0; }
+@media (hover: hover) { .hp-go:hover, .home-act:hover { background: var(--raised); } }
+/* ---------- Station sheet (grouped by line) ---------- */
+.ls-sum { display: block; margin-top: 2px; }
+.ls-sum-i { display: inline-block; }  /* one line = one unit when it wraps */
+.ls-group { margin: 0 0 var(--sp-3); background: var(--surface); border-radius: var(--r-m); box-shadow: var(--shadow-1); overflow: hidden; border-left: 6px solid var(--unk); }
+.ls-group.ok { border-left-color: var(--ok); } .ls-group.warn { border-left-color: var(--warn); } .ls-group.ko { border-left-color: var(--ko); }
+.ls-h { margin: 0; font-size: var(--t-body); }
+.ls-toggle { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); width: 100%; min-height: 56px; padding: var(--sp-3) var(--sp-4); border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ls-toggle .lchip { font-size: var(--t-meta); }
+.ls-ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; background: var(--t-lift-soft); color: var(--t-lift); }
+.ls-ic .i { width: 18px; height: 18px; }
+.ls-name { font-weight: 800; }
+.ls-state { display: inline-flex; align-items: center; gap: var(--sp-2); margin-right: auto; font-weight: 700; }
+.ls-group.ko .ls-state, .ls-group.warn .ls-state { color: var(--ko); }
+.mark.sm { width: 24px; height: 24px; } .mark.sm .i { width: 14px; height: 14px; }
+.ls-chev { width: 20px; height: 20px; color: var(--ink-2); transition: transform .2s var(--ease); }
+.ls-toggle[aria-expanded="true"] .ls-chev, .ls-more[aria-expanded="true"] .i { transform: rotate(90deg); }
+.ls-body { border-top: 1px solid var(--line); }
+.ls-lifts { list-style: none; margin: 0; padding: 0; }
+.ls-way { display: block; font-weight: 700; color: var(--ink-2); font-size: var(--t-meta); }
+.ls-dir { margin: 0; padding: var(--sp-2) var(--sp-4) 0; font-size: var(--t-meta); font-weight: 800; color: var(--ink-2); }
+.ls-dir + .ls-lifts .lift:first-child { padding-top: var(--sp-2); }
+.ls-lifts + .ls-dir { border-top: 1px solid var(--line); margin-top: 0; }
+.ls-note { margin: 0; padding: var(--sp-2) var(--sp-4) 0; color: var(--ink-2); font-size: var(--t-meta); }
+.ls-report { display: block; width: 100%; text-align: left; padding: 10px var(--sp-4); border-top: 1px solid var(--line); font-size: var(--t-meta); }
+.ls-pick { padding: 0 var(--sp-4) var(--sp-3); display: grid; gap: var(--sp-2); }
+.ls-pick[hidden] { display: none; }
+.ls-pick .ls-note { padding: 0; }
+.ls-pick-b { min-height: 44px; padding: 8px 12px; border: 2px solid var(--line-2); border-radius: var(--r-s); background: var(--surface); color: var(--ink); font: inherit; font-size: var(--t-meta); font-weight: 700; text-align: left; }
+.ls-more { display: inline-flex; align-items: center; gap: var(--sp-1); margin: var(--sp-1) 0 var(--sp-2); }
+.ls-more .i { width: 18px; height: 18px; transition: transform .2s var(--ease); }
+.ls-other .ls-note { padding-bottom: var(--sp-1); }
