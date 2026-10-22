@@ -30,8 +30,12 @@ PARKED = re.compile(r"hugedomains|sedo|afternic|dan\.com|godaddy|bodis|parkingcr
 TAG = re.compile(r"<[^>]+>")
 
 
+def _site_url(site: str) -> str:
+    return site if site.startswith(("http://", "https://")) else f"https://{site}"
+
+
 def _site_image(site: str) -> Optional[str]:
-    url = site if site.startswith(("http://", "https://")) else f"https://{site}"
+    url = _site_url(site)
     host = urlparse(url).hostname or ""
     if not host or any(s in host for s in SKIP_HOSTS):
         return None
@@ -103,7 +107,8 @@ def _photo(place_id: Optional[str], lat: float, lon: float) -> dict:
         site = _acceslibre_site(place_id)
         img = _site_image(site) if site else None
         if img:
-            return {"photo": {"src": img, "kind": "site", "link": site, "credit": urlparse(site).hostname,
+            link = _site_url(site)  # "www.x.fr" in Acceslibre would otherwise be a broken relative link
+            return {"photo": {"src": img, "kind": "site", "link": link, "credit": urlparse(link).hostname,
                               "caption": "Photo du site du lieu"}}
     return {"photo": _commons_near(lat, lon)}
 
