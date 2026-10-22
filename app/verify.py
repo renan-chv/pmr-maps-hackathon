@@ -467,6 +467,7 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
         line = ((s.get("geojson") or {}).get("coordinates")) or []
         step = {"type": {"public_transport": "transit", "transfer": "transfer"}.get(stype, "walk"),
                 "from": f_name, "to": t_name, "line": info.get("code"), "mode": info.get("commercial_mode"),
+                "direction": info.get("direction"),
                 "duration_min": round((s.get("duration") or 0) / 60), "geojson": s.get("geojson"),
                 "stop_areas": [a for a in (f_area, t_area) if a], "checks": []}
         if stype == "public_transport":
@@ -492,7 +493,8 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
 
     all_checks = [c for st in steps for c in st["checks"]]
     verdict = max((st["verdict"] for st in steps), key=_RANK.__getitem__, default="passe")
-    blocking = next((c for st in steps for c in st["checks"] if c["effect"] == "bloquant"), None)
+    blocking_step = next((st for st in steps for c in st["checks"] if c["effect"] == "bloquant"), None)
+    blocking = next((c for c in blocking_step["checks"] if c["effect"] == "bloquant"), None) if blocking_step else None
     lift_conf = [c["confidence"] for c in all_checks if c["kind"] == "lift"]
     return {
         "id": it_id,
@@ -501,6 +503,9 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
         "verdict": verdict,
         "confidence": min(lift_conf) if lift_conf else 3,
         "blocked_at": (blocking.get("station") or blocking["label"]) if blocking else None,
+        # What blocks and where, for a readable title: "Stepped street" after "Bastille".
+        "blocked_reason": blocking["label"] if blocking else None,
+        "blocked_near": (blocking.get("station") or blocking_step.get("from")) if blocking else None,
         "steps": steps,
         "plan_b_id": None,
     }

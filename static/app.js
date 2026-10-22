@@ -422,8 +422,10 @@ async function loadBus() {
 
 async function loadPlacesLayer() {
   if (!layerOn.places || map.getZoom() < 14) return;
-  const c = map.getCenter();
-  try { showPlacesOnMap((await placesAround([c.lng, c.lat])).filter((f) => f.properties.category === "food")); } catch (e) { console.warn("places", e); }
+  // Cover the visible map (the server accepts at most 4x4 tiles of 0.01°, so cap each half-span at 0.015°).
+  const c = map.getCenter(), b = map.getBounds();
+  const dLon = Math.min((b.getEast() - b.getWest()) / 2, 0.015), dLat = Math.min((b.getNorth() - b.getSouth()) / 2, 0.015);
+  try { showPlacesOnMap((await placesAround([c.lng, c.lat], dLon, dLat)).filter((f) => f.properties.category === "food")); } catch (e) { console.warn("places", e); }
 }
 
 async function loadAlerts() {
@@ -526,7 +528,10 @@ function goHome() {
   if (!layerOn.places) showPlacesOnMap([]);
   history.replaceState(null, "", location.pathname);
 }
-window.addEventListener("popstate", () => { if ($("#v-home").hidden) goHome(); });
+window.addEventListener("popstate", () => {
+  if ($("#all-routes") && !$("#v-trip").hidden && lastTrip) return renderResults(lastTrip);  // detail -> list
+  if ($("#v-home").hidden) goHome();
+});
 document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", goHome));
 
 document.querySelectorAll("[data-go]").forEach((t) => t.addEventListener("click", () => {
@@ -977,10 +982,19 @@ function openTrip(from, to) {
 
 const REPLAY = new URLSearchParams(location.search).get("replay") === "demo";
 const VERDICT = {
-  passe: { st: "ok", title: () => "This trip works", sub: (p) => `Nothing in the way for a ${p}.` },
+  passe: { st: "ok", title: () => "This trip works", sub: (p) => (Profile.key() === "valide" ? "Nothing in the way." : `Nothing in the way for a ${p}.`) },
   risque: { st: "warn", title: () => "Possible, with risks", sub: () => "Check the orange steps before you go." },
-  bloque: { st: "ko", title: (it) => `Blocked${it.blocked_at ? ` at ${it.blocked_at}` : ""}`, sub: () => "Don't take this trip. See Plan B." },
+  bloque: { st: "ko", title: (it) => blockedTitle(it), sub: () => "Don't take this trip." },
 };
+// "Blocked: Stepped street after Bastille", "Too far to go on foot", never a bare "Blocked at Long walk".
+function blockedTitle(it) {
+  const why = it.blocked_reason || "";
+  if (why === "Long walk") return "Too far to go on foot";
+  if (!why) return it.blocked_at ? `Blocked at ${it.blocked_at}` : "Blocked";
+  return `Blocked: ${why}${it.blocked_near && !why.includes(it.blocked_near) ? ` near ${it.blocked_near}` : ""}`;
+}
+// "for a manual wheelchair", nothing for the able-bodied helper profile.
+const forWho = () => (Profile.key() === "valide" ? "" : ` for a ${Profile.get()?.short || "your profile"}`);
 // Confidence levels (roadmap 4.3): colour + icon + words, never colour alone.
 const CONF = {
   5: ["ok", "shield", "Official, live"], 4: ["ok", "people", "Confirmed by the community"],
@@ -1011,7 +1025,8 @@ function inkOn(hex) {
   const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
   return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#1e1a16" : "#ffffff";
 }
-const modeShort = (mode) => (/rer/i.test(mode || "") ? "RER" : /m[ée]tro/i.test(mode || "") ? "M" : /tram/i.test(mode || "") ? "T" : /bus/i.test(mode || "") ? "Bus" : "");
+const modeShort = (mode) => (/rer/i.test(mode || "") ? "RER" : /m[ée]tro/i.test(mode || "") ? "M" : /tram/i.test(mode || "") ? "T" : /bus/i.test(mode || "") ? "Bus"
+  : /train|transilien|ter/i.test(mode || "") ? "Train" : "");
 // One Citymapper-style chip per step: wheelchair + minutes for walks, coloured line badge for transit.
 function stepChip(s) {
   const st = { bloque: "ko", risque: "warn" }[s.verdict];
@@ -1073,7 +1088,8 @@ function renderTripFallback() {
 }
 
 function stepTitle(s) {
-  if (s.type === "transit") return `${esc(s.mode || "Transport")} ${esc(s.line || "")}`.trim();
+  // The coloured chip already says "M 14": the title gives the direction, like Google Maps.
+  if (s.type === "transit") return s.direction ? `Towards ${esc(s.direction.replace(/\s*\(.*\)$/, ""))}` : `Ride to ${esc(s.to)}`;
   if (s.type === "transfer") return "Transfer";
   return { manuel: "By wheelchair", electrique: "By wheelchair", poussette: "With the stroller" }[Profile.key()] || "On foot";
 }
@@ -1087,7 +1103,10 @@ function checkLine(c, recorded) {
 
 // Ranked options, like Citymapper's result list, but ordered by what works for this profile.
 function renderResults(d) {
-  const its = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (x.duration_min - y.duration_min));
+  const sorted = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (x.duration_min - y.duration_min));
+  // Like Google Maps: an option more than twice as long as the fastest one that works (and 30 min more) is noise.
+  const fastest = Math.min(...sorted.filter((x) => x.verdict !== "bloque").map((x) => x.duration_min));
+  const its = sorted.filter((x, i) => i === 0 || !Number.isFinite(fastest) || x.duration_min <= Math.max(2 * fastest, fastest + 30));
   const rec = d.replay === "demo";
   const prof = Profile.get()?.short || "profile";
   $("#v-trip").classList.add("has-result");
@@ -1095,12 +1114,12 @@ function renderResults(d) {
   if (!its.length) { $("#trip-result").innerHTML = `<p>I couldn't find a trip.</p>` + demoButton(); bindDemo(); return; }
   const best = its[0];
   $("#trip-result").innerHTML =
-    `<p class="results-head">${best.verdict === "bloque" ? `No trip works for a ${esc(prof)} right now.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")} for a ${esc(prof)}`}</p>` +
+    `<p class="results-head">${best.verdict === "bloque" ? `No trip works${esc(forWho())} right now.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")}${esc(forWho())}`}</p>` +
     (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
     `<ul class="routes">` + its.map((it, i) => {
       const V = VERDICT[it.verdict] || VERDICT.risque;
       const why = it.verdict === "bloque" ? V.title(it)
-        : it.verdict === "risque" ? `Watch out: ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label.toLowerCase())))].slice(0, 2).join(", ") || "see the steps"}`
+        : it.verdict === "risque" ? `Watch out: ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label)))].slice(0, 2).join(", ") || "see the steps"}`
         : "Nothing blocks this trip";
       return `<li><button class="route ${V.st}" data-it="${esc(it.id)}">` +
         `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Best for you</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
@@ -1117,24 +1136,27 @@ function renderResults(d) {
   Sheet.scrollTop();
 }
 
-function renderItinerary(d, id) {
+function renderItinerary(d, id, fromId = null) {
   const it = d.itineraries.find((x) => x.id === id) || d.itineraries[0];
   if (!it) { $("#trip-result").innerHTML = `<p>I couldn't find a trip.</p>` + demoButton(); bindDemo(); return; }
   const prof = Profile.get()?.short || "profile";
   const V = VERDICT[it.verdict] || VERDICT.risque;
-  const isPlanB = d.itineraries[0] && it.id !== d.itineraries[0].id;
-  const planB = it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id);
+  const isPlanB = Boolean(fromId);
+  // Plan B for any trip that does not fully work: the server's pick, else the best better-ranked option.
+  const planB = (it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id)) || (it.verdict === "passe" ? null
+    : [...d.itineraries].filter((x) => RANK[x.verdict] < RANK[it.verdict]).sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (x.duration_min - y.duration_min))[0]);
+  const sub = it.verdict === "bloque" ? (planB ? "Don't take this trip. A Plan B is below." : "Don't take this trip. No other trip avoids it right now.") : V.sub(prof);
   const rec = d.replay === "demo";
   $("#v-trip").classList.add("has-result");
   $("#trip-summary").innerHTML = `<span class="t">${esc(trip.from?.label || d.from?.label || "")} → ${esc(trip.to?.label || d.to?.label || "")}</span><span class="linkish">Edit</span>`;
   $("#trip-result").innerHTML =
     `<button class="back" id="all-routes">${icon("chev-l")}All trips</button>` +
     (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
-    `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong>${esc(V.title(it))}</strong>${esc(V.sub(prof))}</span></div>` +
+    `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong>${esc(V.title(it))}</strong>${esc(sub)}</span></div>` +
     `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · leave ${yyyymmddToTime(it.departure)}, arrive ${yyyymmddToTime(it.arrival)}` : ""} ${confPill(it.confidence, rec)}</p>` +
     (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
     (planB ? `<button class="btn primary block" id="planb">${icon("swap")}See Plan B (${planB.duration_min} min)</button>` : "") +
-    (isPlanB ? `<button class="btn block" id="plana">Back to the first trip</button>` : "") +
+    (isPlanB ? `<button class="btn block" id="plana">Back to the previous trip</button>` : "") +
     `<ol class="timeline">` + it.steps.map((s) => {
       const st = { passe: "ok", risque: "warn", bloque: "ko" }[s.verdict] || "unk";
       const rail = s.type === "transit" ? lineColor(s.mode, s.line) : null;
@@ -1147,9 +1169,11 @@ function renderItinerary(d, id) {
         (s.checks?.length ? `<ul class="checks">${s.checks.map((c) => checkLine(c, rec)).join("")}</ul>` : `<p class="muted small">Nothing in particular reported.</p>`) + `</li>`;
     }).join("") + `<li class="tl end"><div class="tl-stop"><span class="tl-dot"></span><b>${esc(it.steps[it.steps.length - 1]?.to || "")}</b></div></li></ol>` +
     `<p class="src">Roulib check for the “${esc(prof)}” profile. Elevators checked at ${hhmm(d.lifts_fetched_at)}.</p>`;
-  $("#planb")?.addEventListener("click", () => { renderItinerary(d, it.plan_b_id); Sheet.scrollTop(); });
-  $("#plana")?.addEventListener("click", () => { renderItinerary(d, d.itineraries[0].id); Sheet.scrollTop(); });
-  $("#all-routes").addEventListener("click", () => renderResults(d));
+  $("#planb")?.addEventListener("click", () => { renderItinerary(d, planB.id, it.id); Sheet.scrollTop(); });
+  $("#plana")?.addEventListener("click", () => { renderItinerary(d, fromId); Sheet.scrollTop(); });
+  // Phone Back from a trip detail returns to the list of trips, like Google Maps.
+  if (history.state?.roulib !== "detail") history.pushState({ roulib: "detail" }, "", location.href);
+  $("#all-routes").addEventListener("click", () => (history.state?.roulib === "detail" ? history.back() : renderResults(d)));
   whenMap(() => drawItinerary(it));
   Sheet.set("half");
   Sheet.scrollTop();
@@ -1177,7 +1201,7 @@ function openCompare(d) {
     `<ul class="cmp-list">${blockers.map((c) => `<li class="hit">${mark(checkState(c))}<span>${esc(c.label)}<small>${esc(c.message || "")}</small></span></li>`).join("") || "<li>Nothing to report</li>"}</ul></div>` +
     `</div>` + (planB ? `<button class="btn primary block" id="cmp-planb">${icon("swap")}Roulib suggests a Plan B (${planB.duration_min} min)</button>` : "") +
     `<p class="src">Left: Navitia's answer alone (wheelchair option). Right: the same trip checked step by step with ${d.replay === "demo" ? "data recorded on the morning of Oct 22" : "live data"}.</p>`;
-  $("#cmp-planb")?.addEventListener("click", () => { show("trip", "half"); renderItinerary(d, planB.id); });
+  $("#cmp-planb")?.addEventListener("click", () => { show("trip", "half"); renderItinerary(d, planB.id, ours.id); });
   show("compare", "full");
 }
 document.querySelector("[data-back-trip]")?.addEventListener("click", () => { show("trip", "half"); if (lastTrip) renderResults(lastTrip); });
@@ -1185,7 +1209,7 @@ document.querySelector("[data-back-trip]")?.addEventListener("click", () => { sh
 $("#trip-go").addEventListener("click", () => runTrip());
 
 // ---------------------------------------------------------------------------
-// Search: stations from our data + places / addresses from IGN
+// Search: stations from our data + places / addresses (Photon, IGN as fallback)
 // ---------------------------------------------------------------------------
 // Stops without elevators (Bastille, Opéra…): not in S.stations but valid trip ends.
 function otherStations(q, max = 2) {
@@ -1193,8 +1217,12 @@ function otherStations(q, max = 2) {
   const n = norm(q), seen = new Set([...S.stations.values()].map((st) => norm(st.name)));
   return S.quais.filter((f) => norm(f.properties.name || "").startsWith(n))
     .filter((f) => { const k = norm(f.properties.name); return !seen.has(k) && seen.add(k); }).slice(0, max)
-    .map((f) => ({ kind: "place", label: f.properties.name, sub: `${f.properties.type || "stop"} · no elevator data`, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
+    .map((f) => ({ kind: "place", label: f.properties.name, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+      sub: `${STOP_TYPE[f.properties.type] || "Station"} · ${{ true: "step-free", partial: "partly step-free", false: "not step-free" }[f.properties.accessibility] || "access unknown"}` }));
 }
+const STOP_TYPE = { metro: "Metro station", rail: "Train station", tram: "Tram stop", cableway: "Cable car" };
+// Addresses and places (shops, hospitals, restaurants…), ranked around `ref` [lon, lat].
+const suggestAPI = (q, ref) => getJSON(`/api/suggest?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ results: [] }));
 function localStations(q, max = 4) {
   const words = norm(q).split(" ").filter(Boolean);
   if (!words.length) return [];
@@ -1234,7 +1262,9 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     let ign = { results: [] }, places = [];
     const show = () => { if (my === seq) { items = [...head, ...local, ...ign.results.slice(0, 5), ...places.slice(0, 3)]; render(); } };
     const accP = q.length >= 3 ? getJSON(`/api/places/search?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ features: [] })) : null;
-    ign = await getJSON(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] }));
+    ign = await suggestAPI(q, ref);
+    const localNames = new Set(local.map((it) => norm(it.label)));
+    ign.results = ign.results.filter((it) => !(/^Station/.test(it.sub || "") && localNames.has(norm(it.label))));
     show();
     if (!accP) return;
     const acc = await accP;
@@ -1262,7 +1292,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     await ensureQuais();
     const quai = (S.quais || []).find((f) => norm(f.properties.name || "") === norm(q));
     if (quai) return { kind: "place", label: quai.properties.name, lon: quai.geometry.coordinates[0], lat: quai.geometry.coordinates[1] };
-    const ign = await getJSON(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] }));
+    const ign = await suggestAPI(q, S.myPos || [map.getCenter().lng, map.getCenter().lat]);
     const all = [...local, ...ign.results].filter((x) => x.lon != null);
     return all.find((x) => norm(x.label).startsWith(norm(q))) || all[0] || null;
   };
@@ -1381,7 +1411,7 @@ $("#o-go").addEventListener("click", () => {
 function renderMe() {
   const p = Profile.get();
   $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = p ? p.label.toLowerCase() : "your profile";
+  $("#me-name").textContent = p ? p.short : "your profile";
   $("#h-home").innerHTML = Profile.name() ? `Where to, ${esc(Profile.name())}?` : "Hi! Where are you going?";
 }
 $("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });

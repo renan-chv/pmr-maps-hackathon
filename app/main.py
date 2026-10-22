@@ -146,7 +146,7 @@ def api_works():
         where = r.get("localisation_detail") or []
         feats.append({"type": "Feature", "geometry": shape, "properties": {
             "id": r.get("num_emprise"), "category": r.get("chantier_categorie"),
-            "summary": r.get("chantier_synthese"), "owner": r.get("moa_principal"),
+            "summary": sources.works_en(r.get("chantier_synthese")), "owner": r.get("moa_principal"),
             "start": r.get("date_debut"), "end": r.get("date_fin"),
             "where": ", ".join(where), "postcode": r.get("cp_arrondissement"),
         }})
@@ -309,8 +309,9 @@ def api_geocode(q: str):
 
 
 @app.get("/api/suggest")
-def api_suggest(q: str = Query(..., min_length=2)):
-    return {"results": sources.suggest(q)}
+def api_suggest(q: str = Query(..., min_length=2, max_length=200),
+                lon: Optional[float] = Query(None, ge=-180, le=180), lat: Optional[float] = Query(None, ge=-90, le=90)):
+    return {"results": sources.suggest(q, near=(lon, lat) if lon is not None and lat is not None else None)}
 
 
 def _resolve(q: str) -> Optional[dict]:
@@ -402,7 +403,7 @@ def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
             shape = (r.get("geo_shape") or {}).get("geometry")
             if shape:
                 feats.append({"type": "Feature", "geometry": shape, "_bbox": verify.feature_bbox(shape),
-                              "properties": {"summary": r.get("chantier_synthese"), "end": r.get("date_fin")}})
+                              "properties": {"summary": sources.works_en(r.get("chantier_synthese")), "end": r.get("date_fin")}})
         _layers.clear() if len(_layers) > 8 else None
         _layers[key] = feats
     return _layers[key], data.get("fetched_at")
