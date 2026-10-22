@@ -70,7 +70,7 @@ const Sheet = (() => {
   const LABEL = { peek: "réduit", half: "moitié", full: "plein écran" };
   let snap = "half";
   const heights = () => {
-    const vh = window.innerHeight;
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     return { peek: Math.min(210, Math.round(vh * 0.3)), half: Math.round(vh * 0.6), full: vh - 76 };
   };
   const apply = (h) => document.documentElement.style.setProperty("--sheet-h", `${Math.round(h)}px`);
@@ -109,6 +109,7 @@ const Sheet = (() => {
     if (e.key === "Enter" || e.key === " ") { set(order[(i + 1) % 3]); e.preventDefault(); }
   });
   window.addEventListener("resize", () => set(snap));
+  window.visualViewport?.addEventListener("resize", () => set(snap));
   set("half");
   return {
     set, get: () => snap,
@@ -189,7 +190,7 @@ async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
 // ---------------------------------------------------------------------------
 const map = new maplibregl.Map({
   container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
-  center: [2.3488, 48.8566], zoom: 13, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
+  center: [2.3488, 48.8566], zoom: 12.4, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
 });
 map.touchZoomRotate.disableRotation();
 
@@ -223,6 +224,8 @@ const BASE_CLUTTER = /^(poi_|highway-shield|road_shield)/;
 map.on("load", () => {
   for (const l of map.getStyle().layers) {
     if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
+    // Place names in French (the base style prefers English for districts).
+    if (l.type === "symbol" && l.layout && l.layout["text-field"]) map.setLayoutProperty(l.id, "text-field", ["coalesce", ["get", "name:fr"], ["get", "name"]]);
     // Calm, warm base: white streets on cream, so our markers are what stands out.
     if (l.type === "line" && /^(road|bridge|tunnel)_/.test(l.id) && !/rail|pattern/.test(l.id)) {
       const casing = /casing/.test(l.id);
@@ -230,6 +233,12 @@ map.on("load", () => {
     }
   }
   map.setPaintProperty("background", "background-color", "#f6f0e6");
+  // Quieter ground so our markers carry the screen: flat pale buildings, softer residential areas.
+  for (const l of map.getStyle().layers) {
+    if (l.type === "fill-extrusion") map.setLayoutProperty(l.id, "visibility", "none");
+    else if (l.type === "fill" && /^building/.test(l.id)) { map.setPaintProperty(l.id, "fill-color", "#ebe4d8"); map.setPaintProperty(l.id, "fill-opacity", 0.6); }
+    else if (l.id === "landuse_residential") map.setPaintProperty(l.id, "fill-opacity", 0.25);
+  }
   for (const k of ["ok", "warn", "ko", "unk"]) {
     const m = markImage(C[k], k); map.addImage(`st-${k}`, m.image, { pixelRatio: m.pixelRatio });
     const f = markImage(C[k], "food", { size: 36, square: true }); map.addImage(`pl-${k}`, f.image, { pixelRatio: f.pixelRatio });
@@ -245,8 +254,8 @@ map.on("load", () => {
     paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 16, 8], "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
   map.addLayer({ id: "bus", type: "circle", source: "bus", minzoom: 14.5, layout: { visibility: "none" },
     paint: { "circle-radius": 6, "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
-  map.addLayer({ id: "places", type: "symbol", source: "places", layout: {
-    visibility: "none", "icon-image": ["concat", "pl-", ["get", "st"]], "icon-allow-overlap": true,
+  map.addLayer({ id: "places", type: "symbol", source: "places", minzoom: 15, layout: {
+    visibility: "none", "icon-image": ["concat", "pl-", ["get", "st"]], "icon-allow-overlap": false, "icon-padding": 3,
     "symbol-sort-key": ["match", ["get", "st"], "ok", 3, "warn", 2, "ko", 1, 0],
     "icon-size": ["interpolate", ["linear"], ["zoom"], 14, 0.45, 17, 0.8],
   } });
@@ -257,10 +266,17 @@ map.on("load", () => {
     "icon-image": ["concat", "rp-", ["get", "st"]], "icon-allow-overlap": true, "icon-size": ["interpolate", ["linear"], ["zoom"], 13, 0.55, 17, 0.9] } });
   map.addLayer({ id: "trip", type: "line", source: "trip", layout: { "line-cap": "round", "line-join": "round" },
     paint: { "line-color": ["coalesce", ["get", "c"], C.brand], "line-width": 7, "line-opacity": 0.9 } });
-  map.addLayer({ id: "stations", type: "symbol", source: "stations",
+  // Zoomed out, a station is a small dot (problems slightly larger, drawn on top); its icon appears from street level.
+  map.addLayer({ id: "stations-dot", type: "circle", source: "stations", maxzoom: 13.5, layout: { "circle-sort-key": ["get", "sort"] },
+    paint: {
+      "circle-color": ["match", ["get", "status"], "ok", C.ok, "warn", C.warn, "ko", C.ko, C.unk],
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, ["match", ["get", "status"], "ko", 3.5, "warn", 3, 2.5], 12, ["match", ["get", "status"], "ko", 6.5, "warn", 5.5, 4.5], 13.5, ["match", ["get", "status"], "ko", 8.5, "warn", 7.5, 6.5]],
+      "circle-stroke-color": "#fff", "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 13, 2],
+    } });
+  map.addLayer({ id: "stations", type: "symbol", source: "stations", minzoom: 13.5,
     layout: {
-      "icon-image": ["concat", "st-", ["get", "status"]], "icon-allow-overlap": true, "symbol-sort-key": ["get", "sort"],
-      "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.45, 12, 0.65, 15, 0.95],
+      "icon-image": ["concat", "st-", ["get", "status"]], "icon-allow-overlap": false, "icon-padding": 2, "symbol-sort-key": ["get", "sort"],
+      "icon-size": ["interpolate", ["linear"], ["zoom"], 13.5, 0.6, 16, 0.9],
       "text-field": ["step", ["zoom"], "", 13.5, ["get", "name"]], "text-font": ["Noto Sans Bold"],
       "text-size": 14, "text-offset": [0, 1.8], "text-anchor": "top", "text-optional": true,
     },
@@ -274,12 +290,13 @@ map.on("load", () => {
   map.addLayer({ id: "me-dot", type: "circle", source: "me", paint: { "circle-radius": 9, "circle-color": "#1a73e8", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
 
   map.on("click", "stations", (e) => openStation(e.features[0].properties.id));
+  map.on("click", "stations-dot", (e) => openStation(e.features[0].properties.id));
   map.on("click", "places", (e) => { const id = e.features[0].properties.id; const p = S.places.find((x) => x.properties.id === id); if (p) openAcceslibre(p); });
   map.on("click", "works-fill", (e) => openWorks(e.features[0].properties, e.lngLat));
   map.on("click", "reports", (e) => { const f = reportsData[e.features[0].properties.i]; if (f) openReport(f); });
   map.on("click", "quais", (e) => quickPopup(e, "Quai"));
   map.on("click", "bus", (e) => quickPopup(e, "Arrêt de bus"));
-  for (const id of ["stations", "places", "reports", "works-fill", "quais", "bus"]) {
+  for (const id of ["stations", "stations-dot", "places", "reports", "works-fill", "quais", "bus"]) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
   }
@@ -473,7 +490,8 @@ function bindOpen(root) { root.querySelectorAll("[data-open]").forEach((b) => b.
 function show(view, snap) {
   for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== `v-${view}`;
   // Restaurant pins stay visible while a restaurant list or detail is open, even with the chip off.
-  const wantPlaces = layerOn.places || view === "list" || view === "detail";
+  const foodView = (view === "list" && /^Manger/.test($("#l-title").textContent)) || (view === "detail" && $("#detail")?.dataset.kind === "place");
+  const wantPlaces = layerOn.places || foodView;
   if (map.getLayer("places")) map.setLayoutProperty("places", "visibility", wantPlaces ? "visible" : "none");
   Sheet.scrollTop();
   if (snap) Sheet.set(snap);
@@ -579,6 +597,7 @@ function acceslibreBlock(p) {
 
 function openAcceslibre(f) {
   const p = f.properties, coord = f.geometry.coordinates;
+  $("#detail").dataset.kind = "place";
   setPin(coord);
   show("detail", "half");
   flyTo(coord, 17);
@@ -627,6 +646,7 @@ async function fillPhoto(coord, placeId) {
 // Detail views
 // ---------------------------------------------------------------------------
 function openStation(id) {
+  $("#detail").dataset.kind = "station";
   const st = S.stations.get(String(id));
   if (!st) { toast("Je n'ai pas d'information d'ascenseur pour cette station."); return; }
   history.replaceState(null, "", `#station=${encodeURIComponent(st.id)}`);
@@ -1127,7 +1147,7 @@ $("#zoom-out").addEventListener("click", () => map.zoomOut());
 // Chips, text size, voice, deep links
 // ---------------------------------------------------------------------------
 const layerOn = { lifts: true, works: true, quais: false, bus: false, places: false };
-const LAYER_IDS = { lifts: ["stations"], works: ["works-fill", "works-line"], quais: ["quais"], bus: ["bus"], places: ["places"] };
+const LAYER_IDS = { lifts: ["stations", "stations-dot"], works: ["works-fill", "works-line"], quais: ["quais"], bus: ["bus"], places: ["places"] };
 function setLayer(k, on) {
   layerOn[k] = on;
   const chip = $(`.chip[data-layer="${k}"]`);
@@ -1147,7 +1167,6 @@ const textBtn = $("#textsize");
 function setBig(on) {
   document.documentElement.classList.toggle("big", on);
   textBtn.setAttribute("aria-pressed", String(on));
-  textBtn.setAttribute("aria-label", on ? "Remettre le texte normal" : "Agrandir le texte");
 }
 setBig(store.get("big") === "1");
 textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); toast(on ? "Texte agrandi." : "Texte normal."); });
