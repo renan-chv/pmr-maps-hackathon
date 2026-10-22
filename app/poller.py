@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
+import time
 from collections import deque
 from typing import Deque, Dict, Optional
 
@@ -68,6 +70,25 @@ async def run_forever() -> None:
             state["last_error"] = str(e)
             log.exception("poll failed")
         await asyncio.sleep(POLL_SECONDS)
+
+
+_poll_lock = threading.Lock()
+_last_poll_ts = 0.0
+
+
+def maybe_poll() -> None:
+    """Serverless mode (Vercel): no background loop, poll on request when due."""
+    global _last_poll_ts
+    if time.time() - _last_poll_ts < POLL_SECONDS or not _poll_lock.acquire(blocking=False):
+        return
+    try:
+        poll_once()
+        _last_poll_ts = time.time()
+    except Exception as e:
+        state["last_error"] = str(e)
+        log.exception("poll failed")
+    finally:
+        _poll_lock.release()
 
 
 def previous(liftid: str) -> Optional[dict]:

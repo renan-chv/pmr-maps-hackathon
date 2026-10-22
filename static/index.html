@@ -2,85 +2,93 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1d4ed8">
   <title>PMR Maps – Île-de-France</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <a class="skip" href="#panel">Aller au panneau</a>
-  <div id="map" role="region" aria-label="Carte de l'accessibilité"></div>
+  <a class="skip" href="#search">Aller à la recherche</a>
+  <div id="map" role="application" aria-label="Carte de l'accessibilité en fauteuil roulant"></div>
 
-  <aside id="panel" aria-label="Informations et filtres">
-    <header>
-      <h1>PMR Maps <span class="tag">MVP</span></h1>
-      <p class="sub">Accessibilité en fauteuil roulant, Île-de-France, données ouvertes en direct.</p>
-    </header>
+  <!-- Filters over the map -->
+  <div id="chips" role="toolbar" aria-label="Afficher sur la carte">
+    <button class="chip on" data-layer="lifts" aria-pressed="true"><span class="ic">⇅</span>Ascenseurs</button>
+    <button class="chip on" data-layer="works" aria-pressed="true"><span class="ic">🚧</span>Travaux</button>
+    <button class="chip" data-layer="quais" aria-pressed="false"><span class="ic">🚇</span>Quais</button>
+    <button class="chip" data-layer="bus" aria-pressed="false"><span class="ic">🚌</span>Bus</button>
+    <button class="chip" data-layer="places" aria-pressed="false"><span class="ic">♿</span>Restos, commerces</button>
+    <span id="place-filters" class="sub-chips" hidden>
+      <button class="chip sub" data-filter="food" aria-pressed="false">Restos, cafés</button>
+      <button class="chip sub" data-filter="ok" aria-pressed="false">Entrée accessible</button>
+      <button class="chip sub" data-filter="wc" aria-pressed="false">Toilettes adaptées</button>
+    </span>
+  </div>
 
-    <section aria-labelledby="h-journey">
-      <h2 id="h-journey">Itinéraire accessible</h2>
-      <form id="journey-form">
-        <label for="from">Départ</label>
-        <input id="from" name="from" placeholder="Ex. Gare de Lyon, Paris" autocomplete="off" required>
-        <label for="to">Arrivée</label>
-        <input id="to" name="to" placeholder="Ex. 8 rue La Boétie, Paris" autocomplete="off" required>
-        <div class="row">
-          <button type="submit">Chercher</button>
-          <button type="button" id="voice" aria-label="Dicter le trajet">🎤</button>
-        </div>
-      </form>
-      <div id="journey-result" aria-live="polite"></div>
+  <div id="map-tools">
+    <button id="locate" class="round" aria-label="Me localiser" title="Me localiser">◎</button>
+    <button id="textsize" class="round" aria-label="Agrandir le texte" title="Agrandir le texte">A+</button>
+  </div>
+
+  <main id="sheet" aria-label="Panneau">
+    <button id="grip" aria-label="Agrandir ou réduire le panneau"><span></span></button>
+
+    <!-- VIEW: home -->
+    <section class="view" id="v-home" aria-labelledby="h-home">
+      <h1 id="h-home" class="brand">PMR Maps <small>en fauteuil, en Île-de-France</small></h1>
+
+      <div class="search" role="search">
+        <label for="search" class="sr">Où voulez-vous aller ?</label>
+        <span class="search-ic" aria-hidden="true">🔍</span>
+        <input id="search" type="search" placeholder="Où voulez-vous aller ?" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
+        <button id="mic" class="mic" aria-label="Dicter">🎤</button>
+      </div>
+      <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
+
+      <div id="today" class="today" aria-live="polite">
+        <div class="today-skel">Chargement de l'état des ascenseurs…</div>
+      </div>
+
+      <button id="nearby" class="big-btn">📍 Gares accessibles autour de moi</button>
+      <div id="nearby-list"></div>
+
+      <h2 class="section-title">Dernières alertes</h2>
+      <ul id="alerts" class="alerts" aria-live="polite"></ul>
+
+      <details class="sources">
+        <summary>D'où viennent les données ?</summary>
+        <ul id="sources-list"></ul>
+      </details>
     </section>
 
-    <section aria-labelledby="h-lifts">
-      <h2 id="h-lifts">Ascenseurs</h2>
-      <div id="lift-stats" class="stats" aria-live="polite">Chargement…</div>
-      <p class="fresh" id="lift-fresh"></p>
+    <!-- VIEW: detail (station or place) -->
+    <section class="view" id="v-detail" hidden aria-labelledby="d-title">
+      <button class="back" data-back>‹ Retour</button>
+      <div id="detail"></div>
     </section>
 
-    <section aria-labelledby="h-layers">
-      <h2 id="h-layers">Couches</h2>
-      <fieldset class="layers">
-        <legend class="sr">Afficher sur la carte</legend>
-        <label><input type="checkbox" data-layer="lifts" checked> Ascenseurs (direct)</label>
-        <label><input type="checkbox" data-layer="stations" checked> Métro / tram / RER</label>
-        <label><input type="checkbox" data-layer="train" checked> Gares SNCF / RER (niveau)</label>
-        <label><input type="checkbox" data-layer="bus"> Arrêts de bus (zoomer)</label>
-        <label><input type="checkbox" data-layer="works" checked> Travaux sur trottoir (Paris)</label>
-        <label><input type="checkbox" data-layer="places" checked> Restaurants, commerces (zoomer)</label>
-      </fieldset>
-      <fieldset class="layers places-filters">
-        <legend>Filtrer les lieux</legend>
-        <label for="place-cat" class="sr">Type de lieu</label>
-        <select id="place-cat">
-          <option value="all">Tous les lieux</option>
-          <option value="food">Restaurants, cafés</option>
-          <option value="shop">Commerces et services</option>
-        </select>
-        <label><input type="checkbox" id="place-ok"> Entrée accessible en fauteuil uniquement</label>
-        <label><input type="checkbox" id="place-wc"> Toilettes adaptées</label>
-      </fieldset>
-      <p class="fresh" id="places-info" aria-live="polite">Zoomer sur un quartier pour afficher les lieux.</p>
-      <ul class="legend">
-        <li><span class="dot ok"></span> accessible / en service</li>
-        <li><span class="dot partial"></span> partiel / sur réservation</li>
-        <li><span class="dot ko"></span> non accessible / en panne</li>
-        <li><span class="dot unk"></span> inconnu</li>
-        <li><span class="sq works"></span> chantier occupant le trottoir</li>
-        <li><span class="dot unk food"></span> lieu : contour noir = restaurant / café</li>
-      </ul>
+    <!-- VIEW: journey -->
+    <section class="view" id="v-trip" hidden aria-labelledby="t-title">
+      <button class="back" data-back>‹ Retour</button>
+      <h2 id="t-title" class="title">Itinéraire en fauteuil</h2>
+      <div class="trip-fields">
+        <div class="trip-row"><span class="pin a" aria-hidden="true">A</span>
+          <label for="trip-from" class="sr">Départ</label>
+          <input id="trip-from" class="field" type="search" placeholder="Départ" autocomplete="off"></div>
+        <ul id="suggest-from" class="suggest" role="listbox" aria-label="Suggestions départ" hidden></ul>
+        <div class="trip-row"><span class="pin b" aria-hidden="true">B</span>
+          <label for="trip-to" class="sr">Arrivée</label>
+          <input id="trip-to" class="field" type="search" placeholder="Arrivée" autocomplete="off"></div>
+        <ul id="suggest-to" class="suggest" role="listbox" aria-label="Suggestions arrivée" hidden></ul>
+        <button id="trip-go" class="big-btn primary">Vérifier le trajet</button>
+      </div>
+      <div id="trip-result" aria-live="polite"></div>
     </section>
+  </main>
 
-    <section aria-labelledby="h-alerts">
-      <h2 id="h-alerts">Alertes (changements détectés)</h2>
-      <ul id="alerts" aria-live="polite"><li class="muted">Aucun changement depuis le démarrage.</li></ul>
-    </section>
-
-    <footer>
-      Sources : IDFM (État des ascenseurs – Licence Mobilité ; Référentiel des arrêts, Accessibilité en gare – Etalab),
-      Ville de Paris (Chantiers – ODbL), Acceslibre (data.gouv.fr – Etalab), IGN Géoplateforme, PRIM/Navitia. Fond © OpenStreetMap, OpenFreeMap.
-    </footer>
-  </aside>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="/static/app.js"></script>

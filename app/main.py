@@ -20,6 +20,7 @@ from . import db, poller, sources
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
 PRIM_API_KEY = os.getenv("PRIM_API_KEY")
+SERVERLESS = bool(os.getenv("VERCEL"))  # Vercel functions sleep between requests
 PRIM_JOURNEYS = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/journeys"
 
 app = FastAPI(title="PMR Maps")
@@ -31,6 +32,8 @@ async def startup() -> None:
         db.init_schema()
     except Exception:
         logging.exception("database init failed, continuing without history in PostgreSQL")
+    if SERVERLESS:
+        return  # no background tasks; layers load lazily and the poller runs on request
     asyncio.create_task(poller.run_forever())
     asyncio.get_running_loop().run_in_executor(None, sources.warm_up)
 
@@ -51,6 +54,8 @@ def point(lon, lat, props: dict) -> dict:
 
 @app.get("/api/lifts")
 def api_lifts():
+    if SERVERLESS:
+        poller.maybe_poll()
     data = sources.lifts()
     feats, counts = [], {"available": 0, "notavailable": 0, "unknown": 0}
     for r in data["rows"]:
@@ -247,6 +252,8 @@ def api_places(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat")
 
 @app.get("/api/alerts")
 def api_alerts():
+    if SERVERLESS:
+        poller.maybe_poll()
     return {"alerts": list(poller.alerts), "poller": poller.state, "history_in_db": db.enabled()}
 
 
@@ -278,11 +285,28 @@ def api_geocode(q: str):
     return res
 
 
+@app.get("/api/suggest")
+def api_suggest(q: str = Query(..., min_length=2)):
+    return {"results": sources.suggest(q)}
+
+
+def _resolve(q: str) -> Optional[dict]:
+    """Accept "lon,lat" (from the UI) or free text (geocoded)."""
+    parts = q.split(",")
+    if len(parts) == 2:
+        try:
+            lon, lat = float(parts[0]), float(parts[1])
+            return {"label": q, "lon": lon, "lat": lat}
+        except ValueError:
+            pass
+    return sources.geocode(q)
+
+
 @app.get("/api/journey")
 def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., alias="to")):
     if not PRIM_API_KEY:
         raise HTTPException(503, "PRIM_API_KEY manquante : itinéraire indisponible")
-    a, b = sources.geocode(from_q), sources.geocode(to_q)
+    a, b = _resolve(from_q), _resolve(to_q)
     if not a or not b:
         raise HTTPException(404, "adresse de départ ou d'arrivée introuvable")
     r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params={
