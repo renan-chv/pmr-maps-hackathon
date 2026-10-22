@@ -17,16 +17,18 @@
   <div id="map" role="application" aria-label="Carte"></div>
 
   <div id="chips" role="toolbar" aria-label="Ce que la carte affiche">
-    <button class="chip on" data-layer="lifts" aria-pressed="true"><svg class="i"><use href="#i-lift"/></svg>Ascenseurs</button>
+    <button class="chip on" data-layer="lifts" aria-pressed="true"><svg class="i"><use href="#i-lift"/></svg>Gares</button>
     <button class="chip" data-layer="places" aria-pressed="false"><svg class="i"><use href="#i-food"/></svg>Restos</button>
     <button class="chip on" data-layer="works" aria-pressed="true"><svg class="i"><use href="#i-cone"/></svg>Travaux</button>
-    <button class="chip" data-layer="bus" aria-pressed="false"><svg class="i"><use href="#i-bus"/></svg>Bus</button>
-    <button class="chip" data-layer="quais" aria-pressed="false"><svg class="i"><use href="#i-train"/></svg>Quais</button>
   </div>
 
   <div id="map-tools">
-    <button id="textsize" class="fab" aria-label="Agrandir le texte" aria-pressed="false"><svg class="i"><use href="#i-type"/></svg></button>
-    <button id="locate" class="fab" aria-label="Me situer sur la carte"><svg class="i"><use href="#i-locate"/></svg></button>
+    <button id="textsize" class="fab txt" aria-label="Agrandir le texte" aria-pressed="false">A+</button>
+    <div class="zoom" role="group" aria-label="Zoom">
+      <button id="zoom-in" class="fab" aria-label="Rapprocher la carte"><svg class="i"><use href="#i-plus"/></svg></button>
+      <button id="zoom-out" class="fab" aria-label="Éloigner la carte"><svg class="i"><use href="#i-minus"/></svg></button>
+    </div>
+    <button id="locate" class="fab" aria-label="Me montrer sur la carte"><svg class="i"><use href="#i-arrow"/></svg></button>
   </div>
 
   <main id="sheet" aria-label="Panneau principal">
@@ -51,6 +53,15 @@
           <button class="tile t-near" data-go="near"><span class="tile-ic"><svg class="i"><use href="#i-pin"/></svg></span><b>Autour de moi</b><small>Stations avec ascenseur</small></button>
           <button class="tile t-lift" data-go="pannes"><span class="tile-ic"><svg class="i"><use href="#i-lift"/></svg></span><b>Pannes</b><small id="tile-pannes">Ascenseurs en panne</small></button>
         </div>
+
+        <h2 class="h2">Sur la carte</h2>
+        <ul class="legend-card">
+          <li><span class="mark ok" aria-hidden="true"><svg class="i"><use href="#i-ok"/></svg></span>Gare : les ascenseurs marchent</li>
+          <li><span class="mark warn" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span>Gare : un ascenseur à vérifier</li>
+          <li><span class="mark ko" aria-hidden="true"><svg class="i"><use href="#i-ko"/></svg></span>Gare : ascenseur en panne</li>
+          <li><span class="mark ok food" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span>Resto accessible en fauteuil</li>
+          <li><span class="hatch" aria-hidden="true"></span>Travaux sur le trottoir</li>
+        </ul>
 
         <h2 class="h2">Mes endroits</h2>
         <ul class="list" id="favs"></ul>
@@ -127,6 +138,9 @@
       <symbol id="i-door" viewBox="0 0 24 24"><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17M3 21h18M15 12h.01"/></symbol>
       <symbol id="i-steps" viewBox="0 0 24 24"><path d="M3 20h5v-5h5v-5h5V5h3"/></symbol>
       <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3 11 21 3l-8 18-2-8z"/></symbol>
       <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
       <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
       <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>

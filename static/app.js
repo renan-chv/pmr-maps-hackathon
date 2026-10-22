@@ -188,8 +188,8 @@ async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
 // Map
 // ---------------------------------------------------------------------------
 const map = new maplibregl.Map({
-  container: "map", style: "https://tiles.openfreemap.org/styles/positron",
-  center: [2.3488, 48.8566], zoom: 12.3, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
+  container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
+  center: [2.3488, 48.8566], zoom: 13, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
 });
 map.touchZoomRotate.disableRotation();
 
@@ -217,16 +217,29 @@ function hatchImage() {
 }
 const empty = () => ({ type: "FeatureCollection", features: [] });
 
+// The base map's own shop icons and road shields compete with ours: hide them.
+const BASE_CLUTTER = /^(poi_|highway-shield|road_shield)/;
+
 map.on("load", () => {
+  for (const l of map.getStyle().layers) {
+    if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
+    // Calm, warm base: white streets on cream, so our markers are what stands out.
+    if (l.type === "line" && /^(road|bridge|tunnel)_/.test(l.id) && !/rail|pattern/.test(l.id)) {
+      const casing = /casing/.test(l.id);
+      map.setPaintProperty(l.id, "line-color", casing ? (/motorway|trunk|primary|secondary|link/.test(l.id) ? "#e2d6c2" : "#e9e1d3") : (/motorway/.test(l.id) ? "#fde9c8" : "#ffffff"));
+    }
+  }
+  map.setPaintProperty("background", "background-color", "#f6f0e6");
   for (const k of ["ok", "warn", "ko", "unk"]) {
     const m = markImage(C[k], k); map.addImage(`st-${k}`, m.image, { pixelRatio: m.pixelRatio });
     const f = markImage(C[k], "food", { size: 36, square: true }); map.addImage(`pl-${k}`, f.image, { pixelRatio: f.pixelRatio });
   }
   const h = hatchImage(); map.addImage("hatch", h.image, { pixelRatio: h.pixelRatio });
-  ["works", "quais", "bus", "places", "trip", "stations", "pin"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
+  ["works", "quais", "bus", "places", "trip", "stations", "pin", "me"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
 
-  map.addLayer({ id: "works-fill", type: "fill", source: "works", paint: { "fill-pattern": "hatch" } });
-  map.addLayer({ id: "works-line", type: "line", source: "works", paint: { "line-color": C.works, "line-width": 1.5 } });
+  // Works only from street level: city-wide they are noise.
+  map.addLayer({ id: "works-fill", type: "fill", source: "works", minzoom: 14.5, paint: { "fill-pattern": "hatch" } });
+  map.addLayer({ id: "works-line", type: "line", source: "works", minzoom: 14.5, paint: { "line-color": C.works, "line-width": 1.5 } });
   const accColor = ["match", ["get", "accessibility"], "true", C.ok, "partial", C.warn, "false", C.ko, C.unk];
   map.addLayer({ id: "quais", type: "circle", source: "quais", layout: { visibility: "none" },
     paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 16, 8], "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
@@ -242,13 +255,18 @@ map.on("load", () => {
   map.addLayer({ id: "stations", type: "symbol", source: "stations",
     layout: {
       "icon-image": ["concat", "st-", ["get", "status"]], "icon-allow-overlap": true, "symbol-sort-key": ["get", "sort"],
-      "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.4, 12, 0.6, 15, 0.9],
-      "text-field": ["step", ["zoom"], "", 14, ["get", "name"]], "text-font": ["Noto Sans Regular"],
-      "text-size": 13, "text-offset": [0, 1.7], "text-anchor": "top", "text-optional": true,
+      "icon-size": ["interpolate", ["linear"], ["zoom"], 9, 0.45, 12, 0.65, 15, 0.95],
+      "text-field": ["step", ["zoom"], "", 13.5, ["get", "name"]], "text-font": ["Noto Sans Bold"],
+      "text-size": 14, "text-offset": [0, 1.8], "text-anchor": "top", "text-optional": true,
     },
-    paint: { "text-color": C.ink, "text-halo-color": "#fff", "text-halo-width": 1.6 } });
+    paint: { "text-color": C.ink, "text-halo-color": "#fff", "text-halo-width": 2 } });
   map.addLayer({ id: "pin", type: "circle", source: "pin",
     paint: { "circle-radius": 10, "circle-color": C.brand, "circle-stroke-color": "#fff", "circle-stroke-width": 4 } });
+  map.addLayer({ id: "me-halo", type: "circle", source: "me", paint: { "circle-radius": 22, "circle-color": "#1a73e8", "circle-opacity": 0.15 } });
+  map.addLayer({ id: "me", type: "symbol", source: "me", layout: {
+    "text-field": "Vous êtes ici", "text-font": ["Noto Sans Bold"], "text-size": 14, "text-offset": [0, 1.6], "text-anchor": "top", "text-allow-overlap": true,
+  }, paint: { "text-color": "#1a4fb5", "text-halo-color": "#fff", "text-halo-width": 2 } });
+  map.addLayer({ id: "me-dot", type: "circle", source: "me", paint: { "circle-radius": 9, "circle-color": "#1a73e8", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
 
   map.on("click", "stations", (e) => openStation(e.features[0].properties.id));
   map.on("click", "places", (e) => { const id = e.features[0].properties.id; const p = S.places.find((x) => x.properties.id === id); if (p) openAcceslibre(p); });
@@ -456,7 +474,8 @@ function listView(title, sub) {
 async function openNearby() {
   listView("Autour de moi", "Les stations avec ascenseur les plus proches.");
   const pos = await here();
-  setPin(pos); flyTo(pos, 14.5);
+  if (!S.myPos) setPin(pos);
+  flyTo(pos, 14.5);
   const near = nearestStations(pos, 8, 3000);
   $("#l-body").innerHTML = near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 3 km.</p>`;
   bindOpen($("#l-body"));
@@ -478,7 +497,8 @@ async function openFood() {
   listView("Manger près d'ici", "Restaurants, cafés et bars décrits sur Acceslibre.");
   renderFoodFilters();
   foodPos = await here();
-  setPin(foodPos); flyTo(foodPos, 15.5);
+  if (!S.myPos) setPin(foodPos);
+  flyTo(foodPos, 15.5);
   try {
     foodAll = (await placesAround(foodPos)).filter((f) => f.properties.category === "food")
       .map((f) => ({ f, d: distM(foodPos, f.geometry.coordinates) })).sort((a, b) => a.d - b.d);
@@ -764,15 +784,21 @@ autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.f
 function locate() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(null);
-    navigator.geolocation.getCurrentPosition((p) => { S.myPos = [p.coords.longitude, p.coords.latitude]; resolve(S.myPos); },
+    navigator.geolocation.getCurrentPosition((p) => {
+      S.myPos = [p.coords.longitude, p.coords.latitude];
+      map.getSource("me")?.setData({ type: "Feature", geometry: { type: "Point", coordinates: S.myPos } });
+      resolve(S.myPos);
+    },
       () => resolve(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   });
 }
 $("#locate").addEventListener("click", async () => {
   const pos = await locate();
   if (!pos) return toast("Je ne trouve pas votre position. Autorisez la localisation dans les réglages du téléphone.");
-  setPin(pos); flyTo(pos, 15);
+  flyTo(pos, 15.5);
 });
+$("#zoom-in").addEventListener("click", () => map.zoomIn());
+$("#zoom-out").addEventListener("click", () => map.zoomOut());
 
 // ---------------------------------------------------------------------------
 // Chips, text size, voice, deep links
@@ -782,15 +808,16 @@ const LAYER_IDS = { lifts: ["stations"], works: ["works-fill", "works-line"], qu
 function setLayer(k, on) {
   layerOn[k] = on;
   const chip = $(`.chip[data-layer="${k}"]`);
-  chip.classList.toggle("on", on); chip.setAttribute("aria-pressed", String(on));
+  chip?.classList.toggle("on", on); chip?.setAttribute("aria-pressed", String(on));
   for (const id of LAYER_IDS[k]) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
 }
 document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => {
   const k = chip.dataset.layer; setLayer(k, !layerOn[k]);
-  if ((k === "bus" || k === "places") && layerOn[k] && map.getZoom() < 15) {
-    toast(k === "bus" ? "Les arrêts de bus s'affichent quand on zoome." : "Les restos s'affichent quand on zoome.");
-    map.easeTo({ zoom: 15.5, padding: Sheet.padding() });
-  } else if (k === "bus") loadBus(); else if (k === "places") loadPlacesLayer();
+  const minZ = { places: 15, works: 14.5 }[k];
+  if (minZ && layerOn[k] && map.getZoom() < minZ) {
+    toast(k === "places" ? "Je rapproche la carte pour montrer les restos." : "Je rapproche la carte pour montrer les travaux.");
+    map.easeTo({ zoom: minZ + 0.5, padding: Sheet.padding() });
+  } else if (k === "places") loadPlacesLayer();
 }));
 
 const textBtn = $("#textsize");
