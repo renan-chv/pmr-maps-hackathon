@@ -1,0 +1,380 @@
+{
+ "summary": {
+  "run_at": "2026-10-22T11:21:35+00:00",
+  "base": "https://01a1630f-d719-7e22-99af-faa332f9258b-8080.eur-1.aiven.app",
+  "questions": 11,
+  "mode": "scénario enregistré (replay=demo, relevé IDFM du 22/10 vers 11h)",
+  "claude_seul": {
+   "answered": 11,
+   "accuracy": 0.0,
+   "false_accessible": 0,
+   "uncertain": 11,
+   "cites_source_and_time": 0.45,
+   "median_latency_s": 5.5,
+   "cost_usd": 0.113
+  },
+  "agent_avec_donnees": {
+   "answered": 11,
+   "accuracy": 1.0,
+   "false_accessible": 0,
+   "uncertain": 0,
+   "cites_source_and_time": 1.0,
+   "median_latency_s": 6.5,
+   "cost_usd": 0.354
+  }
+ },
+ "runs": [
+  {
+   "config": "no_tools",
+   "question": "L'ascenseur de la ligne 1 à Esplanade de la Défense fonctionne-t-il en ce moment ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [],
+   "latency_s": 6.3,
+   "cost_usd": 0.0096,
+   "run_id": 1,
+   "answer": "Je ne peux pas vous le confirmer : je n'ai aucune donnée en direct sur l'état des ascenseurs. Considérez donc ce trajet comme risqué tant que vous n'avez pas vérifié. Le plus fiable est de consulter l'état des ascenseurs dans l'application ou sur le site d'Île-de-France Mobilités ou de la RATP juste avant de partir. Vous pouvez aussi appeler le service client de la RATP pour une info à jour et demander une alternative accessible. Si l'ascenseur est en panne, envisagez une station voisine signalée comme accessible, après vérification de ses propres ascenseurs. Sources : aucune information en temps réel disponible ce jeudi à 13 h 21."
+  },
+  {
+   "config": "no_tools",
+   "question": "Est-ce que les ascenseurs de la ligne 2 à Jaurès sont en service ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [],
+   "latency_s": 5.1,
+   "cost_usd": 0.0091,
+   "run_id": 2,
+   "answer": "Je ne peux pas vous le confirmer : je n'ai accès à aucune donnée en direct, donc je ne connais pas l'état actuel des ascenseurs à Jaurès. Considérez donc ce trajet comme risqué tant que vous n'avez pas vérifié. Un ascenseur en panne pourrait vous bloquer entre la rue et le quai. Avant de partir, consultez l'état des ascenseurs sur l'appli ou le site Île-de-France Mobilités, ou appelez le service RATP. En cas de panne, prévoyez un itinéraire en bus accessible ou demandez une assistance en station. Source : aucune, faute de données en direct à cette heure, 13 h 21."
+  },
+  {
+   "config": "no_tools",
+   "question": "Je suis en fauteuil, je peux prendre l'ascenseur à Pont de Sèvres aujourd'hui ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": false,
+   "tools": [],
+   "latency_s": 3.8,
+   "cost_usd": 0.0076,
+   "run_id": 3,
+   "answer": "Je ne peux pas vous le confirmer : je n'ai aucune donnée en direct sur l'état des ascenseurs. À Pont de Sèvres, une panne d'ascenseur peut bloquer l'accès au quai ou à la sortie, donc il faut vérifier avant de partir. Consultez l'état des ascenseurs sur l'application ou le site Île-de-France Mobilités, ou sur l'application RATP, juste avant votre départ. Si l'ascenseur est en panne, prévoyez un itinéraire en bus accessible, ou appelez le service d'assistance de la RATP pour connaître les alternatives. Sources : aucune, je n'ai pas d'information datée sur cette station."
+  },
+  {
+   "config": "no_tools",
+   "question": "L'ascenseur de la gare de Champigny (RER A) marche-t-il ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": false,
+   "tools": [],
+   "latency_s": 5.5,
+   "cost_usd": 0.0098,
+   "run_id": 4,
+   "answer": "Je ne peux pas te le dire : je n'ai aucune donnée en direct, donc je ne connais pas l'état actuel de cet ascenseur. Si cet ascenseur est en panne, tu risques d'être bloqué entre le quai et la sortie. Avant de partir, vérifie l'état des ascenseurs dans l'appli ou sur le site d'Île-de-France Mobilités, ou sur le site de la RATP. Tu peux aussi appeler le service d'assistance de la RATP pour qu'on te confirme l'état sur place. Si l'ascenseur est hors service, demande quelle gare voisine accessible permet de faire le trajet, et pense à garder une marge de temps. Sources : aucune, je n'ai consulté aucune information en temps réel."
+  },
+  {
+   "config": "no_tools",
+   "question": "Les ascenseurs de Châtelet - Les Halles fonctionnent-ils en ce moment ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": false,
+   "tools": [],
+   "latency_s": 4.5,
+   "cost_usd": 0.0092,
+   "run_id": 5,
+   "answer": "Je ne peux pas vous le confirmer : je n'ai aucune donnée en direct sur l'état des ascenseurs. Châtelet - Les Halles est donc risqué tant que vous n'avez pas vérifié, car la station est très grande et une seule panne peut bloquer un changement de quai. Avant de partir, consultez l'appli ou le site Île-de-France Mobilités ou RATP, qui indiquent l'état des ascenseurs en temps réel. Vous pouvez aussi appeler l'assistance RATP pour les voyageurs en fauteuil. Si un ascenseur est en panne, demandez à l'agent un itinéraire par une autre station accessible. Sources : aucune information en direct disponible, donc aucune heure de mise à jour à vous donner."
+  },
+  {
+   "config": "no_tools",
+   "question": "Je peux utiliser l'ascenseur à Bibliothèque François Mitterrand en fauteuil ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": false,
+   "tools": [],
+   "latency_s": 6.2,
+   "cost_usd": 0.0103,
+   "run_id": 6,
+   "answer": "Je ne peux pas te confirmer que l'ascenseur fonctionne en ce moment, car je n'ai aucune donnée en direct. En temps normal, la ligne 14 est entièrement accessible en fauteuil, avec des ascenseurs de la rue jusqu'au quai, et la gare RER C est aussi équipée. Le risque, c'est une panne ou une maintenance non signalée ici, surtout si tu dois changer entre la 14 et le RER C. Avant de partir, vérifie l'état des ascenseurs sur l'appli ou le site Île-de-France Mobilités, ou demande au personnel en station. En plan B, Cour Saint-Émilion et Olympiades sont aussi accessibles sur la ligne 14, juste à côté. Sources : aucune info en temps réel disponible, seulement les informations générales d'accessibilité de la ligne."
+  },
+  {
+   "config": "no_tools",
+   "question": "Les ascenseurs de Barbès - Rochechouart sont-ils en service ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [],
+   "latency_s": 5.8,
+   "cost_usd": 0.0104,
+   "run_id": 7,
+   "answer": "Je ne peux pas te le confirmer : je n'ai aucune donnée en direct sur les ascenseurs. Prudence quand même, la plupart des stations du métro parisien, hors ligne 14, ne sont pas accessibles de bout en bout en fauteuil, même quand un ascenseur fonctionne. Avant de partir, vérifie l'état des ascenseurs sur l'appli ou le site Île-de-France Mobilités, ou au service Infomobi au 09 70 81 83 85. En plan B, les bus parisiens sont accessibles en fauteuil manuel, avec rampe et place dédiée. Source : aucune info temps réel disponible ce jeudi 22 octobre à 13 h 22."
+  },
+  {
+   "config": "no_tools",
+   "question": "L'ascenseur de Pyramides marche-t-il aujourd'hui ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [],
+   "latency_s": 4.6,
+   "cost_usd": 0.0097,
+   "run_id": 8,
+   "answer": "Je ne peux pas vous le confirmer, car je n'ai aucune donnée en direct sur les ascenseurs. C'est donc risqué de partir sans vérifier, surtout que sans ascenseur, la station Pyramides devient inaccessible en fauteuil manuel. Vérifiez juste avant de partir dans l'application Île-de-France Mobilités ou RATP, rubrique état des ascenseurs. Seule la ligne 14 est accessible à Pyramides, pas la ligne 7. En plan B, visez les stations voisines de la ligne 14 comme Madeleine ou Châtelet, en vérifiant aussi leurs ascenseurs. Sources : aucune information disponible aujourd'hui, 22 octobre à 13 h 22."
+  },
+  {
+   "config": "no_tools",
+   "question": "Je suis en fauteuil manuel, je vais de la rue de Rivoli à l'esplanade de la Défense en métro ligne 1, est-ce que ça passe ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": false,
+   "tools": [],
+   "latency_s": 7.9,
+   "cost_usd": 0.0154,
+   "run_id": 9,
+   "answer": "**C'est risqué, et je ne peux pas le confirmer, car je n'ai aucune donnée en direct sur les ascenseurs.** Le point faible, ce sont les stations de la ligne 1 côté rue de Rivoli, comme Louvre-Rivoli, Palais-Royal ou Hôtel de Ville, qui sont anciennes et souvent sans accès de plain-pied jusqu'au quai. Si votre station de départ n'a pas d'ascenseur en service, vous serez bloqué dès l'entrée, même si la ligne a des portes palières. Plan B : le RER A depuis Châtelet-Les Halles jusqu'à La Défense est généralement mieux équipé en ascenseurs, puis vous rejoignez l'esplanade en surface. Autre option, le bus 73 vers La Défense, avec des véhicules à palette. Sources : aucune info temps réel disponible, alors vérifiez l'état des ascenseurs sur l'appli IDFM ou RATP juste avant de partir."
+  },
+  {
+   "config": "no_tools",
+   "question": "En fauteuil électrique, je vais de Châtelet à l'esplanade de la Défense par la ligne 1, ça passe ?",
+   "profile": "electrique",
+   "truth": "non",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": false,
+   "tools": [],
+   "latency_s": 6.8,
+   "cost_usd": 0.0125,
+   "run_id": 10,
+   "answer": "**Je ne peux pas confirmer que ça passe, car je n'ai aucune donnée en direct sur les ascenseurs.**\n\nL'étape à risque, ce sont les ascenseurs, à Châtelet comme à Esplanade de la Défense. Selon mes connaissances générales, la ligne 1 n'est pas accessible en fauteuil dans toutes ses stations, et une seule panne suffit à vous bloquer.\n\nEn plan B, le RER A relie Châtelet-Les Halles à La Défense Grande Arche, des stations réputées accessibles. De là, vous rejoignez l'esplanade à pied par la dalle, qui est de plain-pied.\n\nCôté sources, je n'ai aucune information horodatée. Avant de partir, vérifiez l'état des ascenseurs sur l'appli ou le site d'Île-de-France Mobilités, ou au 09 70 81 83 85."
+  },
+  {
+   "config": "no_tools",
+   "question": "Je suis malvoyant, je vais de Châtelet à l'esplanade de la Défense par la ligne 1, est-ce que je peux y aller ?",
+   "profile": "malvoyant",
+   "truth": "oui",
+   "predicted": "incertain",
+   "correct": false,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [],
+   "latency_s": 4.9,
+   "cost_usd": 0.0098,
+   "run_id": 11,
+   "answer": "Je ne peux pas confirmer que ça passe, car je n'ai aucune donnée en direct sur l'état de la ligne 1 ni des équipements. Sur le principe, c'est un trajet direct et plutôt favorable : la ligne 1 est automatique, avec des portes palières sur tous les quais, ce qui limite le risque de chute. L'étape à risque, c'est Châtelet, une station très vaste et très fréquentée, où les couloirs et les correspondances peuvent désorienter. En plan B, vous pouvez demander l'assistance d'un agent en station ou contacter le service d'accompagnement de la RATP avant de partir. Pour l'état du trafic et des équipements, consultez l'appli ou le site IDFM, ou la RATP, juste avant votre départ. Sources : aucune information en temps réel disponible ce jeudi à 13 h 22."
+  },
+  {
+   "config": "full",
+   "question": "L'ascenseur de la ligne 1 à Esplanade de la Défense fonctionne-t-il en ce moment ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "non",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 5.7,
+   "cost_usd": 0.0329,
+   "run_id": 12,
+   "answer": "Non, l'ascenseur de la ligne 1 à Esplanade de la Défense est en panne. Il part du milieu du quai et mène aux sorties 3, quai de Dion-Bouton, et 4, quai Paul Doumer. Sans lui, vous ne pouvez pas quitter le quai en fauteuil à cette station. Comme plan B, vous pouvez rester dans le métro jusqu'à La Défense - Grande Arche, où l'ascenseur de la sortie 2, Dôme - Valmy, est en service. Pour info, l'ascenseur d'Esplanade fonctionne 88 % du temps sur 11 jours, avec 6 pannes. Source : ascenseurs IDFM, relevé de 11 h, panne publiée à 7 h 52, donc à vérifier avant de partir."
+  },
+  {
+   "config": "full",
+   "question": "Est-ce que les ascenseurs de la ligne 2 à Jaurès sont en service ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "non",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 5.6,
+   "cost_usd": 0.0284,
+   "run_id": 13,
+   "answer": "Non, à Jaurès, la ligne 2 est bloquée pour un fauteuil : les quatre ascenseurs sont signalés en panne. C'est valable dans les deux directions, vers Nation et vers Porte Dauphine. Ce sont les ascenseurs près de la sortie 5, côté quai de Jemmapes. IDFM a publié cet état le mardi 20 octobre à 6 h 09, donc c'est une info ancienne, à vérifier : ils ont peut-être été réparés depuis. Je n'ai pas non plus leur taux de fonctionnement habituel. Source : ascenseurs IDFM, relevé de 11 h. Si vous voulez, je peux chercher un trajet qui évite Jaurès."
+  },
+  {
+   "config": "full",
+   "question": "Je suis en fauteuil, je peux prendre l'ascenseur à Pont de Sèvres aujourd'hui ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "non",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 7.0,
+   "cost_usd": 0.0264,
+   "run_id": 14,
+   "answer": "Non, a priori pas aujourd'hui : les deux ascenseurs de Pont de Sèvres sont signalés en panne. La gare n'en compte que deux, donc impossible de passer entre la rue et le quai en fauteuil pour l'instant. Attention, IDFM a publié cette panne le 15 octobre vers 2 h, il y a une semaine : c'est donc à vérifier, la réparation a peut-être eu lieu depuis. Je n'ai pas de fiabilité historique pour ces ascenseurs. Si vous me dites où vous allez, je peux chercher un trajet par une autre station. Source pour les ascenseurs : IDFM, relevé de 11 h 11 aujourd'hui."
+  },
+  {
+   "config": "full",
+   "question": "L'ascenseur de la gare de Champigny (RER A) marche-t-il ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "non",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 6.6,
+   "cost_usd": 0.028,
+   "run_id": 15,
+   "answer": "Non, d'après les données, l'ascenseur de Champigny sur le RER A est en panne. Il relie la salle d'échange, en face de la boutique Hubiz, au quai direction Saint-Germain-en-Laye, Poissy, Cergy ou Boissy-Saint-Léger. Mais cet état date du 16 octobre à 2 h 10, donc il faut le vérifier avant de partir, par exemple auprès d'un agent RATP ou sur l'appli IDFM. Je n'ai pas de chiffre sur sa fiabilité habituelle. Les deux ascenseurs des Boullereaux-Champigny marchent, mais c'est une autre gare, sur le RER E. Source : ascenseurs IDFM, relevé de 11 h."
+  },
+  {
+   "config": "full",
+   "question": "Les ascenseurs de Châtelet - Les Halles fonctionnent-ils en ce moment ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "oui",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 7.1,
+   "cost_usd": 0.0349,
+   "run_id": 16,
+   "answer": "D'après IDFM, les 9 ascenseurs de Châtelet - Les Halles sont indiqués en service, aucun n'est signalé en panne. Attention, ces données viennent du relevé de 11 h, et IDFM les a publiées vers 5 h ce matin : c'est une info de 5 h, à vérifier. Ça concerne les ascenseurs des quais du RER A et du RER D, et ceux qui mènent à la ligne 1, à la ligne 4 et à la sortie 1, Porte Marguerite de Navarre. Pour les deux ascenseurs de la ligne 14, l'info est encore plus ancienne : elle date du 20 octobre, donc elle est à vérifier aussi. Sur les 11 derniers jours environ, ces ascenseurs ont été en service entre 91 % et presque 100 % du temps. Le moins fiable est celui du quai du RER A Ouest : 96 % du temps en service, mais 7 pannes sur 9 jours."
+  },
+  {
+   "config": "full",
+   "question": "Je peux utiliser l'ascenseur à Bibliothèque François Mitterrand en fauteuil ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "oui",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 7.1,
+   "cost_usd": 0.033,
+   "run_id": 17,
+   "answer": "Oui, les 7 ascenseurs de Bibliothèque François Mitterrand sont signalés en service, d'après le relevé de 11 h. Pour la ligne 14, celui qui relie la salle d'échange aux sorties 2 et 3 a été mis à jour aujourd'hui à 6 h 07, et celui des sorties 1 et 4 à 9 h 08. En revanche, l'état de ceux qui descendent aux quais de la ligne 14 date du 21 octobre pour la direction Saint-Denis et du 14 octobre pour la direction Orly, donc à vérifier. Pour le RER C, les ascenseurs des quais A et B datent du 19 octobre, et ceux des quais C, D, E et F du 9 octobre, donc à vérifier aussi. Je n'ai pas leur fiabilité historique, donc je ne sais pas s'ils tombent souvent en panne. Source : ascenseurs IDFM, relevé de 11 h, et si vous me dites votre trajet, je peux le vérifier en entier."
+  },
+  {
+   "config": "full",
+   "question": "Les ascenseurs de Barbès - Rochechouart sont-ils en service ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "oui",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 5.7,
+   "cost_usd": 0.029,
+   "run_id": 18,
+   "answer": "Oui, d'après le relevé de 11 h, les deux ascenseurs de Barbès - Rochechouart sont en service. Mais attention : ces deux ascenseurs relient seulement la ligne 4 direction Porte de Clignancourt à la ligne 2, et pour les atteindre il faut d'abord prendre un escalier mécanique. En fauteuil manuel, je ne peux donc pas dire que la correspondance est accessible. Je ne sais pas non plus s'il existe un accès sans marche depuis la rue, il faudrait le vérifier, par exemple avec un calcul de trajet complet. Sources : ascenseurs IDFM, infos de 7 h 13 et de 5 h 28, à vérifier car elles ont plus de 3 heures."
+  },
+  {
+   "config": "full",
+   "question": "L'ascenseur de Pyramides marche-t-il aujourd'hui ?",
+   "profile": "manuel",
+   "truth": "oui",
+   "predicted": "oui",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "lift_status"
+   ],
+   "latency_s": 5.0,
+   "cost_usd": 0.0287,
+   "run_id": 19,
+   "answer": "D'après le relevé de 11 h, oui, les trois ascenseurs de Pyramides sont indiqués en service. Celui qui va du quai de la ligne 14 vers les sorties 1, avenue de l'Opéra, et 2, rue de l'Échelle, a un état publié ce matin à 5 h 50, info à vérifier. Les deux ascenseurs entre les quais et la salle d'échange ont un état publié le 16 octobre et le 18 octobre, donc ancien, à vérifier aussi. Je n'ai pas de chiffre de fiabilité pour ces ascenseurs, donc je ne peux pas promettre qu'ils marcheront toute la journée. Je vous conseille de revérifier juste avant de partir. Source : ascenseurs IDFM, relevé de 11 h 11."
+  },
+  {
+   "config": "full",
+   "question": "Je suis en fauteuil manuel, je vais de la rue de Rivoli à l'esplanade de la Défense en métro ligne 1, est-ce que ça passe ?",
+   "profile": "manuel",
+   "truth": "non",
+   "predicted": "non",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "check_journey"
+   ],
+   "latency_s": 7.7,
+   "cost_usd": 0.0373,
+   "run_id": 20,
+   "answer": "Bloqué à la station Esplanade de la Défense : son seul ascenseur de la ligne 1 est en panne depuis 7 h 52 ce matin. Une appli classique vous annonce pourtant ce trajet comme accessible. Plan B : restez dans la ligne 1 jusqu'au terminus La Défense, où l'ascenseur fonctionne, puis faites environ 670 mètres à pied jusqu'à l'esplanade, soit 36 minutes au lieu de 28. Au départ, à Châtelet - Les Halles, les 2 ascenseurs marchent, mais un chantier gêne le trottoir de la rue de Rivoli. Sources : ascenseurs IDFM, info de 11 h 11 tirée du relevé de 11 h, et chantier Ville de Paris, info de 13 h 20. Revérifiez juste avant de partir, car l'état des ascenseurs peut changer."
+  },
+  {
+   "config": "full",
+   "question": "En fauteuil électrique, je vais de Châtelet à l'esplanade de la Défense par la ligne 1, ça passe ?",
+   "profile": "electrique",
+   "truth": "non",
+   "predicted": "non",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "check_journey"
+   ],
+   "latency_s": 5.8,
+   "cost_usd": 0.0368,
+   "run_id": 21,
+   "answer": "Bloqué à Esplanade de la Défense : l'unique ascenseur de la ligne 1 y est en panne depuis 7 h 52, alors qu'une appli classique vous annonce ce trajet comme accessible. Au départ, les deux ascenseurs de la ligne 1 à Châtelet fonctionnent, mais un chantier gêne le trottoir de la rue de Rivoli pour rejoindre la station. Plan B : restez dans la ligne 1 jusqu'au terminus La Défense, où l'ascenseur fonctionne. Ensuite, comptez environ 670 mètres à pied jusqu'à l'esplanade, soit 36 minutes de trajet au total. Sources : ascenseurs, IDFM, info de 11 h 11 (relevé de 11 h) ; chantier, Ville de Paris, info de 13 h 20. Revérifiez juste avant de partir, car l'état des ascenseurs peut changer."
+  },
+  {
+   "config": "full",
+   "question": "Je suis malvoyant, je vais de Châtelet à l'esplanade de la Défense par la ligne 1, est-ce que je peux y aller ?",
+   "profile": "malvoyant",
+   "truth": "oui",
+   "predicted": "oui",
+   "correct": true,
+   "false_accessible": false,
+   "cites_source": true,
+   "tools": [
+    "check_journey"
+   ],
+   "latency_s": 6.5,
+   "cost_usd": 0.0384,
+   "run_id": 22,
+   "answer": "C'est risqué, à cause d'un seul point au départ, selon le relevé de 11 h. Il y a un chantier d'immeuble sur le trottoir, rue de Rivoli, sur votre trajet à pied vers Châtelet - Les Halles, et il durera jusqu'à fin décembre. Ensuite, la ligne 1 jusqu'à Esplanade de la Défense passe en 28 minutes environ. L'ascenseur d'Esplanade de la Défense est en panne depuis 7 h 52, mais l'outil indique que ça ne gêne pas votre profil malvoyant. L'autre trajet passe par l'arrêt La Défense en 36 minutes, mais il fait 672 mètres de plus à pied et passe par le même chantier, donc il n'évite pas le risque. Sources : chantiers, Ville de Paris, info de 13 h 20 ; ascenseurs, IDFM, info de 11 h 11."
+  }
+ ]
+}
