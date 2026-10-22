@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -25,6 +26,7 @@ SERVERLESS = bool(os.getenv("VERCEL"))  # Vercel functions sleep between request
 PRIM_JOURNEYS = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/journeys"
 
 app = FastAPI(title="PMR Maps")
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # chantiers : 2,3 Mo de GeoJSON non compressés sur Aiven
 http_cache.install(app)
 app.include_router(photos.router)
 app.include_router(search.router)
