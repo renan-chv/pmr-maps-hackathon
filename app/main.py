@@ -366,7 +366,8 @@ def _reports() -> List[dict]:
         return []
     try:
         with db.conn().cursor() as cur:
-            cur.execute("""SELECT id, lon, lat, categorie, temporaire, confirmations, created_at, message
+            cur.execute("""SELECT id, lon, lat, categorie, temporaire, confirmations, created_at,
+                                  target_type, target_id, message
                            FROM user_reports WHERE lon IS NOT NULL""")
             cols = [c.name for c in cur.description]
             return [dict(zip(cols, row), description=row[-1]) for row in cur.fetchall()]

@@ -12,12 +12,15 @@ import math
 import re
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from . import profiles
 
 LIFT_RADIUS_M = 150     # lifts are geolocated at the station centroid
 NEAR_WALK_M = 15        # fallback distance for obstacles given as lines or points
 LONG_WALK_M = 400       # beyond this a walking step is flagged as long
+REPORT_MAX_AGE_H = 24    # a live breakdown report older than this no longer overrides official data
+PARIS = ZoneInfo("Europe/Paris")
 UNRELIABLE_BELOW = 0.85  # lift in service less than this share of the time: warn (estimate)
 RAIL_MODES = ("metro", "métro", "rer", "train", "transilien", "ter")
 VERDICT = {"sans_effet": "passe", "genant": "risque", "bloquant": "bloque"}
@@ -194,16 +197,61 @@ def _worst_reliability(rows: List[dict], reliability: Optional[Dict[str, dict]])
     return min(known, key=lambda x: x["availability"]) if known else None
 
 
+def _as_dt(v) -> Optional[datetime]:
+    """ISO string or datetime; naive values are Paris local time (IDFM liftstateupdate)."""
+    if isinstance(v, str):
+        try:
+            v = datetime.fromisoformat(v)
+        except ValueError:
+            return None
+    if not isinstance(v, datetime):
+        return None
+    return v if v.tzinfo else v.replace(tzinfo=PARIS)
+
+
+def apply_lift_reports(rows: List[dict], reports: Iterable[dict], now: datetime) -> List[dict]:
+    """Live community reports win over older official data.
+
+    A lift reported broken (« Signaler une panne », target_type lift) after IDFM's last update for it,
+    and less than REPORT_MAX_AGE_H ago, is treated as broken until the official data catches up.
+    """
+    newest: Dict[str, dict] = {}
+    for r in reports:
+        if r.get("categorie") != "ascenseur_panne" or r.get("target_type") != "lift" or not r.get("target_id"):
+            continue
+        created = _as_dt(r.get("created_at"))
+        if created is None or (now - created).total_seconds() > REPORT_MAX_AGE_H * 3600:
+            continue
+        key = str(r["target_id"])
+        if key not in newest or created > _as_dt(newest[key]["created_at"]):
+            newest[key] = r
+    if not newest:
+        return rows
+    out = []
+    for row in rows:
+        rep = newest.get(str(row.get("liftid")))
+        official = _as_dt(row.get("liftstateupdate"))
+        created = _as_dt(rep["created_at"]) if rep else None
+        if rep and row.get("liftstatus") != "notavailable" and (official is None or created > official):
+            row = {**row, "liftstatus": "notavailable", "liftstatus_official": row.get("liftstatus"),
+                   "liftstateupdate_official": row.get("liftstateupdate"),
+                   "liftstateupdate": created.astimezone(PARIS).strftime("%Y-%m-%dT%H:%M"),
+                   "reported": True, "report_confidence": _report_confidence(rep, now)}
+        out.append(row)
+    return out
+
+
 def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: Optional[str],
                lifts_rows: Iterable[dict], fetched_at: Optional[str], profile: str,
                reliability: Optional[Dict[str, dict]] = None, direction: Optional[str] = None,
-               stop_area: Optional[str] = None) -> dict:
+               stop_area: Optional[str] = None, reports: Iterable[dict] = (),
+               now: Optional[datetime] = None) -> dict:
     """Lift status for one line at one station.
 
     Only lifts that mention the line count when some do; among them, only those serving the
     platform of the travel direction (or "toutes directions") when the descriptions say so.
     """
-    lifts_rows = list(lifts_rows)
+    lifts_rows = apply_lift_reports(list(lifts_rows), reports, now or datetime.now(timezone.utc))
     zdc = (stop_area or "").rsplit(":", 1)[-1]  # Navitia stop_area:IDFM:71485 <-> IDFM zdcid 71485
     near = [r for r in lifts_rows if zdc and str(r.get("zdcid")) == zdc]
     if not near:  # big stations: the stop point can be far from the station centroid
@@ -239,6 +287,13 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": "ascenseur_panne", "effect": eff,
                 "label": f"Ascenseurs à {station}", "message": "Aucune donnée d'ascenseur pour cette station"}
     conf = 5 if matched_line else 3  # 3: we could not tell which lift serves this line
+    reported = [r for r in down if r.get("reported")]
+    if reported:
+        # a live user report overrides older official data: say so, with the report's own confidence
+        base["source"] = "Signalement Roulib, plus récent que l'info IDFM"
+        conf = max(r["report_confidence"] for r in reported)
+        rel_text = (f" Signalé en panne par un utilisateur après la dernière mise à jour officielle "
+                    f"(IDFM : « {'en service' if reported[0].get('liftstatus_official') == 'available' else 'inconnu'} »).") + rel_text
     if down and not up:
         since = _since(min((r.get("liftstateupdate") or "") for r in down) or None)
         unknown = len(relevant) - len(down)
@@ -368,7 +423,8 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
                     if lon is None:
                         continue
                     c = lift_check(lon, lat, name, info.get("commercial_mode"), info.get("code"),
-                                   lifts_rows, lifts_fetched_at, profile, reliability, info.get("direction"), area)
+                                   lifts_rows, lifts_fetched_at, profile, reliability, info.get("direction"), area,
+                                   reports, now)
                     c["at"] = where
                     c["stop_area"] = area
                     step["checks"].append(c)
