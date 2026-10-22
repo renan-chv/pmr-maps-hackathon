@@ -404,7 +404,7 @@ def _in_idf(lon: float, lat: float) -> bool:
 # Photon (OpenStreetMap, Komoot): addresses AND places (shops, restaurants, hospitals) in one call,
 # ranked around the user like Google Maps. Public instance, fair use: self-host it for production.
 PHOTON = os.environ.get("PHOTON_URL", "https://photon.komoot.io/api/")
-PARIS = (2.3522, 48.8566)
+PARIS_CENTER = (2.3522, 48.8566)  # not PARIS: that name is the opendata.paris.fr URL above
 # OSM tags -> short English category shown under the name.
 _OSM_LABEL = {
     "restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "fast_food": "Fast food", "pub": "Pub",
@@ -474,7 +474,7 @@ def _suggest_photon(q: str, near: Tuple[float, float], limit: int) -> List[dict]
 def suggest(q: str, limit: int = 6, near: Optional[Tuple[float, float]] = None) -> List[dict]:
     """Addresses and places in Île-de-France for the search box, closest to `near` first."""
     try:
-        res = _suggest_photon(q, near or PARIS, limit)
+        res = _suggest_photon(q, near or PARIS_CENTER, limit)
         if res:
             return res
     except (httpx.HTTPError, ValueError, KeyError):

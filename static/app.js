@@ -486,7 +486,7 @@ function renderToday() {
 function renderSources() {
   const items = Object.values(S.meta).filter((m) => m && m.source).map((m) =>
     `<li><a href="${esc(m.source.url)}" target="_blank" rel="noopener">${esc(m.source.name)}</a>, ${esc(m.source.license)}.${m.fetched_at ? ` Fetched at ${hhmm(m.fetched_at)}.` : ""}</li>`);
-  $("#sources-list").innerHTML = items.join("") + `<li>Place search: IGN Géoplateforme.</li><li>Base map © OpenStreetMap, OpenFreeMap.</li>`;
+  $("#sources-list").innerHTML = items.join("") + `<li>Place search: Photon (Komoot), data © OpenStreetMap contributors (ODbL); IGN Géoplateforme as backup.</li><li>Base map © OpenStreetMap, OpenFreeMap.</li>`;
 }
 
 // Favourites (Home, Work) kept on this phone only.
@@ -1099,7 +1099,7 @@ async function openPlace(item) {
     `<h3 class="h2">Nearby stations with elevators</h3>` +
     (near.length ? stationList(near) : `<p class="muted">No station with an elevator within 1.5 km.</p>`) +
     nearSlot() +
-    `<p class="src">Place: IGN Géoplateforme. Elevators: IDFM. Roadworks: Ville de Paris.</p>`;
+    `<p class="src">Place: © OpenStreetMap contributors (Photon) or IGN. Elevators: IDFM. Roadworks: Ville de Paris.</p>`;
   bindOpen($("#detail"));
   $("#go-to").addEventListener("click", () => openTrip(null, item));
   $("#go-from").addEventListener("click", () => openTrip(item, null));
