@@ -104,6 +104,33 @@ const Sheet = (() => {
     set(Object.entries(hs).sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0]);
   };
   grip.addEventListener("pointerup", end);
+  // Drag from anywhere in the sheet: swipe up to expand before scrolling, pull down from the top to lower it.
+  let pull = null;
+  body.addEventListener("touchstart", (e) => { if (isPhone()) pull = { y: e.touches[0].clientY, h: cur, on: false }; }, { passive: true });
+  body.addEventListener("touchmove", (e) => {
+    if (!pull) return;
+    const dy = e.touches[0].clientY - pull.y;
+    if (!pull.on) {
+      const down = dy > 8 && body.scrollTop <= 0, up = dy < -8 && snap !== "full";
+      if (down || up) { pull.on = true; pull.y = e.touches[0].clientY; el.classList.add("dragging"); }
+      else if (Math.abs(dy) > 8) { pull = null; return; }
+      else return;
+    }
+    e.preventDefault();
+    const hs = heights();
+    apply(Math.max(hs.peek * 0.7, Math.min(hs.full, pull.h - (e.touches[0].clientY - pull.y))));
+  }, { passive: false });
+  body.addEventListener("touchend", () => {
+    if (pull?.on) {
+      el.classList.remove("dragging");
+      const hs = heights(), moved = cur - pull.h;
+      // A short flick still changes level in its direction.
+      const order = ["peek", "half", "full"], i = order.indexOf(snap);
+      if (Math.abs(moved) > 40 && Math.abs(moved) < 140) set(order[Math.max(0, Math.min(2, i + (moved > 0 ? 1 : -1)))]);
+      else set(Object.entries(hs).sort((x, y) => Math.abs(x[1] - cur) - Math.abs(y[1] - cur))[0][0]);
+    }
+    pull = null;
+  });
   grip.addEventListener("pointercancel", end);
   grip.addEventListener("keydown", (e) => {
     const order = ["peek", "half", "full"], i = order.indexOf(snap);
@@ -197,6 +224,10 @@ async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
 const map = new maplibregl.Map({
   container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
   center: [2.3488, 48.8566], zoom: 12.4, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
+  // iPhones render at 3x: capping at 2x divides the GPU work by ~2.25 with no visible loss on a map.
+  pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+  fadeDuration: 0, renderWorldCopies: false, maxPitch: 0, antialias: false,
+  maxTileCacheSize: 120, refreshExpiredTiles: false,
 });
 map.touchZoomRotate.disableRotation();
 
@@ -230,6 +261,7 @@ const BASE_CLUTTER = /^(poi_|highway-shield|road_shield)/;
 map.on("load", () => {
   for (const l of map.getStyle().layers) {
     if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
+    if (l.type === "symbol" && /housenumber|poi|road_oneway|highway-name-minor|highway_name_other/.test(l.id)) map.setLayerZoomRange(l.id, 16, 24);
     // Place names in French (the base style prefers English for districts).
     if (l.type === "symbol" && l.layout && l.layout["text-field"]) map.setLayoutProperty(l.id, "text-field", ["coalesce", ["get", "name:fr"], ["get", "name"]]);
     // Calm, warm base: white streets on cream, so our markers are what stands out.
@@ -309,6 +341,12 @@ map.on("load", () => {
   let moveT = null;
   map.on("moveend", () => { clearTimeout(moveT); moveT = setTimeout(() => { loadBus(); loadPlacesLayer(); loadReports(); }, 250); });
   map.on("dragstart", () => { if (isPhone() && Sheet.get() === "full") Sheet.set("half"); });
+  const TAPPABLE = ["stations", "stations-dot", "places", "reports", "works-fill", "quais", "bus"];
+  map.on("click", (e) => {
+    if (!isPhone() || Sheet.get() === "peek") return;
+    if (map.queryRenderedFeatures(e.point, { layers: TAPPABLE.filter((id) => map.getLayer(id)) }).length) return;
+    Sheet.set(Sheet.get() === "full" ? "half" : "peek");
+  });
 
   loadLifts().then(applyHash);
   loadStatic();
@@ -459,35 +497,6 @@ function saveFav(it) {
   $("#search").placeholder = "Une station, un lieu, une adresse";
   $("#search").value = "";
   renderFavs();
-
-// ---------------------------------------------------------------------------
-// First launch: choose a mobility profile (roadmap screen 1)
-// ---------------------------------------------------------------------------
-let chosen = Profile.get()?.key || null;
-function renderOnboard() {
-  $("#ptiles").innerHTML = PMR_PROFILES.map((p) =>
-    `<button class="ptile" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><b>${esc(p.label)}</b></button>`).join("");
-  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; }));
-  $("#o-go").disabled = !chosen;
-  $("#o-name").value = Profile.name();
-}
-$("#o-go").addEventListener("click", () => {
-  if (!chosen) return;
-  Profile.save(chosen, $("#o-name").value);
-  renderMe();
-  show("home", "half");
-  toast(`C'est noté : je vérifierai vos trajets pour un ${Profile.get().short}.`);
-});
-function renderMe() {
-  const p = Profile.get();
-  $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = p ? p.label.toLowerCase() : "votre profil";
-  $("#h-home").innerHTML = Profile.name() ? `Où allez-vous, ${esc(Profile.name())}&nbsp;?` : "Bonjour&nbsp;! Où allez-vous&nbsp;?";
-}
-$("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
-renderMe();
-if (!Profile.get() && !REPLAY) { renderOnboard(); show("onboard", "full"); }
-if (REPLAY) openTrip(null, null);
 }
 
 function stationItem(st, d) {
@@ -510,12 +519,14 @@ function show(view, snap) {
   if (snap) Sheet.set(snap);
   const h = $(`#v-${view} .title`);
   if (h && view !== "home") { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
+  if (view !== "home" && !history.state?.roulib) history.pushState({ roulib: true }, "", location.href);
 }
 function goHome() {
   show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty());
   if (!layerOn.places) showPlacesOnMap([]);
   history.replaceState(null, "", location.pathname);
 }
+window.addEventListener("popstate", () => { if ($("#v-home").hidden) goHome(); });
 document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", goHome));
 
 document.querySelectorAll("[data-go]").forEach((t) => t.addEventListener("click", () => {
@@ -1250,8 +1261,8 @@ $("#locate").addEventListener("click", async () => {
   flyTo(pos, 15.5);
 });
 $("#zoom-in").addEventListener("click", () => map.zoomIn());
-$("#snap").addEventListener("click", () => openReportFlow({}));
 $("#zoom-out").addEventListener("click", () => map.zoomOut());
+$("#snap").addEventListener("click", () => openReportFlow({}));
 
 // ---------------------------------------------------------------------------
 // Chips, text size, voice, deep links
@@ -1275,6 +1286,8 @@ document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("clic
   } else if (k === "places") loadPlacesLayer();
 }));
 
+// Larger text (low vision): the app sizes text in px, so the phone's own setting does not reach it.
+// The switch lives in the profile screen ("Affichage") to keep the home screen clear.
 const textBtn = $("#textsize");
 function setBig(on) {
   document.documentElement.classList.toggle("big", on);

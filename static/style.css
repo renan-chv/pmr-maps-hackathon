@@ -463,3 +463,18 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; }
   #map-tools, .snap { transform: none; will-change: auto; }
   #map-tools { bottom: 112px; } .snap { bottom: 24px; }
 }
+
+/* ---------- Handling pass ---------- */
+#chips > :first-child { margin-left: auto; } #chips > :last-child { margin-right: auto; }  /* centred, still scrollable when narrow */
+#grip { height: 36px; }
+.setting { margin-top: 0; padding: var(--sp-2) var(--sp-3); min-height: 56px; border-radius: var(--r-m); background: var(--surface); border: 1px solid var(--line); font-size: var(--t-body); color: var(--ink); }
+
+/* Phone: the three filters always fit and sit centred (fixed px so text enlargement cannot push them off-centre) */
+#chips { justify-content: center; gap: 6px; padding: 0 8px; }
+#chips .chip { min-height: 44px; padding: 0 12px 0 10px; gap: 5px; font-size: 15px; }
+html.big #chips .chip { font-size: 17px; }
+#chips .chip .i { width: 18px; height: 18px; }
+@media (min-width: 1024px) { #chips { justify-content: flex-start; } }
+
+/* Fluidity: let the phone scroll the sheet natively and never repaint the map for it */
+#sheet-body { -webkit-overflow-scrolling: touch; contain: content; }
