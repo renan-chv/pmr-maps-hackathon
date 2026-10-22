@@ -20,7 +20,7 @@
   --t-lift: #8a3fb0; --t-lift-soft: #f4e9fa;
 
   --font: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, sans-serif;
-  --fs: 18px;
+  --fs: 1.125rem;       /* 18 px; rem so the browser's own default text size still counts */
   /* Type roles: five sizes, one figure size. Rank comes from size AND weight, never size alone. */
   --t-screen: 1.5em;     /* screen title */
   --t-verdict: 1.2em;    /* the answer: verdict, headline number sentence */
@@ -37,7 +37,10 @@
   --sheet-h: 420px;
   --z-map: 0; --z-overlay: 10; --z-sheet: 20; --z-toast: 30; --z-skip: 40;
 }
-html.big { --fs: 21px; }
+/* Text size steps (Display setting): 18, 22, 26, 32 px body text. html.big = the old switch, read as "Large". */
+html[data-text="1"], html.big { --fs: 1.375rem; }
+html[data-text="2"] { --fs: 1.625rem; }
+html[data-text="3"] { --fs: 2rem; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
@@ -474,7 +477,6 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 /* Phone: the three filters always fit and sit centred (fixed px so text enlargement cannot push them off-centre) */
 #chips { gap: 6px; padding: 0 8px; }
 #chips .chip { min-height: 44px; padding: 0 12px 0 10px; gap: 5px; font-size: 15px; }
-html.big #chips .chip { font-size: 17px; }
 #chips .chip .i { width: 18px; height: 18px; }
 @media (min-width: 1024px) { #chips { justify-content: flex-start; } }
 
@@ -603,3 +605,50 @@ body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }
 .ls-more { display: inline-flex; align-items: center; gap: var(--sp-1); margin: var(--sp-1) 0 var(--sp-2); }
 .ls-more .i { width: 18px; height: 18px; transition: transform .2s var(--ease); }
 .ls-other .ls-note { padding-bottom: var(--sp-1); }
+
+/* ---------- Text size steps ---------- */
+/* Display setting: real radios (arrow keys, screen readers), the visible part is the span. Each "A" previews its own size. */
+.ts { margin: 0 0 var(--sp-3); padding: 0; border: 0; min-width: 0; }
+.ts-l { padding: 0; margin: 0 0 var(--sp-2); font-weight: 700; color: var(--ink-2); }
+.ts-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: var(--r-m); background: var(--raised); border: 1px solid var(--line-2); }
+.ts-seg label { position: relative; display: block; min-width: 0; }
+.ts-seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.ts-seg span { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; height: 100%; min-height: 64px; padding: 6px 4px; border-radius: var(--r-s);
+  text-align: center; font-size: var(--t-meta); font-weight: 700; line-height: 1.15; color: var(--ink-2); overflow-wrap: anywhere; }
+.ts-a { font-weight: 800; line-height: 1; color: var(--ink); }
+.ts-seg label:nth-child(1) .ts-a { font-size: 1.125rem; } .ts-seg label:nth-child(2) .ts-a { font-size: 1.375rem; }
+.ts-seg label:nth-child(3) .ts-a { font-size: 1.625rem; } .ts-seg label:nth-child(4) .ts-a { font-size: 2rem; }
+.ts-seg input:checked + span { background: var(--surface); color: var(--brand); box-shadow: inset 0 0 0 2px var(--brand), var(--shadow-1); }
+.ts-seg input:checked + span .ts-a { color: var(--brand); }
+.ts-seg input:focus-visible + span { outline: 3px solid var(--brand); outline-offset: 2px; }
+/* Map filters follow the setting (were fixed 15 px); they still scroll sideways when they do not fit. */
+#chips .chip { font-size: calc(var(--fs) * .8333); }
+/* From "Large" up: names and summaries wrap instead of ending in "…" (the hidden part is often the station). */
+html[data-text]:not([data-text="0"]) :is(.suggest b, .fav-go small, .hp-go b, .hp-go small) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
+html[data-text]:not([data-text="0"]) .trip-summary .t { display: block; overflow: visible; -webkit-line-clamp: none; overflow-wrap: break-word; }
+html[data-text]:not([data-text="0"]) :is(.verdict strong, .title, .greet, .item b, .tl-stop b, .step-head b, .r-where b, .lift .where) { overflow-wrap: break-word; }
+html[data-text]:not([data-text="0"]) .r-where { flex-wrap: wrap; } html[data-text]:not([data-text="0"]) .r-where .t { flex: 1 1 8em; }
+/* The swap button keeps its place between From and To as the fields grow (field height = one line + padding). */
+html[data-text]:not([data-text="0"]) .trip-swap { top: calc(1.45 * var(--fs) + 12px); }
+/* "Larger" and "Largest": two columns no longer fit 320-390 px, so grids stack and the place pills become rows. */
+html:is([data-text="2"], [data-text="3"]) :is(.ptiles, .favs, .cmp, .btn-row, .when-actions) { grid-template-columns: 1fr; }
+html:is([data-text="2"], [data-text="3"]) .ptile { flex-direction: row; align-items: center; min-height: 0; grid-column: auto; }
+html:is([data-text="2"], [data-text="3"]) .r-cats { grid-template-columns: 1fr; }
+html:is([data-text="2"], [data-text="3"]) .r-cat { flex-direction: row; justify-content: flex-start; min-height: 64px; text-align: left; }
+html:is([data-text="2"], [data-text="3"]) .r-adds { grid-template-columns: 1fr; }
+html:is([data-text="2"], [data-text="3"]) .r-add { flex-direction: row; min-height: 56px; }
+html:is([data-text="2"], [data-text="3"]) .home-places { flex-direction: column; overflow: visible; margin: var(--sp-1) 0 0; padding: var(--sp-1) 0 var(--sp-2); }
+html:is([data-text="2"], [data-text="3"]) .hp { max-width: none; border-radius: var(--r-m); }
+html:is([data-text="2"], [data-text="3"]) .hp-go { flex: 1; border-radius: var(--r-m); }
+html:is([data-text="2"], [data-text="3"]) .ts-seg { grid-template-columns: 1fr 1fr; }
+/* A tall sticky "Let's go" (half transparent while disabled) would sit over the text being read: back in the flow. */
+html:is([data-text="2"], [data-text="3"]) #o-go { position: static; }
+/* Verdicts: the mark goes above the words so the answer gets the full width. */
+html:is([data-text="2"], [data-text="3"]) .verdict { flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
+/* Icons and marks keep pace a little, so they still read as part of the line. */
+html[data-text="3"] .mark.lg { width: 64px; height: 64px; } html[data-text="3"] .mark.lg .i { width: 34px; height: 34px; }
+/* "Large" on a 320 px phone: same single column ("span 2" tiles would otherwise recreate a second column). */
+@media (max-width: 359px) {
+  html[data-text="1"] :is(.ptiles, .favs, .cmp, .r-cats) { grid-template-columns: 1fr; }
+  html[data-text="1"] .ptile { flex-direction: row; align-items: center; min-height: 0; grid-column: auto; }
+}
