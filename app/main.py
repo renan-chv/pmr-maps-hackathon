@@ -381,17 +381,22 @@ def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
 
 
 def _lifts_on_route(journeys: List[dict], rows: List[dict]) -> List[dict]:
-    stops = []
+    stops, zdcs = [], set()
     for j in journeys:
         for s in j.get("sections", []):
             if s.get("type") == "public_transport":
                 for end in ("from", "to"):
-                    c = ((s.get(end) or {}).get("stop_point") or {}).get("coord") or {}
+                    sp = (s.get(end) or {}).get("stop_point") or {}
+                    c = sp.get("coord") or {}
                     if c.get("lon") is not None:
                         stops.append((float(c["lon"]), float(c["lat"])))
-    return [r for r in rows if (r.get("centroidzdc") or {}).get("lon") is not None and any(
-        verify.dist_m(lon, lat, r["centroidzdc"]["lon"], r["centroidzdc"]["lat"]) <= verify.LIFT_RADIUS_M
-        for lon, lat in stops)]
+                    area = (sp.get("stop_area") or {}).get("id")
+                    if area:
+                        zdcs.add(area.rsplit(":", 1)[-1])
+    return [r for r in rows if str(r.get("zdcid")) in zdcs or (
+        (r.get("centroidzdc") or {}).get("lon") is not None and any(
+            verify.dist_m(lon, lat, r["centroidzdc"]["lon"], r["centroidzdc"]["lat"]) <= verify.LIFT_RADIUS_M
+            for lon, lat in stops))]
 
 
 def _check_all(journeys: List[dict], profile: str, lifts: dict, prefix: str = "it",

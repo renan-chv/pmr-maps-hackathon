@@ -136,15 +136,20 @@ def _worst_reliability(rows: List[dict], reliability: Optional[Dict[str, dict]])
 
 def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: Optional[str],
                lifts_rows: Iterable[dict], fetched_at: Optional[str], profile: str,
-               reliability: Optional[Dict[str, dict]] = None, direction: Optional[str] = None) -> dict:
+               reliability: Optional[Dict[str, dict]] = None, direction: Optional[str] = None,
+               stop_area: Optional[str] = None) -> dict:
     """Lift status for one line at one station.
 
     Only lifts that mention the line count when some do; among them, only those serving the
     platform of the travel direction (or "toutes directions") when the descriptions say so.
     """
-    near = [r for r in lifts_rows
-            if (r.get("centroidzdc") or {}).get("lon") is not None
-            and dist_m(lon, lat, r["centroidzdc"]["lon"], r["centroidzdc"]["lat"]) <= LIFT_RADIUS_M]
+    lifts_rows = list(lifts_rows)
+    zdc = (stop_area or "").rsplit(":", 1)[-1]  # Navitia stop_area:IDFM:71485 <-> IDFM zdcid 71485
+    near = [r for r in lifts_rows if zdc and str(r.get("zdcid")) == zdc]
+    if not near:  # big stations: the stop point can be far from the station centroid
+        near = [r for r in lifts_rows
+                if (r.get("centroidzdc") or {}).get("lon") is not None
+                and dist_m(lon, lat, r["centroidzdc"]["lon"], r["centroidzdc"]["lat"]) <= LIFT_RADIUS_M]
     tokens = line_tokens(mode, code)
     relevant = [r for r in near if _mentions(r, tokens)] if tokens else []
     matched_line = bool(relevant)
@@ -291,13 +296,13 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
                 "stop_areas": [a for a in (f_area, t_area) if a], "checks": []}
         if stype == "public_transport":
             mode = (info.get("commercial_mode") or "").lower()
-            if any(m in mode for m in RAIL_MODES):
+            if any(m in mode for m in RAIL_MODES) and not (f_area and f_area == t_area):  # same-station hop
                 for lon, lat, name, area, where in ((f_lon, f_lat, f_name, f_area, "from"),
                                                     (t_lon, t_lat, t_name, t_area, "to")):
                     if lon is None:
                         continue
                     c = lift_check(lon, lat, name, info.get("commercial_mode"), info.get("code"),
-                                   lifts_rows, lifts_fetched_at, profile, reliability, info.get("direction"))
+                                   lifts_rows, lifts_fetched_at, profile, reliability, info.get("direction"), area)
                     c["at"] = where
                     c["stop_area"] = area
                     step["checks"].append(c)

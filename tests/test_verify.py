@@ -86,3 +86,9 @@ def test_reliable_lift_stays_clear():
     rows = [lift("available", "Ligne M1", liftid="a")]
     rel = {"a": {"availability": 0.99, "window_days": 10, "outages": 0, "source": "Dispotrains"}}
     assert verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reliability=rel)["effect"] == "sans_effet"
+
+
+def test_lifts_found_by_station_id_even_far_from_centroid():
+    rows = [dict(lift("notavailable", "Ligne M1", liftid="a", lon=2.10, lat=48.10), zdcid="71485")]
+    c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", stop_area="stop_area:IDFM:71485")
+    assert c["status"] == "en_panne"
