@@ -153,3 +153,12 @@ def test_photo_report_near_station_makes_a_working_lift_risky():
     assert c["status"] == "signale" and c["effect"] == "genant" and c["report_id"] == 7
     far = {**photo, "lon": 2.05}
     assert verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reports=[far], now=now)["status"] == "ok"
+
+
+def test_zero_length_hop_inside_a_station_is_dropped():
+    sec = lambda **k: {"type": "public_transport", "duration": k.get("d", 0), "display_informations": {"code": "14", "commercial_mode": "Métro"},
+                       "from": {"name": k["a"], "stop_point": {"coord": {"lon": "2.34", "lat": "48.85"}}},
+                       "to": {"name": k["b"], "stop_point": {"coord": {"lon": "2.34", "lat": "48.85"}}}}
+    j = {"duration": 600, "sections": [sec(a="Châtelet", b="Châtelet", d=-60), sec(a="Châtelet", b="Bercy", d=540)]}
+    it = verify.verify_journey(j, "manuel", [], None)
+    assert [(s["from"], s["to"]) for s in it["steps"]] == [("Châtelet", "Bercy")]

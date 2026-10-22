@@ -293,7 +293,7 @@ map.on("load", () => {
     const f = markImage(C[k], "food", { size: 36, square: true }); map.addImage(`pl-${k}`, f.image, { pixelRatio: f.pixelRatio });
   }
   const h = hatchImage(); map.addImage("hatch", h.image, { pixelRatio: h.pixelRatio });
-  ["works", "quais", "bus", "places", "reports", "trip", "stations", "pin", "me"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
+  ["works", "quais", "bus", "places", "reports", "trip", "trip-ends", "stations", "pin", "me"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
 
   // Works only from street level: city-wide they are noise.
   map.addLayer({ id: "works-fill", type: "fill", source: "works", minzoom: 14.5, paint: { "fill-pattern": "hatch" } });
@@ -330,6 +330,10 @@ map.on("load", () => {
       "text-size": 14, "text-offset": [0, 1.8], "text-anchor": "top", "text-optional": true,
     },
     paint: { "text-color": C.ink, "text-halo-color": "#fff", "text-halo-width": 2 } });
+  // Trip start and end, like the form's pins: A = ring in brand colour, B = dark dot.
+  map.addLayer({ id: "trip-ends", type: "circle", source: "trip-ends",
+    paint: { "circle-radius": ["match", ["get", "end"], "a", 8, 9], "circle-color": ["match", ["get", "end"], "a", "#ffffff", C.ink || "#1e1a16"],
+      "circle-stroke-color": ["match", ["get", "end"], "a", C.brand, "#ffffff"], "circle-stroke-width": ["match", ["get", "end"], "a", 5, 3] } });
   map.addLayer({ id: "pin", type: "circle", source: "pin",
     paint: { "circle-radius": 10, "circle-color": C.brand, "circle-stroke-color": "#fff", "circle-stroke-width": 4 } });
   map.addLayer({ id: "me-halo", type: "circle", source: "me", paint: { "circle-radius": 22, "circle-color": "#1a73e8", "circle-opacity": 0.15 } });
@@ -381,7 +385,10 @@ const flyTo = (coord, zoom = 15.5) => (reduceMotion() ? map.jumpTo({ center: coo
 function fitTo(coords) {
   const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
   coords.forEach((c) => b.extend(c));
-  map.fitBounds(b, { padding: Sheet.padding(), maxZoom: 15.5 });
+  const pad = Sheet.padding(), c = map.getCanvas(), h = c.clientHeight, w = c.clientWidth;
+  pad.bottom = Math.min(pad.bottom, h - pad.top - 80); pad.right = Math.min(pad.right, w - pad.left - 80);
+  map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });  // flyTo leaves its padding on the camera; fitBounds would add both
+  map.fitBounds(b, { padding: pad, maxZoom: 15.5, animate: !reduceMotion() });
 }
 function showPlacesOnMap(feats) {
   S.places = feats;
@@ -538,7 +545,7 @@ function show(view, snap) {
   if (view !== "home" && !history.state?.roulib) history.pushState({ roulib: true }, "", location.href);
 }
 function goHome() {
-  show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty());
+  show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty()); map.getSource("trip-ends")?.setData(empty());
   if (!layerOn.places) showPlacesOnMap([]);
   history.replaceState(null, "", location.pathname);
   const back = show.opener && document.contains(show.opener) ? show.opener : $("#search");
@@ -790,15 +797,17 @@ const R_CATS = [
 ];
 const rep = { cat: null, place: null, target: null, text: "", photo: null, thumb: null, ai: null };
 
-function openReportFlow({ cat = null, place = null, target = null }) {
+async function openReportFlow({ cat = null, place = null, target = null }) {
   Object.assign(rep, { cat, target, text: "", photo: null, thumb: null, ai: null });
   if (!place) {
+    if (!S.myPos) await locate();
     const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
     const near = nearestStations(pos, 1, 250)[0];
-    place = near ? { label: near.st.name, sub: "The station closest to you", lon: near.st.coord[0], lat: near.st.coord[1] }
+    place = near ? { label: near.st.name, sub: S.myPos ? "The station closest to you" : "Near the center of the map", lon: near.st.coord[0], lat: near.st.coord[1] }
       : { label: "Here", sub: S.myPos ? "Your location" : "The center of the map", lon: pos[0], lat: pos[1] };
     if (near && !target) rep.target = { type: "station", id: near.st.id };
   }
+  $("#r-place-pick").hidden = true;
   rep.place = place;
   $("#r-place").textContent = place.label;
   $("#r-place-sub").textContent = place.sub;
@@ -993,7 +1002,7 @@ function openTrip(from, to) {
   show("trip", "full");
   if (!trip.from) locate().then(() => { if (!trip.from && S.myPos) { trip.from = myPosItem(); $("#trip-from").value = trip.from.label; if (trip.to) runTrip(); } });
   if (REPLAY || (trip.from && trip.to)) runTrip(); else if (trip.from) $("#trip-to").focus();
-  else $("#trip-result").innerHTML = demoButton(), bindDemo();
+  else $("#trip-from").focus();
 }
 
 const REPLAY = new URLSearchParams(location.search).get("replay") === "demo";
@@ -1013,14 +1022,14 @@ function blockedTitle(it) {
 const forWho = () => (Profile.key() === "valide" ? "" : ` for a ${Profile.get()?.short || "your profile"}`);
 // Confidence levels (roadmap 4.3): colour + icon + words, never colour alone.
 const CONF = {
-  5: ["ok", "shield", "Official, live"], 4: ["ok", "people", "Confirmed by the community"],
-  3: ["unk", "shield", "Official, static data"], 2: ["warn", "people", "Single report"], 1: ["unk", "unk", "Unknown"],
+  5: ["ok", "shield", "Live info"], 4: ["ok", "people", "Confirmed by users"],
+  3: ["unk", "shield", "Not live"], 2: ["warn", "people", "Reported once"], 1: ["unk", "unk", "Unknown"],
 };
 const checkState = (c) => c.status === "ok" ? "ok" : c.status === "en_panne" || c.effect === "bloquant" ? "ko" : c.status === "inconnu" ? "unk" : "warn";
 // In replay mode a level-5 source is official but recorded, not live: say so.
 const confPill = (n, recorded) => {
   let [st, ic, label] = CONF[n] || CONF[1];
-  if (recorded && n === 5) label = "Official, recorded";
+  if (recorded && n === 5) label = "Recorded info";
   return `<span class="pill ${st}">${icon(ic)}${label}</span>`;
 };
 const whenMap = (fn) => (map.isStyleLoaded() && map.getSource("trip") ? fn() : map.once("idle", fn));
@@ -1086,7 +1095,7 @@ async function runTrip(opts = {}) {
     renderResults(d);
   } catch (e) {
     if (e.status === 503) renderTripFallback();
-    else announce("I couldn't find a trip."), out.innerHTML = `<p class="err">I couldn't find a trip. ${/not reachable|no_(origin|destination)/.test(e.message || "") ? "No public transport reaches this place: try a nearby station or address." : esc(e.message)}</p>` + demoButton();
+    else announce("I couldn't find a trip."), out.innerHTML = `<p class="err">I couldn't find a trip. ${/not reachable|no_(origin|destination)/.test(e.message || "") ? "No public transport reaches this place: try a nearby station or address." : esc(e.message)}</p>`;
     bindDemo();
   }
 }
@@ -1115,15 +1124,19 @@ function stepTitle(s) {
 }
 function checkLine(c, recorded) {
   const st = checkState(c);
-  const rel = c.reliability != null
-    ? `<small>History: out of order about 1 day in ${Math.max(2, Math.round(1 / Math.max(0.01, 1 - c.reliability)))} (last ${Math.round(c.reliability_window_days || 0)} days, ${esc(c.reliability_source || "")})</small>` : "";
-  return `<li class="check">${mark(st)}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}` +
+  const rel = "";  // reliability is part of c.message ("History: working 92% of the time…"), said once
+  // A lift that is not plainly OK: one tap to that station's elevators (state, history, report).
+  const zd = c.kind === "lift" && st !== "ok" && c.zdcid != null && [c.zdcid, String(c.zdcid), Number(c.zdcid)].find((k) => S.stations.has(k));
+  const link = zd != null && zd !== undefined && zd !== false ? `<button class="linkish" data-open="${esc(zd)}">See the elevators at this station</button>` : "";
+  return `<li class="check">${mark(st)}${srState(st)}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}${link}` +
     `<div class="meta">${confPill(c.confidence, recorded)}${c.fetched_at ? `<span class="muted">${esc(c.source || "")} · checked at ${hhmm(c.fetched_at)}</span>` : `<span class="muted">${esc(c.source || "")}</span>`}</div></div></li>`;
 }
 
 // Ranked options, like Citymapper's result list, but ordered by what works for this profile.
 function renderResults(d) {
-  const sorted = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (x.duration_min - y.duration_min));
+  // Same verdict: rank by time, counting 15 extra minutes per lift that often breaks down.
+  const cost = (it) => it.duration_min + 15 * it.steps.flatMap((s) => s.checks || []).filter((c) => c.reliability != null && c.reliability < 0.8).length;
+  const sorted = [...d.itineraries].sort((x, y) => (RANK[x.verdict] - RANK[y.verdict]) || (cost(x) - cost(y)));
   // Like Google Maps: an option more than twice as long as the fastest one that works (and 30 min more) is noise.
   const fastest = Math.min(...sorted.filter((x) => x.verdict !== "bloque").map((x) => x.duration_min));
   const its = sorted.filter((x, i) => i === 0 || !Number.isFinite(fastest) || x.duration_min <= Math.max(2 * fastest, fastest + 30));
@@ -1131,7 +1144,7 @@ function renderResults(d) {
   const prof = Profile.get()?.short || "profile";
   $("#v-trip").classList.add("has-result");
   $("#trip-summary").innerHTML = `<span class="t">${esc(trip.from?.label || d.from?.label || "")} → ${esc(trip.to?.label || d.to?.label || "")}</span><span class="linkish">Edit</span>`;
-  if (!its.length) { $("#trip-result").innerHTML = `<p>I couldn't find a trip.</p>` + demoButton(); bindDemo(); return; }
+  if (!its.length) { $("#trip-result").innerHTML = `<p class="err">I couldn't find a trip between these two places. Try a nearby station.</p>`; return; }
   const best = its[0];
   $("#trip-result").innerHTML =
     `<p class="results-head">${best.verdict === "bloque" ? `No trip works${esc(forWho())} right now.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")}${esc(forWho())}`}</p>` +
@@ -1147,8 +1160,9 @@ function renderResults(d) {
         `<span class="route-why">${mark(V.st)}<span>${esc(why)}${it.departure ? `<small>Leave ${yyyymmddToTime(it.departure)} · arrive ${yyyymmddToTime(it.arrival)}</small>` : ""}</span></span>` +
         `</button></li>`;
     }).join("") + `</ul>` +
-    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}What a regular app would have told you</button>` : "") +
-    `<p class="src">Navitia routes (wheelchair option), checked step by step by Roulib for the “${esc(prof)}” profile. Elevators checked at ${hhmm(d.lifts_fetched_at)}.</p>`;
+    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Compare with a regular app</button>` : "") +
+    `<p class="src">Routes from Île-de-France Mobilités, checked step by step by Roulib${esc(forWho())}. Elevator status from ${hhmm(d.lifts_fetched_at)}.</p>` +
+    (Profile.key() === "malvoyant" ? `<p class="note"><span>Roulib checks elevators, steps and roadworks. Audio announcements and tactile paving are not checked yet.</span></p>` : "");
   document.querySelectorAll("[data-it]").forEach((b) => b.addEventListener("click", () => renderItinerary(d, b.dataset.it)));
   $("#compare-btn")?.addEventListener("click", () => openCompare(d));
   whenMap(() => drawItinerary(best));
@@ -1160,7 +1174,7 @@ function renderResults(d) {
 
 function renderItinerary(d, id, fromId = null) {
   const it = d.itineraries.find((x) => x.id === id) || d.itineraries[0];
-  if (!it) { $("#trip-result").innerHTML = `<p>I couldn't find a trip.</p>` + demoButton(); bindDemo(); return; }
+  if (!it) { $("#trip-result").innerHTML = `<p class="err">I couldn't find a trip.</p>`; return; }
   const prof = Profile.get()?.short || "profile";
   const V = VERDICT[it.verdict] || VERDICT.risque;
   const isPlanB = Boolean(fromId);
@@ -1196,6 +1210,7 @@ function renderItinerary(d, id, fromId = null) {
   // Phone Back from a trip detail returns to the list of trips, like Google Maps.
   if (history.state?.roulib !== "detail") history.pushState({ roulib: "detail" }, "", location.href);
   $("#all-routes").addEventListener("click", () => (history.state?.roulib === "detail" ? history.back() : renderResults(d)));
+  bindOpen($("#trip-result"));
   whenMap(() => drawItinerary(it));
   Sheet.set("half");
   Sheet.scrollTop();
@@ -1207,6 +1222,8 @@ function drawItinerary(it) {
   map.getSource("trip")?.setData({ type: "FeatureCollection", features: it.steps.filter((s) => s.geojson).map((s) => ({
     type: "Feature", geometry: s.geojson, properties: { c: color[s.verdict] || C.brand } })) });
   const pts = it.steps.flatMap((s) => (s.geojson?.coordinates || []));
+  const pt = (c, end) => ({ type: "Feature", geometry: { type: "Point", coordinates: c }, properties: { end } });
+  map.getSource("trip-ends")?.setData({ type: "FeatureCollection", features: pts.length ? [pt(pts[0], "a"), pt(pts[pts.length - 1], "b")] : [] });
   if (pts.length) fitTo(pts.filter((_, i) => i % Math.ceil(pts.length / 40) === 0).concat([pts[pts.length - 1]]));
 }
 
@@ -1244,6 +1261,13 @@ function otherStations(q, max = 2) {
       sub: `${STOP_TYPE[f.properties.type] || "Station"} · ${{ true: "step-free", partial: "partly step-free", false: "not step-free" }[f.properties.accessibility] || "access unknown"}` }));
 }
 const STOP_TYPE = { metro: "Metro station", rail: "Train station", tram: "Tram stop", cableway: "Cable car" };
+// Last places picked in the trip form, newest first (this phone only).
+const recents = () => (store.json("recents") || []).slice(0, 5);
+function addRecent(it) {
+  if (it.lon == null || it.kind === "me") return;
+  const r = { label: it.label, sub: it.sub || "", lon: it.lon, lat: it.lat };
+  store.set("recents", JSON.stringify([r, ...recents().filter((x) => x.label !== r.label)].slice(0, 5)));
+}
 // Addresses and places (shops, hospitals, restaurants…), ranked around `ref` [lon, lat].
 const suggestAPI = (q, ref) => getJSON(`/api/suggest?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ results: [] }));
 function localStations(q, max = 4) {
@@ -1261,15 +1285,16 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     if (!items.length) { list.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); return; }
     list.innerHTML = items.map((it, i) => {
       const lead = it.kind === "station" ? mark(it.status) : it.kind === "acces" ? mark(it.status, "food")
-        : `<span class="mark neutral sq" aria-hidden="true">${icon(it.kind === "me" ? "locate" : it.kind === "place" ? "place" : it.kind === "fav" ? "home" : "address")}</span>`;
+        : `<span class="mark neutral sq" aria-hidden="true">${icon(it.kind === "me" ? "locate" : it.kind === "place" ? "place" : it.kind === "fav" ? "home" : it.kind === "recent" ? "clock" : "address")}</span>`;
       return `<li role="option" id="${list.id}-${i}" aria-selected="${i === sel}" data-i="${i}">${lead}<span class="t"><b>${esc(it.label)}</b><small>${esc(it.sub || "")}</small></span></li>`;
     }).join("");
     list.hidden = false; input.setAttribute("aria-expanded", "true");
     if (sel >= 0) input.setAttribute("aria-activedescendant", `${list.id}-${sel}`);
     list.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => pick(+li.dataset.i)));
   };
-  const pick = (i) => { const it = items[i]; if (!it) return; ++seq; items = []; render(); input.value = it.label; input.blur(); onPick(it); };
-  const favItems = () => FAVS.map((f) => { const v = store.json(`fav-${f.key}`); return v && { ...v, kind: "fav", sub: f.label }; }).filter(Boolean);
+  const pick = (i) => { const it = items[i]; if (!it || it.kind === "none") return; ++seq; items = []; render(); input.value = it.label; input.blur(); if (withMe) addRecent(it); onPick(it); };
+  const favItems = () => [...FAVS.map((f) => { const v = store.json(`fav-${f.key}`); return v && { ...v, kind: "fav", sub: f.label }; }).filter(Boolean),
+    ...recents().map((r) => ({ ...r, kind: "recent", sub: r.sub || "Recent" }))];
   const run = async () => {
     const q = input.value.trim(), my = ++seq;
     const head = [];
@@ -1294,6 +1319,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     places = acc.features.map((f) => ({ kind: "acces", f, label: f.properties.name, status: PLACE_ST[f.properties.wheelchair],
       sub: `${PLACE_FR[f.properties.wheelchair][0]} · ${f.properties.address || f.properties.activity || ""}`, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
     show();
+    if (my === seq && !local.length && !ign.results.length && !places.length) { items = [{ kind: "none", label: `No place found for “${q}”`, sub: "Try a station, an address or a landmark" }]; render(); }
   };
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 180); });
   input.addEventListener("focus", () => { onFocus?.(); run(); });
@@ -1327,6 +1353,11 @@ const pickMain = (it) => {
   return it.kind === "station" ? openStation(it.id) : it.kind === "acces" ? openAcceslibre(it.f) : openPlace(it);
 };
 const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, { onFocus: () => isPhone() && Sheet.set("full") });
+$("#trip-swap").addEventListener("click", () => {
+  [trip.from, trip.to] = [trip.to, trip.from];
+  [$("#trip-from").value, $("#trip-to").value] = [$("#trip-to").value, $("#trip-from").value];
+  if (trip.from && trip.to) runTrip();
+});
 const tripAC = {
   from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) $("#trip-go").focus(); else $("#trip-to").focus(); }, { withMe: true, onEnter: () => runTrip() }),
   to: autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true, onEnter: () => runTrip() }),
@@ -1426,9 +1457,13 @@ function renderOnboard() {
 }
 $("#o-go").addEventListener("click", () => {
   if (!chosen) return;
+  const first = !Profile.get();
   Profile.save(chosen, $("#o-name").value);
   renderMe();
-  show("home", "half");
+  if (lastTrip && onboardFrom === "trip") { show("trip", "half"); runTrip(); }
+  else show("home", "half");
+  // First launch: centre on the user, like any maps app (the browser asks for permission once).
+  if (first) locate().then((pos) => pos && flyTo(pos, 15));
   toast(chosen === "valide" ? "Thanks for joining the community! Tap Report whenever you see a broken elevator or a blocked sidewalk." : `Got it: I'll check your trips for a ${Profile.get().short}.`, 5000);
 });
 function renderMe() {
@@ -1437,7 +1472,21 @@ function renderMe() {
   $("#me-name").textContent = p ? p.short : "your profile";
   $("#h-home").innerHTML = Profile.name() ? `Where to, ${esc(Profile.name())}?` : "Hi! Where are you going?";
 }
-$("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
+let onboardFrom = null;
+$("#me-chip").addEventListener("click", () => { onboardFrom = [...document.querySelectorAll(".view")].find((v) => !v.hidden)?.id.slice(2); renderOnboard(); show("onboard", "full"); });
 renderMe();
 if (!Profile.get() && !REPLAY) { renderOnboard(); show("onboard", "full"); }
 if (REPLAY) openTrip(null, null);
+
+// Report: "Change" lets the user pick the exact place (station, address) instead of the guessed one.
+$("#r-place-edit").addEventListener("click", () => { $("#r-place-pick").hidden = false; $("#r-place-input").value = ""; $("#r-place-input").focus(); });
+autocomplete($("#r-place-input"), $("#suggest-rplace"), (it) => {
+  rep.place = { label: it.label, sub: it.sub || "", lon: it.lon, lat: it.lat };
+  rep.target = it.kind === "station" ? { type: "station", id: it.id } : null;
+  $("#r-place").textContent = it.label; $("#r-place-sub").textContent = it.sub || "";
+  $("#r-place-pick").hidden = true; setPin([it.lon, it.lat]); flyTo([it.lon, it.lat], 16);
+});
+// Location already allowed (returning user): show the blue dot and centre on it, like Google Maps.
+navigator.permissions?.query({ name: "geolocation" }).then((p) => {
+  if (p.state === "granted" && Profile.get()) locate().then((pos) => pos && $("#v-home") && !$("#v-home").hidden && flyTo(pos, 15));
+}).catch(() => {});

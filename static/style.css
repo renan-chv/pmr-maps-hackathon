@@ -485,3 +485,17 @@ html.big #chips .chip { font-size: 17px; }
 .r-add:focus-within { outline: 3px solid var(--brand); outline-offset: 2px; }
 /* The toast region always exists (screen readers only announce changes in a region already present) */
 #toast:empty { opacity: 0; pointer-events: none; padding: 0; box-shadow: none; }
+
+/* ---------- Maps-app conventions (UX tests) ---------- */
+.trip-fields { position: relative; }
+.trip-swap { position: absolute; right: 6px; top: 40px; z-index: 2; width: 44px; height: 44px; display: grid; place-items: center;
+  border: 2px solid var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--ink); }
+.trip-swap .i { width: 20px; height: 20px; }
+.trip-row .field { padding-right: 56px; }
+#v-trip.has-result #t-title { display: none; }            /* the summary line replaces the question */
+body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }  /* filters belong to the map */
+#o-go { position: sticky; bottom: calc(var(--safe-b) + 12px); z-index: 2; box-shadow: var(--shadow-1); }
+.brand-line { margin: 0 0 var(--sp-1); font-weight: 800; font-size: var(--t-meta); letter-spacing: .08em; text-transform: uppercase; color: var(--brand); }
+.r-where { display: flex; align-items: center; gap: var(--sp-2); }
+.r-where .linkish { margin-left: auto; min-height: 44px; }
+@media (max-width: 1023px) { #toast { top: auto; bottom: calc(var(--safe-b) + 24px); } }  /* not over the Back button */
