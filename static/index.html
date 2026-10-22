@@ -31,6 +31,10 @@
   <button id="snap" class="snap" aria-label="Signaler un obstacle avec une photo"><svg class="i"><use href="#i-camera"/></svg><span>Signaler</span></button>
 
   <div id="map-tools">
+    <div class="zoom" role="group" aria-label="Zoom">
+      <button id="zoom-in" class="fab" aria-label="Rapprocher la carte"><svg class="i"><use href="#i-plus"/></svg></button>
+      <button id="zoom-out" class="fab" aria-label="Éloigner la carte"><svg class="i"><use href="#i-minus"/></svg></button>
+    </div>
     <button id="locate" class="fab" aria-label="Me montrer sur la carte"><svg class="i"><use href="#i-arrow"/></svg></button>
   </div>
 
@@ -45,6 +49,8 @@
         <div class="ptiles" role="radiogroup" aria-labelledby="o-title" id="ptiles"></div>
         <label for="o-name" class="field-label">Votre prénom <span class="muted">(facultatif)</span></label>
         <input id="o-name" class="field" type="text" autocomplete="given-name" enterkeyhint="done" placeholder="Par exemple : Léa">
+        <h3 class="h2">Affichage</h3>
+        <button id="textsize" class="me-line text-toggle setting" aria-pressed="false"><span class="aa" aria-hidden="true">A<small>A</small></span><span>Texte plus grand</span><span class="switch" aria-hidden="true"></span></button>
         <button id="o-go" class="btn primary block" disabled>C'est parti</button>
         <p class="src">Votre choix reste sur ce téléphone. Vous pourrez le changer à tout moment.</p>
       </section>

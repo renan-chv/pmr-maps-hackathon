@@ -497,35 +497,6 @@ function saveFav(it) {
   $("#search").placeholder = "Une station, un lieu, une adresse";
   $("#search").value = "";
   renderFavs();
-
-// ---------------------------------------------------------------------------
-// First launch: choose a mobility profile (roadmap screen 1)
-// ---------------------------------------------------------------------------
-let chosen = Profile.get()?.key || null;
-function renderOnboard() {
-  $("#ptiles").innerHTML = PMR_PROFILES.map((p) =>
-    `<button class="ptile" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><b>${esc(p.label)}</b></button>`).join("");
-  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; }));
-  $("#o-go").disabled = !chosen;
-  $("#o-name").value = Profile.name();
-}
-$("#o-go").addEventListener("click", () => {
-  if (!chosen) return;
-  Profile.save(chosen, $("#o-name").value);
-  renderMe();
-  show("home", "half");
-  toast(`C'est noté : je vérifierai vos trajets pour un ${Profile.get().short}.`);
-});
-function renderMe() {
-  const p = Profile.get();
-  $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = p ? p.label.toLowerCase() : "votre profil";
-  $("#h-home").innerHTML = Profile.name() ? `Où allez-vous, ${esc(Profile.name())}&nbsp;?` : "Bonjour&nbsp;! Où allez-vous&nbsp;?";
-}
-$("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
-renderMe();
-if (!Profile.get() && !REPLAY) { renderOnboard(); show("onboard", "full"); }
-if (REPLAY) openTrip(null, null);
 }
 
 function stationItem(st, d) {
@@ -1289,6 +1260,8 @@ $("#locate").addEventListener("click", async () => {
   if (!pos) return toast("Je ne trouve pas votre position. Autorisez la localisation dans les réglages du téléphone.");
   flyTo(pos, 15.5);
 });
+$("#zoom-in").addEventListener("click", () => map.zoomIn());
+$("#zoom-out").addEventListener("click", () => map.zoomOut());
 $("#snap").addEventListener("click", () => openReportFlow({}));
 
 // ---------------------------------------------------------------------------
@@ -1313,8 +1286,15 @@ document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("clic
   } else if (k === "places") loadPlacesLayer();
 }));
 
-// The in-app text size setting was removed: the phone's own text size setting applies. Clear the old choice.
-try { localStorage.removeItem("big"); } catch {}
+// Larger text (low vision): the app sizes text in px, so the phone's own setting does not reach it.
+// The switch lives in the profile screen ("Affichage") to keep the home screen clear.
+const textBtn = $("#textsize");
+function setBig(on) {
+  document.documentElement.classList.toggle("big", on);
+  textBtn.setAttribute("aria-pressed", String(on));
+}
+setBig(store.get("big") === "1");
+textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); toast(on ? "Texte agrandi." : "Texte normal."); });
 
 (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
