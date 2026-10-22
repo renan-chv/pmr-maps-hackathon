@@ -224,7 +224,7 @@ def confidence(row: dict, now: Optional[datetime] = None) -> int:
 
 @router.post("/api/users")
 def create_user(request: Request, payload: Any = Body(None)):
-    limits.check("user", request, "too many profiles created from this connection: try again later")
+    limits.check("user", request, "too many profiles created from this connection today: try again tomorrow")
     u = parse(NewUser, payload or {})
 
     def go(cur):
