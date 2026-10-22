@@ -1444,7 +1444,9 @@ const pickMain = (it) => {
   if (pendingFav) return saveFav(it);
   if (it.lon == null) return;
   addRecent(it);
-  tripTo(it);
+  $("#search").value = "";
+  // Google Maps: a search result opens its card first (a station shows its elevators), "Go there" plans the trip.
+  return it.kind === "station" ? openStation(it.id) : it.kind === "acces" ? openAcceslibre(it.f) : openPlace(it);
 };
 const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, {
   onFocus: () => isPhone() && Sheet.set("full"),
