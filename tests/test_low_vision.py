@@ -140,13 +140,23 @@ def test_traffic_lights_with_and_without_sound():
             sound=[{"code_ouvrage": "S1"}])
     c = verify.crossing_check(WALK, i, "malvoyant")
     assert c["status"] == "partiel" and c["effect"] == "genant" and c["obstacle"] == "feu_sans_son"
-    assert c["message"].startswith("1 of 2 traffic lights") and "1 is silent" in c["message"]
+    # The warning is about the silent crossings, and says what the remote is for.
+    assert c["label"] == "Crossings without sound"
+    assert c["message"].startswith("1 crossing without sound on this walk; 1 has sound with the universal remote")
+    assert "standard remote control" not in c["message"]
 
 
 def test_all_traffic_lights_audible_is_ok():
     i = idx(lights=[light("S1", 2.3510, 48.85005)], sound=[{"code_ouvrage": "S1"}])
     c = verify.crossing_check(WALK, i, "malvoyant")
-    assert c["status"] == "ok" and c["effect"] == "sans_effet" and c["message"].startswith("The traffic light")
+    assert c["status"] == "ok" and c["effect"] == "sans_effet" and c["message"].startswith("The crossing on this walk has sound")
+    assert c["label"] == "Crossings with sound"
+
+
+def test_all_crossings_silent_says_so_plainly():
+    i = idx(lights=[light("S1", 2.3510, 48.85005), light("S2", 2.3520, 48.8501)], sound=[])
+    c = verify.crossing_check(WALK, i, "malvoyant")
+    assert c["status"] == "absent" and c["message"].startswith("2 crossings without sound on this walk.")
 
 
 def test_walk_far_from_any_mapped_light_is_unknown():

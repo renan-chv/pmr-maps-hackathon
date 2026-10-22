@@ -365,13 +365,28 @@ def _time_note(when: Optional[datetime], now: Optional[datetime] = None) -> Opti
     return f"Elevator status is from now ({now:%H:%M}); it may change by {when:%H:%M}{day}."
 
 
-def _navitia(a: dict, b: dict, forbidden: List[str] = (), when: Optional[datetime] = None,
-             arrive: bool = False) -> List[dict]:
-    params = [("from", f"{a['lon']};{a['lat']}"), ("to", f"{b['lon']};{b['lat']}"),
-              ("wheelchair", "true"), ("count", 3)] + [("forbidden_uris[]", u) for u in forbidden]
+# One PRIM call per trip (1000 a day): ask it for a few more alternatives rather than calling it again.
+NAVITIA_MIN_JOURNEYS = 3
+NAVITIA_MAX_JOURNEYS = 5
+
+
+def _navitia_params(a: dict, b: dict, forbidden: List[str] = (), when: Optional[datetime] = None,
+                    arrive: bool = False, profile: str = profiles.DEFAULT_PROFILE) -> List[Tuple[str, object]]:
+    """Query of PRIM Navitia v2 /journeys: walking limits and speed of the profile, several alternatives."""
+    params: List[Tuple[str, object]] = [
+        ("from", f"{a['lon']};{a['lat']}"), ("to", f"{b['lon']};{b['lat']}"),
+        *profiles.navitia_params(profile),
+        ("min_nb_journeys", NAVITIA_MIN_JOURNEYS), ("max_nb_journeys", NAVITIA_MAX_JOURNEYS),
+    ] + [("forbidden_uris[]", u) for u in forbidden]
     if when is not None:  # without it Navitia plans from now
         params += [("datetime", when.astimezone(PARIS_TZ).strftime("%Y%m%dT%H%M%S")),
                    ("datetime_represents", "arrival" if arrive else "departure")]
+    return params
+
+
+def _navitia(a: dict, b: dict, forbidden: List[str] = (), when: Optional[datetime] = None,
+             arrive: bool = False, profile: str = profiles.DEFAULT_PROFILE) -> List[dict]:
+    params = _navitia_params(a, b, forbidden, when, arrive, profile)
     r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params=params)
     if r.status_code != 200:
         raise HTTPException(502, f"PRIM answered {r.status_code}: {r.text[:300]}")
@@ -505,7 +520,7 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
         a, b = _resolve(from_q), _resolve(to_q)
         if not a or not b:
             raise HTTPException(404, "departure or arrival address not found")
-        journeys = _navitia(a, b, when=at, arrive=arrive)
+        journeys = _navitia(a, b, when=at, arrive=arrive, profile=profile)
         lifts = sources.lifts()
         rel = None
     itineraries = _check_all(journeys, profile, lifts, rel=rel)
@@ -513,14 +528,16 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
         forbidden = verify.blocking_stop_areas(itineraries[0])
         if forbidden:
             try:
-                itineraries += _check_all(_navitia(a, b, forbidden, when=at, arrive=arrive), profile, lifts, prefix="b")
+                itineraries += _check_all(_navitia(a, b, forbidden, when=at, arrive=arrive,
+                                                    profile=profile), profile, lifts, prefix="b")
             except HTTPException:
                 logging.warning("plan B request failed, keeping the blocked itineraries only")
     itineraries = verify.pick_plan_b(itineraries)
     return {"from": a, "to": b, "profile": profile, "itineraries": itineraries,
+            "way_out": verify.way_out(itineraries, profile),
             "journeys": [] if replay == "demo" else [_legacy(j) for j in journeys],  # kept for the current UI
             "baseline": [_summary(j) for j in journeys], "replay": replay,
-            "source": "PRIM / Navitia (wheelchair=true) checked by Roulib",
+            "source": "PRIM / Navitia, with the walking limits of this profile, checked by Roulib",
             "lifts_fetched_at": lifts.get("fetched_at"),
             "when": at.strftime("%Y-%m-%dT%H:%M") if at else None, "arrive": bool(at and arrive),
             "time_note": _time_note(at)}
