@@ -435,7 +435,299 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
     return out
 
 
+# --- Visually impaired travellers ------------------------------------------------
+# Input: sources.low_vision(), one entry per layer ({"fetched_at", "rows"} or None when unavailable).
+# A missing layer or an unmatched stop gives an "unknown" check, never a crash and never a block.
+
+LV_STOP_RADIUS_M = 200     # Navitia stop point -> IDFM stops of the same mode
+LV_SAME_STATION_M = 80     # other quays of the same station, beyond the nearest one
+LV_ASSIST_RADIUS_M = 300   # SNCF gives one point per station, sometimes far from the platforms
+CROSSING_NEAR_M = 20       # pedestrian signal head this close to the walking path (Navitia often follows the street axis)
+COVERAGE_M = 300           # no traffic light at all this close: outside Paris, where nothing is mapped
+_GRID = 0.002              # degrees, about 150 x 220 m
+_ARRTYPE = (("métro", "metro"), ("metro", "metro"), ("rer", "rail"), ("train", "rail"), ("transilien", "rail"),
+            ("ter", "rail"), ("tram", "tram"), ("câble", "cableway"), ("cable", "cableway"), ("bus", "bus"),
+            ("noctilien", "bus"))
+_SNCF_MODES = ("rer", "train", "transilien", "ter")
+LV_SRC = {
+    "stop": "IDFM – Stop register", "line": "IDFM – Line register", "assist": "SNCF – Assistance in stations",
+    "equip": "SNCF – Accessibility equipment in stations", "lights": "Ville de Paris – Audible pedestrian signals",
+}
+_lv_cache: Dict[tuple, Tuple[list, dict]] = {}
+
+
+def cares_about_low_vision(profile: str) -> bool:
+    """Only profiles for which a missing announcement matters get these checks (others stay unchanged)."""
+    return any(profiles.effect(o, profile) != "sans_effet" for o in profiles.LOW_VISION_OBSTACLES)
+
+
+def _grid_key(lon: float, lat: float) -> Tuple[int, int]:
+    return math.floor(lon / _GRID), math.floor(lat / _GRID)
+
+
+def _grid_add(grid: Dict[Tuple[int, int], list], lon: float, lat: float, item) -> None:
+    grid.setdefault(_grid_key(lon, lat), []).append(item)
+
+
+def _grid_near(grid: Dict[Tuple[int, int], list], lon: float, lat: float, radius_m: float) -> list:
+    reach = int(radius_m / 150) + 1
+    gx, gy = _grid_key(lon, lat)
+    return [it for dx in range(-reach, reach + 1) for dy in range(-reach, reach + 1) for it in grid.get((gx + dx, gy + dy), ())]
+
+
+def _point(row: dict, field: str) -> Optional[Tuple[float, float]]:
+    g = row.get(field) or {}
+    try:
+        return float(g["lon"]), float(g["lat"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _layer_stamp(layer: Optional[dict]) -> Optional[str]:
+    return layer.get("fetched_at") if layer else None
+
+
+def low_vision_index(lv: Dict[str, Optional[dict]]) -> dict:
+    """Spatial and id indexes of the raw layers, built once per upstream refresh."""
+    # sources.cached returns the same objects until the next refresh: identity is the right key.
+    # The cache keeps the layers alive, so their ids cannot be reused by other objects meanwhile.
+    key = tuple((k, id(v), _layer_stamp(v)) for k, v in sorted(lv.items()))
+    if key in _lv_cache:
+        return _lv_cache[key][1]
+    idx: dict = {"stops": None, "stops_by_id": {}, "lines": None, "assist": None, "equip": None,
+                 "lights": None, "sound": None, "at": {k: _layer_stamp(v) for k, v in lv.items()}}
+    if lv.get("stop_signals"):
+        idx["stops"] = {}
+        for r in lv["stop_signals"]["rows"]:
+            p = _point(r, "arrgeopoint")
+            if p:
+                item = (p[0], p[1], r)
+                _grid_add(idx["stops"], p[0], p[1], item)
+                idx["stops_by_id"][str(r.get("arrid"))] = item
+    if lv.get("line_signals"):
+        idx["lines"] = {str(r.get("id_line")): r for r in lv["line_signals"]["rows"] if r.get("id_line")}
+    if lv.get("sncf_assistance"):
+        idx["assist"] = [(p[0], p[1], r) for r in lv["sncf_assistance"]["rows"] if (p := _point(r, "position_geographique"))]
+    if lv.get("sncf_equipment"):
+        idx["equip"] = {}
+        for r in lv["sncf_equipment"]["rows"]:
+            item = (r.get("accessibilite") or "").strip()
+            # keyed by UIC code and by name: Paris Gare de Lyon is 87686006 here, 87686030 in the assistance list
+            for key in (str(r.get("uic")), (r.get("nom_de_la_gare") or "").strip().lower()):
+                idx["equip"].setdefault(key, set()).add(item)
+    if lv.get("crossing_lights") and lv.get("sound_modules"):
+        idx["lights"] = {}
+        for r in lv["crossing_lights"]["rows"]:
+            p = _point(r, "geo_point_2d")
+            if p and r.get("cod_ouvrag"):
+                _grid_add(idx["lights"], p[0], p[1], (p[0], p[1], str(r["cod_ouvrag"])))
+        idx["sound"] = {str(r["code_ouvrage"]) for r in lv["sound_modules"]["rows"] if r.get("code_ouvrage")}
+    if len(_lv_cache) > 4:
+        _lv_cache.clear()
+    _lv_cache[key] = (list(lv.values()), idx)
+    return idx
+
+
+def _arrtype(mode: Optional[str]) -> Optional[str]:
+    m = (mode or "").lower()
+    return next((t for word, t in _ARRTYPE if word in m), None)
+
+
+def _stop_rows(idx: dict, lon: float, lat: float, mode: Optional[str], stop_point_id: Optional[str]) -> List[dict]:
+    """IDFM stops of this station and mode: the exact stop point when Navitia gives its id, else the nearest quays."""
+    m = re.fullmatch(r"stop_point:IDFM:(\d+)", stop_point_id or "")
+    if m and m.group(1) in idx["stops_by_id"]:
+        return [idx["stops_by_id"][m.group(1)][2]]
+    kind = _arrtype(mode)
+    near = [(dist_m(lon, lat, x, y), r) for x, y, r in _grid_near(idx["stops"], lon, lat, LV_STOP_RADIUS_M)
+            if r.get("arrtype") == kind]
+    near = [(d, r) for d, r in near if d <= LV_STOP_RADIUS_M]
+    if not near:
+        return []
+    closest = min(d for d, _ in near)
+    return [r for d, r in near if d <= closest + LV_SAME_STATION_M]
+
+
+def _sncf_stations(idx: dict, lon: float, lat: float) -> List[dict]:
+    """SNCF stations around this stop, nearest first (big hubs have several: Gare de Lyon main line and RER)."""
+    near = sorted((d, i, r) for i, (x, y, r) in enumerate(idx["assist"] or [])
+                  if (d := dist_m(lon, lat, x, y)) <= LV_ASSIST_RADIUS_M)
+    return [r for _, _, r in near]
+
+
+def _sncf_listed(idx: dict, stations: List[dict]) -> set:
+    """Equipment SNCF lists for any of these stations (joined on the UIC code)."""
+    equip = idx["equip"] or {}
+    return set().union(*[equip.get(str(r.get("code_uic")), set()) | equip.get((r.get("nom_gare") or "").strip().lower(), set())
+                         for r in stations])
+
+
+def _combine(values: List[str]) -> str:
+    """true / false / partial / unknown over the quays of one station (unknown quays are ignored)."""
+    known = [v for v in values if v in ("true", "false", "partial")]
+    if not known:
+        return "unknown"
+    if "false" in known:
+        return "false"
+    return "true" if all(v == "true" for v in known) else "partial"
+
+
+def station_audio_check(lon: float, lat: float, station: str, mode: Optional[str], stop_point_id: Optional[str],
+                        idx: dict, profile: str) -> dict:
+    """Spoken (and displayed) next-departure information at the stop, from IDFM, else from the SNCF list."""
+    obstacle = "pas_annonce_sonore"
+    base = {"kind": "audio", "station": station, "label": f"Audio announcements at {station}",
+            "source": LV_SRC["stop"], "fetched_at": idx["at"].get("stop_signals")}
+    rows = _stop_rows(idx, lon, lat, mode, stop_point_id) if idx["stops"] is not None else []
+    audio = _combine([r.get("arraudiblesignals") for r in rows])
+    visual = _combine([r.get("arrvisualsigns") for r in rows])
+    screens = {"true": " Departure screens too.", "partial": " Departure screens on part of the station.",
+               "false": " No departure screens."}.get(visual, "")
+    if audio == "unknown" and (mode or "").lower().startswith(_SNCF_MODES):
+        listed = _sncf_listed(idx, _sncf_stations(idx, lon, lat))
+        if "Information sonore en gare et/ou sur les quais" in listed:
+            return {**base, "status": "ok", "confidence": 3, "obstacle": None, "effect": "sans_effet",
+                    "source": LV_SRC["equip"], "fetched_at": idx["at"].get("sncf_equipment"),
+                    "message": "SNCF lists audio announcements in the station or on the platforms."}
+    if audio == "true":
+        return {**base, "status": "ok", "confidence": 3, "obstacle": None, "effect": "sans_effet",
+                "message": "Next departures are announced aloud at this stop." + screens}
+    if audio == "false":
+        return {**base, "status": "absent", "confidence": 3, "obstacle": obstacle,
+                "effect": _at_most_genant(profiles.effect(obstacle, profile)),
+                "message": "No audio announcements at this stop, according to IDFM: ask staff or other travellers." + screens}
+    if audio == "partial":
+        return {**base, "status": "partiel", "confidence": 3, "obstacle": obstacle,
+                "effect": _at_most_genant(profiles.effect(obstacle, profile)),
+                "message": "Audio announcements on part of this station only, according to IDFM." + screens}
+    why = "IDFM data unavailable right now." if idx["stops"] is None else "IDFM has no information for this stop yet."
+    return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
+            "message": f"Not known whether departures are announced aloud. {why}"}
+
+
+def _line_id(section: dict) -> Optional[str]:
+    """IDFM line id (C01371) from the Navitia links of a section (line:IDFM:C01371)."""
+    info = section.get("display_informations") or {}
+    for link in (section.get("links") or []) + (info.get("links") or []):
+        m = re.fullmatch(r"line:IDFM:(\w+)", str(link.get("id") or "")) if link.get("type") == "line" else None
+        if m:
+            return m.group(1)
+    return None
+
+
+def onboard_audio_check(line_id: Optional[str], mode: Optional[str], code: Optional[str], idx: dict,
+                        profile: str) -> Optional[dict]:
+    """Next-stop announcements inside the vehicle. Only shown when IDFM says something about this line."""
+    row = (idx["lines"] or {}).get(line_id or "")
+    value = (row or {}).get("audiblesigns_available")
+    if value not in ("true", "false", "partial"):
+        return None
+    obstacle = "pas_annonce_sonore"
+    base = {"kind": "audio", "label": f"On-board announcements, {mode or 'line'} {code or ''}".strip(),
+            "source": LV_SRC["line"], "fetched_at": idx["at"].get("line_signals"), "confidence": 3, "at": "board"}
+    if value == "true":
+        return {**base, "status": "ok", "obstacle": None, "effect": "sans_effet",
+                "message": "The next stop is announced aloud on board."}
+    eff = _at_most_genant(profiles.effect(obstacle, profile))
+    if value == "partial":
+        return {**base, "status": "partiel", "obstacle": obstacle, "effect": eff,
+                "message": "Only some vehicles of this line announce the next stop aloud: count the stops or ask the driver."}
+    return {**base, "status": "absent", "obstacle": obstacle, "effect": eff,
+            "message": "The next stop is not announced aloud on this line, according to IDFM: count the stops or ask the driver."}
+
+
+def assistance_checks(lon: float, lat: float, station: str, mode: Optional[str], idx: dict,
+                      now: datetime) -> List[dict]:
+    """SNCF staff assistance and platform warning strips. Facts only: SNCF does not list what is missing."""
+    if not (mode or "").lower().startswith(_SNCF_MODES):
+        return []
+    stations = _sncf_stations(idx, lon, lat)
+    if not stations:
+        return []
+    sncf = stations[0]
+    day = sources_weekday(now)
+    today = sncf.get(f"horaires_jour_nominal_{day}")
+    hours = ("from the first to the last train" if sncf.get("premierauderniertrain")
+             else f"today {today}" if today else None)
+    how = "book ahead or ask on the spot" if "SPONTANE" in (sncf.get("typepriseencharge") or "") else "book ahead"
+    free = "free, " if sncf.get("typetarification") == "GRATUIT" else ""
+    out = [{"kind": "assistance", "station": station, "label": f"Staff assistance at {station}",
+            "status": "ok" if hours else "inconnu", "confidence": 3, "obstacle": None,
+            "effect": "sans_effet", "source": LV_SRC["assist"], "fetched_at": idx["at"].get("sncf_assistance"),
+            "message": f"SNCF staff can guide you to your train ({free}{how}), {hours}." if hours
+            else f"SNCF staff can guide you to your train ({free}{how}), but not on this day of the week."}]
+    listed = _sncf_listed(idx, stations)
+    if "Bande d'éveil de vigilance sur les quais" in listed:
+        out.append({"kind": "tactile", "station": station, "label": f"Warning strips at {station}",
+                    "status": "ok", "confidence": 3, "obstacle": None, "effect": "sans_effet",
+                    "source": LV_SRC["equip"], "fetched_at": idx["at"].get("sncf_equipment"),
+                    "message": "Tactile warning strips along the platform edges."})
+    return out
+
+
+def sources_weekday(now: datetime) -> str:
+    """French weekday name used by the SNCF hours columns (horaires_jour_nominal_lundi…)."""
+    return ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")[now.astimezone(PARIS).weekday()]
+
+
+def crossing_check(line: List[List[float]], idx: dict, profile: str) -> Optional[dict]:
+    """Traffic lights along the walk and how many have an audible signal (répétiteur sonore, Paris only)."""
+    base = {"kind": "crossings", "label": "Audible traffic signals", "source": LV_SRC["lights"],
+            "fetched_at": idx["at"].get("sound_modules"), "confidence": 3}
+    if len(line) < 2:
+        return None
+    if idx["lights"] is None:
+        return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
+                "message": "Traffic signal data from the City of Paris is unavailable right now."}
+    # Paris has about 19,000 signalised junctions: none within 300 m means we are outside the mapped area
+    # (La Défense is inside any simple bounding box of Paris, hence this test rather than a box).
+    if not any(dist_m(p[0], p[1], x, y) <= COVERAGE_M
+               for p in line for x, y, _ in _grid_near(idx["lights"], p[0], p[1], COVERAGE_M)):
+        return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
+                "message": "Audible traffic signals are only mapped inside Paris."}
+    xs, ys = [p[0] for p in line], [p[1] for p in line]
+    pad = 0.0003
+    gx0, gy0 = _grid_key(min(xs) - pad, min(ys) - pad)
+    gx1, gy1 = _grid_key(max(xs) + pad, max(ys) + pad)
+    heads = [h for gx in range(gx0, gx1 + 1) for gy in range(gy0, gy1 + 1) for h in idx["lights"].get((gx, gy), ())]
+    near = {code for x, y, code in heads if point_to_line_m([x, y], line) <= CROSSING_NEAR_M}
+    if not near:
+        return None  # no traffic light along this walk: nothing to say
+    audible = near & idx["sound"]
+    n = len(near)
+    if len(audible) == n:
+        return {**base, "status": "ok", "obstacle": None, "effect": "sans_effet",
+                "message": f"{'The' if n == 1 else f'All {n}'} traffic {'light' if n == 1 else 'lights'} along this walk "
+                           f"{'has' if n == 1 else 'have'} an audible signal (standard remote control)."}
+    obstacle = "feu_sans_son"
+    silent = n - len(audible)
+    return {**base, "status": "partiel" if audible else "absent", "obstacle": obstacle,
+            "effect": _at_most_genant(profiles.effect(obstacle, profile)),
+            "message": f"{len(audible)} of {_count(n, 'traffic light')} along this walk "
+                       f"{'has' if len(audible) == 1 else 'have'} an audible signal (standard remote control); "
+                       f"{silent} {'is' if silent == 1 else 'are'} silent."}
+
+
 # --- Journeys ------------------------------------------------------------------
+
+def _low_vision_transit(s: dict, info: dict, idx: dict, profile: str, now: datetime) -> List[dict]:
+    """Audio announcements at both ends and on board, SNCF assistance and warning strips."""
+    mode, out = info.get("commercial_mode"), []
+    is_bus = _arrtype(mode) == "bus"
+    for where in ("from", "to"):
+        lon, lat, name, _ = _stop(s.get(where) or {})
+        if lon is None:
+            continue
+        sp_id = (((s.get(where) or {}).get("stop_point")) or {}).get("id")
+        c = station_audio_check(lon, lat, name, mode, sp_id, idx, profile)
+        if not (is_bus and c["status"] == "inconnu"):  # most bus stops are not described yet: no noise
+            out.append({**c, "at": where})
+        out += [{**a, "at": where} for a in assistance_checks(lon, lat, name, mode, idx, now)]
+    board = onboard_audio_check(_line_id(s), mode, info.get("code"), idx, profile)
+    if board:
+        out.append(board)
+    return out
+
 
 def _stop(end: dict) -> Tuple[Optional[float], Optional[float], str, Optional[str]]:
     sp = (end or {}).get("stop_point") or {}
@@ -453,9 +745,11 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
                    works: Iterable[dict] = (), works_fetched_at: Optional[str] = None,
                    stairs: Iterable[dict] = (), reports: Iterable[dict] = (),
                    reliability: Optional[Dict[str, dict]] = None, it_id: str = "it1",
-                   now: Optional[datetime] = None) -> dict:
+                   now: Optional[datetime] = None, low_vision: Optional[Dict[str, Optional[dict]]] = None) -> dict:
     profile = profiles.normalize(profile)
     works, stairs, reports = list(works), list(stairs), list(reports)
+    # Visually impaired checks: only for profiles they matter to, so the others keep their exact results.
+    lv = low_vision_index(low_vision) if low_vision is not None and cares_about_low_vision(profile) else None
     steps: List[dict] = []
     for s in j.get("sections", []):
         stype = s.get("type")
@@ -485,11 +779,16 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
                     c["at"] = where
                     c["stop_area"] = area
                     step["checks"].append(c)
+            if lv is not None:
+                step["checks"] += _low_vision_transit(s, info, lv, profile, now or datetime.now(timezone.utc))
         elif line and stype == "crow_fly":
             # straight line drawn by Navitia, not a real path: only its length means something
             step["checks"] = walk_checks(line, profile, now=now)
         elif line:
             step["checks"] = walk_checks(line, profile, works, stairs, reports, works_fetched_at, now)
+            crossing = crossing_check(line, lv, profile) if lv is not None else None
+            if crossing:
+                step["checks"].append(crossing)
         step["verdict"] = _step_verdict(step["checks"])
         steps.append(step)
 

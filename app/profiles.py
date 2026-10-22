@@ -23,8 +23,11 @@ DEFAULT_PROFILE = "manuel"
 # Obstacle kinds, shared with verify.py and the community reports (chantier B).
 OBSTACLES = (
     "escalier", "ascenseur_panne", "escalator_seul", "pente", "bordure_haute",
-    "trottoir_etroit", "long_trajet_pied", "pas_annonce_sonore",
+    "trottoir_etroit", "long_trajet_pied", "pas_annonce_sonore", "feu_sans_son",
 )
+# Obstacles that only exist for people who cannot rely on sight (no spoken announcement, silent traffic light).
+# A profile for which they are all "sans_effet" does not get these checks at all.
+LOW_VISION_OBSTACLES = ("pas_annonce_sonore", "feu_sans_son")
 
 _B, _G, _N = "bloquant", "genant", "sans_effet"
 MATRIX: Dict[str, Dict[str, Effect]] = {
@@ -37,6 +40,8 @@ MATRIX: Dict[str, Dict[str, Effect]] = {
     "trottoir_etroit":    dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_G, valide=_N),
     "long_trajet_pied":   dict(manuel=_G, electrique=_N, poussette=_N, deambulateur=_G, malvoyant=_N, valide=_N),
     "pas_annonce_sonore": dict(manuel=_N, electrique=_N, poussette=_N, deambulateur=_N, malvoyant=_G, valide=_N),
+    # Traffic light without audible signal: crossing is possible (wait for others, ask), so a risk, not a block.
+    "feu_sans_son":       dict(manuel=_N, electrique=_N, poussette=_N, deambulateur=_N, malvoyant=_G, valide=_N),
 }
 # Beyond this distance a long walk (or roll) becomes blocking: nobody pushes a manual wheelchair for an hour.
 LONG_WALK_BLOCKING_M = {"deambulateur": 500, "manuel": 2500, "poussette": 4000, "electrique": 8000}

@@ -348,7 +348,7 @@ def geocode(q: str) -> Optional[dict]:
 
 def warm_up() -> None:
     """Preload every layer so the first visitor does not wait for the downloads."""
-    for fn in (stations, train_stations, works, bus_stops):
+    for fn in (stations, train_stations, works, bus_stops, low_vision):
         try:
             fn()
         except Exception:
@@ -522,3 +522,114 @@ def _suggest_ign(q: str, limit: int = 6) -> List[dict]:
     # Paris first, then the rest of Île-de-France (stable: keeps the geocoder's order inside each group).
     out.sort(key=lambda it: not (it["kind"] == "place" and "Paris" in it["sub"] or it["sub"].startswith("75")))
     return out[:limit]
+
+
+# --- Visually impaired travellers (profile "malvoyant") --------------------
+# Only what the open data really says: audio/visual information per stop and per line (IDFM),
+# SNCF assistance and equipment in train stations, audible pedestrian signals in Paris.
+
+SOURCES.update({
+    "stop_signals": {
+        "name": "IDFM – Stop register (audio and visual information)",
+        "url": "https://data.iledefrance-mobilites.fr/explore/dataset/arrets/",
+        "license": "Licence Ouverte v2.0 (Etalab)",
+    },
+    "line_signals": {
+        "name": "IDFM – Line register (on-board announcements)",
+        "url": "https://data.iledefrance-mobilites.fr/explore/dataset/referentiel-des-lignes/",
+        "license": "Licence Ouverte v2.0 (Etalab)",
+    },
+    "sncf_assistance": {
+        "name": "SNCF – Assistance for disabled travellers in stations",
+        "url": "https://data.iledefrance.fr/explore/dataset/service-d-assistance-voyageur-handicape-en-gare-sncf/",
+        "license": "ODbL",
+    },
+    "sncf_equipment": {
+        "name": "SNCF – Accessibility equipment in stations",
+        "url": "https://data.iledefrance.fr/explore/dataset/equipements-accessibilite-en-gare/",
+        "license": "ODbL",
+    },
+    "crossing_lights": {
+        "name": "Ville de Paris – Traffic lights (pedestrian signals)",
+        "url": "https://opendata.paris.fr/explore/dataset/signalisation-tricolore/",
+        "license": "ODbL",
+    },
+    "sound_modules": {
+        "name": "Ville de Paris – Audible pedestrian signals",
+        "url": "https://opendata.paris.fr/explore/dataset/modules-sonores-passages-pietons/",
+        "license": "ODbL",
+    },
+})
+
+WEEKDAYS_FR = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+
+def stop_signals() -> dict:
+    """Every stop (bus included) with its audio (arraudiblesignals) and visual (arrvisualsigns) information."""
+    def load():
+        rows = _export(IDFM, "arrets", select="arrid,arrname,arrtype,arraudiblesignals,arrvisualsigns,arrgeopoint")
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("stop_signals", 86400, load)
+
+
+def line_signals() -> dict:
+    """Active lines with their on-board audio / visual next-stop information."""
+    def load():
+        rows = _export(IDFM, "referentiel-des-lignes",
+                       select="id_line,shortname_line,transportmode,audiblesigns_available,visualsigns_available")
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("line_signals", 86400, load)
+
+
+def sncf_assistance() -> dict:
+    """SNCF stations of Île-de-France where staff assist disabled travellers, with their hours per weekday."""
+    def load():
+        rows = _export(IDF_REGION, "service-d-assistance-voyageur-handicape-en-gare-sncf",
+                       select="nom_gare,code_uic,typepriseencharge,typetarification,premierauderniertrain,"
+                              "position_geographique," + ",".join(f"horaires_jour_nominal_{d}" for d in WEEKDAYS_FR))
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("sncf_assistance", 86400, load)
+
+
+def sncf_equipment() -> dict:
+    """Accessibility equipment listed by SNCF per station (UIC code). A list of what exists, not of what is missing."""
+    def load():
+        rows = _export(IDF_REGION, "equipements-accessibilite-en-gare", select="uic,nom_de_la_gare,accessibilite")
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("sncf_equipment", 86400, load)
+
+
+def crossing_lights() -> dict:
+    """Pedestrian signal heads of Paris traffic lights (one installation = one cod_ouvrag, several heads)."""
+    def load():
+        rows = _export(PARIS, "signalisation-tricolore",
+                       where='lib_lumi_1 = "Caisson Piéton" or lib_lumi_1 = "Caisson Piéton R25"',
+                       select="cod_ouvrag,geo_point_2d")
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("crossing_lights", 86400, load)
+
+
+def sound_modules() -> dict:
+    """Audible pedestrian signals (répétiteurs sonores), at most one per traffic light installation."""
+    def load():
+        rows = _export(PARIS, "modules-sonores-passages-pietons", select="code_ouvrage,date_inst_accessoire")
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("sound_modules", 86400, load)
+
+
+def low_vision() -> Dict[str, Optional[dict]]:
+    """Every layer of the visually impaired checks. A layer that cannot be loaded is None: checked as unknown."""
+    out: Dict[str, Optional[dict]] = {}
+    for fn in (stop_signals, line_signals, sncf_assistance, sncf_equipment, crossing_lights, sound_modules):
+        try:
+            out[fn.__name__] = fn()
+        except Exception:
+            log.exception("%s unavailable, visually impaired checks degrade to unknown", fn.__name__)
+            out[fn.__name__] = None
+    return out
