@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Dict, Literal
 
-Profile = Literal["manuel", "electrique", "poussette", "deambulateur", "malvoyant"]
+Profile = Literal["manuel", "electrique", "poussette", "deambulateur", "malvoyant", "valide"]
 Effect = Literal["bloquant", "genant", "sans_effet"]
 
 PROFILES: Dict[str, str] = {
@@ -16,6 +16,7 @@ PROFILES: Dict[str, str] = {
     "poussette": "Stroller",
     "deambulateur": "Walker or cane",
     "malvoyant": "Visually impaired",
+    "valide": "No mobility difficulty",  # walks without difficulty: mostly here to report obstacles for others
 }
 DEFAULT_PROFILE = "manuel"
 
@@ -27,15 +28,15 @@ OBSTACLES = (
 
 _B, _G, _N = "bloquant", "genant", "sans_effet"
 MATRIX: Dict[str, Dict[str, Effect]] = {
-    #                     manuel  electrique poussette deambulateur malvoyant
-    "escalier":           dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_N),
-    "ascenseur_panne":    dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_N),
-    "escalator_seul":     dict(manuel=_B, electrique=_B, poussette=_B, deambulateur=_G, malvoyant=_N),
-    "pente":              dict(manuel=_G, electrique=_N, poussette=_N, deambulateur=_G, malvoyant=_N),
-    "bordure_haute":      dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_N),
-    "trottoir_etroit":    dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_G),
-    "long_trajet_pied":   dict(manuel=_G, electrique=_N, poussette=_N, deambulateur=_G, malvoyant=_N),
-    "pas_annonce_sonore": dict(manuel=_N, electrique=_N, poussette=_N, deambulateur=_N, malvoyant=_G),
+    #                     manuel  electrique poussette deambulateur malvoyant valide
+    "escalier":           dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_N, valide=_N),
+    "ascenseur_panne":    dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_N, valide=_N),
+    "escalator_seul":     dict(manuel=_B, electrique=_B, poussette=_B, deambulateur=_G, malvoyant=_N, valide=_N),
+    "pente":              dict(manuel=_G, electrique=_N, poussette=_N, deambulateur=_G, malvoyant=_N, valide=_N),
+    "bordure_haute":      dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_N, valide=_N),
+    "trottoir_etroit":    dict(manuel=_B, electrique=_B, poussette=_G, deambulateur=_G, malvoyant=_G, valide=_N),
+    "long_trajet_pied":   dict(manuel=_G, electrique=_N, poussette=_N, deambulateur=_G, malvoyant=_N, valide=_N),
+    "pas_annonce_sonore": dict(manuel=_N, electrique=_N, poussette=_N, deambulateur=_N, malvoyant=_G, valide=_N),
 }
 LONG_WALK_BLOCKING_M = {"deambulateur": 500}  # beyond this distance a long walk becomes blocking
 
