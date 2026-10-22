@@ -470,6 +470,8 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
                 "direction": info.get("direction"),
                 "duration_min": round((s.get("duration") or 0) / 60), "geojson": s.get("geojson"),
                 "stop_areas": [a for a in (f_area, t_area) if a], "checks": []}
+        if step["type"] == "transit" and f_name and f_name == t_name and step["duration_min"] <= 0:
+            continue  # zero-length hop inside one station ("M 14, -1 min, Châtelet -> Châtelet"): noise
         if stype == "public_transport":
             mode = (info.get("commercial_mode") or "").lower()
             if any(m in mode for m in RAIL_MODES) and not (f_area and f_area == t_area):  # same-station hop

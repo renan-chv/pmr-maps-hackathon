@@ -44,6 +44,7 @@
 
       <!-- FIRST LAUNCH: mobility profile -->
       <section class="view" id="v-onboard" hidden aria-labelledby="o-title">
+        <p class="brand-line">Roulib</p>
         <h2 id="o-title" class="greet">How do you get around?</h2>
         <p class="sub">I check every trip for you: elevators, roadworks, steps. Pick the one that fits you. No difficulty getting around? Join the community: every report you send helps someone in a wheelchair.</p>
         <div class="ptiles" role="radiogroup" aria-labelledby="o-title" id="ptiles"></div>
@@ -116,7 +117,10 @@
       <!-- REPORT (roadmap screen 5) -->
       <section class="view" id="v-report" hidden aria-labelledby="r-title">
         <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Back</button>
-        <div class="r-where"><span class="fav-ic"><svg class="i"><use href="#i-pin"/></svg></span><span class="t"><b id="r-place">Here</b><small id="r-place-sub">Your location</small></span></div>
+        <div class="r-where"><span class="fav-ic"><svg class="i"><use href="#i-pin"/></svg></span><span class="t"><b id="r-place">Here</b><small id="r-place-sub">Your location</small></span><button class="linkish" id="r-place-edit">Change</button></div>
+        <div id="r-place-pick" hidden><label for="r-place-input" class="sr">Where is the obstacle?</label>
+          <input id="r-place-input" class="field" type="search" placeholder="Station, address or place" autocomplete="off" role="combobox" aria-controls="suggest-rplace" aria-autocomplete="list" aria-expanded="false">
+          <ul id="suggest-rplace" class="suggest" role="listbox" aria-label="Place suggestions" hidden></ul></div>
         <h2 id="r-title" class="title">What do you want to report?</h2>
         <div class="r-cats" role="radiogroup" aria-labelledby="r-title" id="r-cats"></div>
         <h3 class="h2">Add details <span class="muted">(optional)</span></h3>
@@ -149,6 +153,7 @@
             <label for="trip-from" class="sr">From</label>
             <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="From…" autocomplete="off" role="combobox" aria-controls="suggest-from" aria-autocomplete="list" aria-expanded="false"></div>
           <ul id="suggest-from" class="suggest" role="listbox" aria-label="Start suggestions" hidden></ul>
+          <button id="trip-swap" class="trip-swap" aria-label="Swap start and destination"><svg class="i"><use href="#i-swap"/></svg></button>
           <div class="trip-row"><span class="pin b" aria-hidden="true"></span>
             <label for="trip-to" class="sr">To</label>
             <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="To…" autocomplete="off" role="combobox" aria-controls="suggest-to" aria-autocomplete="list" aria-expanded="false"></div>
