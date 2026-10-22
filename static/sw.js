@@ -1,9 +1,9 @@
 // Roulib service worker: instant reloads and a usable app without network (metro, tunnels).
-// - App shell and libraries: stale-while-revalidate.
+// - App shell: network first (a new deploy shows at once), last version offline. Libraries: cache first.
 // - Map tiles and fonts: cache first, capped.
 // - API GETs: network first (4 s), fall back to the last answer. Payloads carry their own fetched_at,
 //   so the UI keeps showing how old the data is. Live journeys and POSTs are never served from cache.
-const V = "roulib-v1";
+const V = "roulib-v2";
 const SHELL = ["/", "/static/style.css", "/static/app.js", "/static/profiles.js", "/static/manifest.webmanifest", "/static/icon.svg"];
 const TILE_MAX = 400;
 
@@ -18,11 +18,6 @@ async function trim(name, max) {
   const c = await caches.open(name), keys = await c.keys();
   for (let i = 0; i < keys.length - max; i++) await c.delete(keys[i]);
 }
-async function staleWhileRevalidate(req, name) {
-  const c = await caches.open(name), hit = await c.match(req);
-  const net = fetch(req).then((r) => { if (r.ok) c.put(req, r.clone()); return r; }).catch(() => hit);
-  return hit || net;
-}
 async function cacheFirst(req, name, max) {
   const c = await caches.open(name), hit = await c.match(req);
   if (hit) return hit;
@@ -32,14 +27,13 @@ async function cacheFirst(req, name, max) {
 }
 async function networkFirst(req, name) {
   const c = await caches.open(name);
+  // The request keeps running after the 4 s timeout: slow answers (restaurants ~5 s) still arrive and get cached.
+  const net = fetch(req).then((r) => { if (r.ok) c.put(req, r.clone()); return r; });
   try {
-    const r = await Promise.race([fetch(req), new Promise((_, no) => setTimeout(() => no(new Error("timeout")), 4000))]);
-    if (r.ok) c.put(req, r.clone());
-    return r;
+    return await Promise.race([net, new Promise((_, no) => setTimeout(() => no(new Error("timeout")), 4000))]);
   } catch {
     const hit = await c.match(req);
-    if (hit) return hit;
-    throw new Error("offline");
+    return hit || net;  // nothing cached yet: wait for the network instead of failing
   }
 }
 
@@ -50,7 +44,8 @@ self.addEventListener("fetch", (e) => {
   if (url.origin === location.origin) {
     if (url.pathname === "/api/journey" && url.searchParams.get("replay") !== "demo") return; // always live
     if (url.pathname.startsWith("/api/")) return e.respondWith(networkFirst(req, `${V}-api`));
-    if (url.pathname === "/" || url.pathname.startsWith("/static/")) return e.respondWith(staleWhileRevalidate(req, V));
+    // Network first for the app itself: after a deploy, the next load shows the new version (offline: last one).
+    if (url.pathname === "/" || url.pathname.startsWith("/static/")) return e.respondWith(networkFirst(req, V));
     return;
   }
   if (/tiles\.openfreemap\.org$/.test(url.hostname)) return e.respondWith(cacheFirst(req, `${V}-tiles`, TILE_MAX));
