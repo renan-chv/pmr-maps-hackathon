@@ -1512,15 +1512,22 @@ document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("clic
   } else if (k === "places") loadPlacesLayer();
 }));
 
-// Larger text (low vision): the app sizes text in px, so the phone's own setting does not reach it.
-// The switch lives in the profile screen ("Display") to keep the home screen clear.
-const textBtn = $("#textsize");
-function setBig(on) {
-  document.documentElement.classList.toggle("big", on);
-  textBtn.setAttribute("aria-pressed", String(on));
+// Text size (low vision): four steps, from 18 to 32 px body text, set by html[data-text] (style.css).
+// Radios inside the profile screen ("Display") keep the home screen clear and give arrow-key navigation.
+// Stored on this phone; the old on/off switch ("big" = "1") becomes "Large".
+const TEXT_STEPS = ["Default", "Large", "Larger", "Largest"];
+const textSeg = $("#textsize");
+function setTextSize(n) {
+  n = Math.max(0, Math.min(TEXT_STEPS.length - 1, Math.trunc(Number(n)) || 0));
+  document.documentElement.dataset.text = String(n);
+  textSeg.querySelectorAll("input").forEach((r) => { r.checked = r.value === String(n); });
+  return n;
 }
-setBig(store.get("big") === "1");
-textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); toast(on ? "Larger text." : "Normal text."); });
+setTextSize(store.get("text") ?? (store.get("big") === "1" ? 1 : 0));
+textSeg.addEventListener("change", (e) => {
+  const n = setTextSize(e.target.value); store.set("text", String(n));
+  toast(`Text size: ${TEXT_STEPS[n]}.`);
+});
 
 (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
