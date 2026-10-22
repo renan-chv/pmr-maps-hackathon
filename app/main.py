@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, photos, poller, profiles, reliability, search, sources, station_api, verify
+from . import db, http_cache, photos, poller, profiles, reliability, search, sources, station_api, verify
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -25,6 +25,7 @@ SERVERLESS = bool(os.getenv("VERCEL"))  # Vercel functions sleep between request
 PRIM_JOURNEYS = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/journeys"
 
 app = FastAPI(title="PMR Maps")
+http_cache.install(app)
 app.include_router(photos.router)
 app.include_router(search.router)
 app.include_router(station_api.router)

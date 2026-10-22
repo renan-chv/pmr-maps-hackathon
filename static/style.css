@@ -64,10 +64,11 @@ input { caret-color: var(--brand); }
 /* ---------- Sheet ---------- */
 #sheet {
   position: fixed; z-index: var(--z-sheet); left: 0; right: 0; bottom: 0;
-  height: calc(var(--sheet-h) + var(--safe-b)); max-height: calc(100dvh - var(--safe-t) - 8px);
+  height: calc(var(--sheet-full, 80dvh) + var(--safe-b)); max-height: calc(100dvh - var(--safe-t) - 8px);
+  transform: translate3d(0, calc(var(--sheet-full, 80dvh) - var(--sheet-h)), 0); will-change: transform;
   display: flex; flex-direction: column;
   background: var(--ground); border-radius: var(--r-l) var(--r-l) 0 0; box-shadow: var(--shadow-2);
-  transition: height .4s var(--ease);
+  transition: transform .4s var(--ease);
 }
 #sheet.dragging { transition: none; }
 #grip { flex: none; height: 30px; display: grid; place-items: center; touch-action: none; cursor: grab; }
@@ -445,3 +446,20 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; }
 .r-sum-head .i { width: 20px; height: 20px; }
 #r-analyzing { display: flex; gap: 6px; align-items: center; }
 #r-analyzing .i { width: 18px; height: 18px; }
+
+/* ---------- Performance: everything that follows the sheet moves with transform ---------- */
+#sheet-body { padding-bottom: calc(var(--sheet-full, 80dvh) - var(--sheet-h) + 110px + var(--safe-b)); }
+#map-tools, .snap { bottom: calc(var(--safe-b) + 12px); transform: translate3d(0, calc(-1 * var(--sheet-h)), 0); transition: transform .4s var(--ease), opacity .2s; will-change: transform; }
+#sheet.dragging ~ #map-tools, body:has(#sheet.dragging) #map-tools, body:has(#sheet.dragging) .snap { transition: none; }
+.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { transition: none; }
+@media (orientation: landscape) and (max-height: 540px) {
+  #sheet { transform: none; height: auto; }
+  #sheet-body { padding-bottom: calc(24px + var(--safe-b)); }
+  #map-tools, .snap { transform: none; }
+}
+@media (min-width: 1024px) {
+  #sheet { transform: none; height: auto; will-change: auto; }
+  #sheet-body { padding-bottom: var(--sp-5); }
+  #map-tools, .snap { transform: none; will-change: auto; }
+  #map-tools { bottom: 112px; } .snap { bottom: 24px; }
+}

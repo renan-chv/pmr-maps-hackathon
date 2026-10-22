@@ -73,7 +73,10 @@ const Sheet = (() => {
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     return { peek: Math.min(210, Math.round(vh * 0.3)), half: Math.round(vh * 0.6), full: vh - 76 };
   };
-  const apply = (h) => document.documentElement.style.setProperty("--sheet-h", `${Math.round(h)}px`);
+  // The sheet keeps its full height and slides with transform (GPU), so the map never relayouts mid-animation.
+  let cur = 0;
+  const root = document.documentElement.style;
+  const apply = (h) => { cur = Math.round(h); root.setProperty("--sheet-h", `${cur}px`); root.setProperty("--sheet-full", `${heights().full}px`); };
   function set(name) {
     snap = name;
     grip.setAttribute("aria-valuetext", LABEL[name]);
@@ -83,7 +86,7 @@ const Sheet = (() => {
   let startY = 0, startH = 0, moved = false;
   grip.addEventListener("pointerdown", (e) => {
     if (!isPhone()) return;
-    startY = e.clientY; startH = el.getBoundingClientRect().height; moved = false;
+    startY = e.clientY; startH = cur; moved = false;
     el.classList.add("dragging"); grip.setPointerCapture(e.pointerId);
   });
   grip.addEventListener("pointermove", (e) => {
@@ -97,7 +100,7 @@ const Sheet = (() => {
     if (!el.classList.contains("dragging")) return;
     el.classList.remove("dragging");
     if (!moved) return set(snap === "peek" ? "half" : snap === "half" ? "full" : "peek");
-    const h = el.getBoundingClientRect().height, hs = heights();
+    const h = cur, hs = heights();
     set(Object.entries(hs).sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0]);
   };
   grip.addEventListener("pointerup", end);
@@ -178,7 +181,10 @@ const worksNear = (coord, radius = 150) => S.worksCenters.filter((w) => distM(co
 // Acceslibre places around a point (the API wants a bbox of at most 16 tiles of 0.01°).
 const placeCache = new Map();
 async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
-  const bbox = [coord[0] - dLon, coord[1] - dLat, coord[0] + dLon, coord[1] + dLat].map((v) => v.toFixed(4)).join(",");
+  // Snap to the server's 0.01° tiles: nearby positions share one URL, so the browser and the CDN reuse it.
+  // Edges sit 0.0001° inside the tile grid so float rounding never adds a neighbour tile server-side.
+  const T = 0.01, f = (v) => (Math.floor(v / T) * T + 0.0001).toFixed(4), c = (v) => (Math.ceil(v / T) * T - 0.0001).toFixed(4);
+  const bbox = [f(coord[0] - dLon), f(coord[1] - dLat), c(coord[0] + dLon), c(coord[1] + dLat)].join(",");
   if (!placeCache.has(bbox)) placeCache.set(bbox, getJSON(`/api/places?bbox=${bbox}`).catch((e) => { placeCache.delete(bbox); throw e; }));
   const d = await placeCache.get(bbox);
   S.meta.places = d.meta;
@@ -300,7 +306,8 @@ map.on("load", () => {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
   }
-  map.on("moveend", () => { loadBus(); loadPlacesLayer(); loadReports(); });
+  let moveT = null;
+  map.on("moveend", () => { clearTimeout(moveT); moveT = setTimeout(() => { loadBus(); loadPlacesLayer(); loadReports(); }, 250); });
   map.on("dragstart", () => { if (isPhone() && Sheet.get() === "full") Sheet.set("half"); });
 
   loadLifts().then(applyHash);
@@ -346,20 +353,26 @@ async function loadLifts() {
   }
 }
 
-async function loadStatic() {
-  const jobs = {
-    quais: async () => { const d = await getJSON("/api/stations"); S.quais = d.features; S.meta.quais = d.meta; map.getSource("quais").setData(d); },
-    works: async () => {
-      const d = await getJSON("/api/works"); S.meta.works = d.meta; map.getSource("works").setData(d);
-      S.worksCenters = d.features.map((f) => {
-        const ring = f.geometry.type === "Polygon" ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0];
-        const xs = ring.map((p) => p[0]), ys = ring.map((p) => p[1]);
-        return { c: [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2], p: f.properties };
-      });
-    },
-  };
-  await Promise.all(Object.entries(jobs).map(([k, fn]) => fn().catch((e) => console.warn(k, e))));
+// Heavy layers load on demand, once: platforms when a station opens or the chip is on,
+// roadworks when the map reaches street level or a sheet needs them.
+const once = (fn) => { let p = null; return () => (p ||= fn().catch((e) => { p = null; console.warn(e); })); };
+const ensureQuais = once(async () => {
+  const d = await getJSON("/api/stations"); S.quais = d.features; S.meta.quais = d.meta;
+  map.getSource("quais")?.setData(d); renderSources();
+});
+const ensureWorks = once(async () => {
+  const d = await getJSON("/api/works"); S.meta.works = d.meta; map.getSource("works")?.setData(d);
+  S.worksCenters = d.features.map((f) => {
+    const ring = f.geometry.type === "Polygon" ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0];
+    let x1 = Infinity, x2 = -Infinity, y1 = Infinity, y2 = -Infinity;
+    for (const [x, y] of ring) { if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y; }
+    return { c: [(x1 + x2) / 2, (y1 + y2) / 2], p: f.properties };
+  });
   renderSources();
+});
+function loadStatic() {
+  const check = () => { if (map.getZoom() >= 14 && layerOn.works) ensureWorks(); };
+  map.on("zoomend", check); check();
 }
 
 async function loadBus() {
@@ -654,12 +667,6 @@ function openStation(id) {
   show("detail", "half");
   flyTo(st.coord, 16);
   const [title, sub] = verdictText(st);
-  const quais = S.quais.filter((q) => distM(st.coord, q.geometry.coordinates) < 350 && norm(q.properties.name) === st.key);
-  const qCount = {};
-  quais.forEach((q) => { const a = q.properties.accessibility || "unknown"; qCount[a] = (qCount[a] || 0) + 1; });
-  const Q_FR = { true: ["accessible", "accessibles"], partial: ["partiellement accessible", "partiellement accessibles"], false: ["non accessible", "non accessibles"], unknown: ["sans information", "sans information"] };
-  const qText = ["true", "partial", "false", "unknown"].filter((k) => qCount[k]).map((k) => `${qCount[k]} ${Q_FR[k][qCount[k] > 1 ? 1 : 0]}`).join(", ");
-  const works = worksNear(st.coord, 200);
   const lifts = [...st.lifts].sort((a, b) => (b.status === "notavailable") - (a.status === "notavailable"));
   const oldest = st.lifts.map((l) => l.source_update).filter(Boolean).sort()[0];
   const who = st.staleLifts === st.lifts.length ? (st.lifts.length > 1 ? "tous les ascenseurs" : "cet ascenseur") : `${st.staleLifts} ascenseur${st.staleLifts > 1 ? "s" : ""} sur ${st.lifts.length}`;
@@ -669,10 +676,7 @@ function openStation(id) {
     `<div class="verdict ${st.status}">${mark(st.status, "lg")}<span><strong>${esc(title)}</strong>${esc(sub)}</span></div>` +
     (st.staleLifts ? `<p class="note">${icon("clock")}<span><b>À confirmer.</b> Pour ${who}, la dernière info IDFM date ${rel(oldest).replace(/^le /, "du ").replace("il y a", "d'il y a")}. Ça a pu changer depuis.</span></p>` : "") +
     `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><button class="btn" id="go-from">Partir d'ici</button></div>` +
-    ((quais.length || works.length) ? `<ul class="facts">` +
-      (quais.length ? `<li>${icon("train")}<span><b>Quais :</b> ${qText}</span></li>` : "") +
-      (works.length ? `<li>${icon("cone", "warn")}<span><b>${plural(works.length, "chantier", "chantiers")}</b> sur le trottoir à moins de 200 m</span></li>` : "") +
-      `</ul>` : "") +
+    `<ul class="facts" id="st-facts" hidden></ul>` +
     `<h3 class="h2">Les ascenseurs (${lifts.length})</h3><div class="card">` +
     lifts.map((l) => {
       const s = l.status === "available" ? "ok" : l.status === "notavailable" ? "ko" : "unk";
@@ -691,7 +695,23 @@ function openStation(id) {
   $("#go-from").addEventListener("click", () => openTrip(spot, null));
   fillPhoto(st.coord);
   fillReliability(st);
+  fillStationFacts(st);
   document.querySelectorAll(".report-lift").forEach((b) => b.addEventListener("click", () => reportLift(st, st.lifts.find((l) => l.liftid === b.dataset.lift))));
+}
+
+async function fillStationFacts(st) {
+  await Promise.all([ensureQuais(), ensureWorks()]);
+  const ul = $("#st-facts");
+  if (!ul || $("#d-title")?.textContent !== st.name) return;  // the user moved on
+  const quais = S.quais.filter((q) => distM(st.coord, q.geometry.coordinates) < 350 && norm(q.properties.name) === st.key);
+  const qCount = {};
+  quais.forEach((q) => { const k = q.properties.accessibility || "unknown"; qCount[k] = (qCount[k] || 0) + 1; });
+  const Q_FR = { true: ["accessible", "accessibles"], partial: ["partiellement accessible", "partiellement accessibles"], false: ["non accessible", "non accessibles"], unknown: ["sans information", "sans information"] };
+  const qText = ["true", "partial", "false", "unknown"].filter((k) => qCount[k]).map((k) => `${qCount[k]} ${Q_FR[k][qCount[k] > 1 ? 1 : 0]}`).join(", ");
+  const works = worksNear(st.coord, 200);
+  ul.innerHTML = (quais.length ? `<li>${icon("train")}<span><b>Quais :</b> ${qText}</span></li>` : "") +
+    (works.length ? `<li>${icon("cone", "warn")}<span><b>${plural(works.length, "chantier", "chantiers")}</b> sur le trottoir à moins de 200 m</span></li>` : "");
+  ul.hidden = !ul.innerHTML;
 }
 
 // Lift reliability from the Dispotrains archive (roadmap screen 6). Honest about the window.
@@ -838,12 +858,13 @@ $("#r-send").addEventListener("click", async () => {
 });
 
 let reportsData = [];
+let reportsApi = true;
 async function loadReports() {
-  if (map.getZoom() < 13) return;
+  if (!reportsApi || map.getZoom() < 13) return;
   const b = map.getBounds();
   const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
   try {
-    const d = await getJSON(`/api/reports?bbox=${bbox}`);
+    const d = await getJSON(`/api/reports?bbox=${bbox}`).catch((e) => { if (e.status === 404 || e.status === 405) reportsApi = false; throw e; });
     reportsData = d.features || [];
     map.getSource("reports")?.setData({ type: "FeatureCollection", features: reportsData.map((f, i) => ({ ...f, properties: { i, st: GRAV_ST[f.properties.gravite] || "warn" } })) });
   } catch { /* no reports API yet */ }
@@ -876,6 +897,7 @@ function openReport(f) {
 
 async function openPlace(item) {
   const coord = [item.lon, item.lat];
+  await ensureWorks();
   setPin(coord);
   show("detail", "half");
   flyTo(coord, 16);
@@ -1244,6 +1266,8 @@ function setLayer(k, on) {
 }
 document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => {
   const k = chip.dataset.layer; setLayer(k, !layerOn[k]);
+  if (k === "quais" && layerOn.quais) ensureQuais();
+  if (k === "works" && layerOn.works && map.getZoom() >= 14) ensureWorks();
   const minZ = { places: 15, works: 14.5 }[k];
   if (minZ && layerOn[k] && map.getZoom() < minZ) {
     toast(k === "places" ? "Je rapproche la carte pour montrer les restos." : "Je rapproche la carte pour montrer les travaux.");
@@ -1278,6 +1302,11 @@ function applyHash() {
   if (m) openStation(decodeURIComponent(m[1]));
 }
 window.addEventListener("hashchange", applyHash);
+
+// Offline support: instant reloads, last known data in tunnels. Never presented as live.
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+window.addEventListener("offline", () => toast("Hors connexion : j'affiche les dernières informations connues, avec leur heure.", 5000));
+window.addEventListener("online", () => { toast("De nouveau en ligne."); loadLifts(); loadAlerts(); });
 renderFavs();
 
 // ---------------------------------------------------------------------------
