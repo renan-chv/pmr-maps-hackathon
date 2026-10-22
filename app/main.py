@@ -373,8 +373,11 @@ def _reports() -> List[dict]:
         return []
 
 
+_layers: dict = {}
+
+
 def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
-    """Optional GeoJSON-like layer from sources (stairs is added by chantier C)."""
+    """Optional GeoJSON-like layer from sources, built once per upstream refresh (bbox precomputed)."""
     fn = getattr(sources, fn_name, None)
     if fn is None:
         return [], None
@@ -383,13 +386,17 @@ def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
     except Exception:
         logging.exception("%s unavailable, journey checked without it", fn_name)
         return [], None
-    feats = []
-    for r in data.get("rows", []):
-        shape = (r.get("geo_shape") or {}).get("geometry")
-        if shape:
-            feats.append({"type": "Feature", "geometry": shape, "properties": {
-                "summary": r.get("chantier_synthese"), "end": r.get("date_fin")}})
-    return feats, data.get("fetched_at")
+    key = (fn_name, data.get("fetched_at"), len(data.get("rows", [])))
+    if key not in _layers:
+        feats = []
+        for r in data.get("rows", []):
+            shape = (r.get("geo_shape") or {}).get("geometry")
+            if shape:
+                feats.append({"type": "Feature", "geometry": shape, "_bbox": verify.feature_bbox(shape),
+                              "properties": {"summary": r.get("chantier_synthese"), "end": r.get("date_fin")}})
+        _layers.clear() if len(_layers) > 8 else None
+        _layers[key] = feats
+    return _layers[key], data.get("fetched_at")
 
 
 def _lifts_on_route(journeys: List[dict], rows: List[dict]) -> List[dict]:
