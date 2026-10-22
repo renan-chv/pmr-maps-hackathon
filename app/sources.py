@@ -24,6 +24,7 @@ CACHE_DIR = Path(os.getenv("CACHE_DIR", "/tmp/pmr-cache"))
 IDF_REGION = "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets"
 IDFM = "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets"
 PARIS = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets"
+SNCF = "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets"
 GEOCODER = "https://data.geopf.fr/geocodage/search"
 # Acceslibre nightly export on data.gouv.fr (acceslibre.csv), queried through the tabular API (no key).
 # The "with-web-url" resource is 3-4x slower to query; the /uuid/ permalink gives the same page.
@@ -37,6 +38,11 @@ SOURCES = {
         "name": "IDFM – État des ascenseurs",
         "url": "https://data.iledefrance.fr/explore/dataset/etat-des-ascenseurs/",
         "license": "Licence Mobilité",
+    },
+    "lifts_sncf": {
+        "name": "SNCF Gares & Connexions – État des équipements d'élévatique en gare",
+        "url": "https://ressources.data.sncf.com/explore/dataset/etat-fonctionnement-elevatique-gare/",
+        "license": "ODbL",
     },
     "stations": {
         "name": "IDFM – Référentiel des arrêts",
@@ -139,7 +145,7 @@ def _export(base: str, dataset: str, where: Optional[str] = None, select: Option
     return rows
 
 
-# --- Lifts (live, ~3 updates a day upstream) -------------------------------
+# --- Lifts (live: IDFM ~3 updates a day, refreshed hourly by SNCF for stations) --
 
 def fetch_lifts_raw() -> List[dict]:
     return _export(IDF_REGION, "etat-des-ascenseurs")
@@ -150,9 +156,70 @@ def lifts(force: bool = False) -> dict:
 
     def load():
         rows = fetch_lifts_raw()
-        return {"fetched_at": now_iso(), "rows": rows}
+        fetched_at = now_iso()
+        try:
+            sncf = lifts_sncf()
+        except Exception as e:  # SNCF down: the IDFM data alone is still valid
+            log.warning("lifts_sncf unavailable, IDFM only: %r", e)
+            sncf = None
+        if sncf:
+            rows, n = overlay_sncf(rows, sncf["rows"], sncf["fetched_at"])
+            log.info("lifts: %d/%d statuses refreshed from SNCF", n, len(rows))
+            return {"fetched_at": fetched_at, "rows": rows, "sncf_fetched_at": sncf["fetched_at"], "sncf_refreshed": n}
+        return {"fetched_at": fetched_at, "rows": rows}
 
     return cached("lifts", ttl, load)
+
+
+# --- SNCF station lifts (hourly upstream) ----------------------------------
+# The SNCF dataset uses the same equipment ids as the IDFM liftid of train-station lifts
+# (e.g. 33847f22-… = Paris Saint-Lazare, lift "ASC 2" in both). It has no coordinates, so
+# instead of adding new points we refresh the status of the IDFM rows it covers:
+# SNCF is updated every hour, IDFM about 3 times a day.
+
+SNCF_STATUS = {"OK": "available", "KO": "notavailable"}  # "Inconnu" -> keep the IDFM status
+
+
+def _paris_local(stamp: str) -> str:
+    """UTC ISO stamp -> naive Paris local time "YYYY-MM-DDTHH:MM", the format of IDFM liftstateupdate."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.fromisoformat(stamp).astimezone(ZoneInfo("Europe/Paris")).strftime("%Y-%m-%dT%H:%M")
+    except Exception:
+        return stamp[:16]
+
+
+def lifts_sncf() -> dict:
+    def load():
+        rows = _export(SNCF, "etat-fonctionnement-elevatique-gare",
+                       select="id,gareid,libelle,localisationdescriptive,etat_de_fonctionnement")
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached("lifts_sncf", 1800, load)
+
+
+def overlay_sncf(idfm_rows: List[dict], sncf_rows: List[dict], sncf_fetched_at: str) -> Tuple[List[dict], int]:
+    """Return the IDFM rows with the fresher SNCF status where the lift ids match, and how many matched."""
+    sncf_by_id = {str(r.get("id")): r for r in sncf_rows if r.get("id")}
+    out, n = [], 0
+    for row in idfm_rows:
+        s = sncf_by_id.get(str(row.get("liftid")))
+        status = SNCF_STATUS.get(str((s or {}).get("etat_de_fonctionnement") or "").strip().upper())
+        if not status:
+            out.append(row)
+            continue
+        n += 1
+        new = {**row, "status_source": "SNCF", "sncf_status": s.get("etat_de_fonctionnement"),
+               "sncf_fetched_at": sncf_fetched_at}
+        if status != row.get("liftstatus"):
+            # Status changed since the last IDFM update: SNCF saw it first, date it from the SNCF read
+            new.update({"liftstatus": status, "liftstatus_idfm": row.get("liftstatus"),
+                        "liftstateupdate_idfm": row.get("liftstateupdate"),
+                        "liftstateupdate": _paris_local(sncf_fetched_at)})
+            if status == "available":
+                new["liftreason"] = None
+        out.append(new)
+    return out, n
 
 
 # --- Stations / stops (static, refreshed daily) ----------------------------
