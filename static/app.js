@@ -550,14 +550,40 @@ function openAcceslibre(f) {
   flyTo(coord, 17);
   const near = nearestStations(coord, 3, 1500);
   $("#detail").innerHTML =
+    photoSlot() +
     `<h2 id="d-title" class="title">${esc(p.name || "Sans nom")}</h2><p class="sub">${esc(p.activity || "")}${p.address ? ` · ${esc(p.address)}` : ""}</p>` +
     acceslibreBlock(p) +
     `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">${icon("ext")}Plus d'infos</a></div>` +
     `<h3 class="h2">Stations avec ascenseur à côté</h3>` +
     (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`) +
+    nearSlot() +
     `<p class="src">Accessibilité : Acceslibre (beta.gouv.fr), décrite par les lieux et les visiteurs. Licence Ouverte.</p>`;
   bindOpen($("#detail"));
   $("#go-to").addEventListener("click", () => openTrip(null, { label: p.name, lon: coord[0], lat: coord[1] }));
+  fillPhoto(coord, p.id);
+}
+
+// ---------------------------------------------------------------------------
+// Photos: the place's own website, else a free-licence photo taken nearby. Never invented.
+// ---------------------------------------------------------------------------
+// Top slot: only a photo of the place itself. Bottom slot: a photo taken nearby, kept small and below the verdict.
+const photoSlot = () => `<figure class="photo" id="photo" hidden><img alt="" decoding="async"><figcaption></figcaption></figure>`;
+const nearSlot = () => `<section id="photo-near" hidden><h3 class="h2">Aux alentours</h3><figure class="photo small"><img alt="" decoding="async"><figcaption></figcaption></figure></section>`;
+async function fillPhoto(coord, placeId) {
+  const top = $("#photo"), near = $("#photo-near");
+  const q = new URLSearchParams({ lat: coord[1].toFixed(5), lon: coord[0].toFixed(5) });
+  if (placeId) q.set("id", placeId);
+  try {
+    const { photo } = await getJSON(`/api/photo?${q}`);
+    const box = photo && (photo.kind === "site" ? top : near);
+    if (!box || !box.isConnected) return;
+    const img = box.querySelector("img");
+    img.alt = photo.kind === "site" ? "Photo du lieu" : "Photo prise à proximité";
+    img.onload = () => { box.hidden = false; };
+    img.onerror = () => box.remove();
+    img.src = photo.src;
+    box.querySelector("figcaption").innerHTML = `${esc(photo.caption)} · <a href="${esc(photo.link)}" target="_blank" rel="noopener">${esc(photo.credit)}</a>`;
+  } catch { /* no photo is fine */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -598,10 +624,12 @@ function openStation(id) {
         `<div class="where">${esc(l.situation || "Emplacement non précisé")}</div>${l.direction ? `<small>${esc(l.direction)}</small>` : ""}` +
         `<small class="${old ? "old" : ""}">Info IDFM ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small></div></div>`;
     }).join("") + `</div>` +
+    nearSlot() +
     `<p class="src">Source : IDFM, état des ascenseurs (Licence Mobilité), zone ${esc(st.id)}. Vérifié à ${hhmm(S.meta.lifts.fetched_at)}.</p>`;
   const spot = { label: st.name, lon: st.coord[0], lat: st.coord[1] };
   $("#go-to").addEventListener("click", () => openTrip(null, spot));
   $("#go-from").addEventListener("click", () => openTrip(spot, null));
+  fillPhoto(st.coord);
 }
 
 async function openPlace(item) {
@@ -611,13 +639,14 @@ async function openPlace(item) {
   flyTo(coord, 16);
   const near = nearestStations(coord, 3, 1500);
   const works = worksNear(coord, 150);
-  $("#detail").innerHTML =
+  $("#detail").innerHTML = photoSlot() +
     `<h2 id="d-title" class="title">${esc(item.label)}</h2><p class="sub">${esc(item.sub || "")}</p>` +
     `<div id="place-access"><p class="muted">Je regarde si le lieu est accessible…</p></div>` +
     (works.length ? `<p class="note">${icon("cone")}<span><b>${plural(works.length, "chantier", "chantiers")} sur le trottoir</b> à moins de 150 m. ${esc(works[0].p.summary || "Travaux")}, jusqu'au ${esc(works[0].p.end)}.</span></p>` : "") +
     `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><button class="btn" id="go-from">Partir d'ici</button></div>` +
     `<h3 class="h2">Stations avec ascenseur à côté</h3>` +
     (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`) +
+    nearSlot() +
     `<p class="src">Lieu : IGN Géoplateforme. Ascenseurs : IDFM. Chantiers : Ville de Paris.</p>`;
   bindOpen($("#detail"));
   $("#go-to").addEventListener("click", () => openTrip(null, item));
@@ -630,6 +659,7 @@ async function openPlace(item) {
       .filter((x) => x.d < 120 && x.k && (x.k.includes(key) || key.includes(x.k))).sort((a, b) => a.d - b.d);
     const box = $("#place-access");
     if (!box) return;
+    fillPhoto(coord, cands.length ? cands[0].f.properties.id : null);
     box.innerHTML = cands.length
       ? acceslibreBlock(cands[0].f.properties) + `<p class="src"><a href="${esc(cands[0].f.properties.url)}" target="_blank" rel="noopener">Voir la fiche Acceslibre</a></p>`
       : `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Pas encore décrit</strong>Ce lieu n'a pas de fiche d'accessibilité sur Acceslibre.</span></div>`;
@@ -734,7 +764,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
   const render = () => {
     if (!items.length) { list.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); return; }
     list.innerHTML = items.map((it, i) => {
-      const lead = it.kind === "station" ? mark(it.status)
+      const lead = it.kind === "station" ? mark(it.status) : it.kind === "acces" ? mark(it.status, "food")
         : `<span class="mark neutral sq" aria-hidden="true">${icon(it.kind === "me" ? "locate" : it.kind === "place" ? "place" : it.kind === "fav" ? "home" : "address")}</span>`;
       return `<li role="option" id="${list.id}-${i}" aria-selected="${i === sel}" data-i="${i}">${lead}<span class="t"><b>${esc(it.label)}</b><small>${esc(it.sub || "")}</small></span></li>`;
     }).join("");
@@ -752,11 +782,15 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
     if (q.length < 2) { items = head; sel = -1; render(); return; }
     const local = stations ? localStations(q) : [];
     items = [...head, ...local]; sel = -1; render();
-    try {
-      const d = await getJSON(`/api/suggest?q=${encodeURIComponent(q)}`);
-      if (my !== seq) return;
-      items = [...head, ...local, ...d.results.slice(0, 5)]; render();
-    } catch {}
+    const ref = S.myPos || [map.getCenter().lng, map.getCenter().lat];
+    const [ign, acc] = await Promise.all([
+      getJSON(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] })),
+      q.length >= 3 ? getJSON(`/api/places/search?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ features: [] })) : { features: [] },
+    ]);
+    if (my !== seq) return;
+    const places = acc.features.map((f) => ({ kind: "acces", f, label: f.properties.name, status: PLACE_ST[f.properties.wheelchair],
+      sub: `${PLACE_FR[f.properties.wheelchair][0]} · ${f.properties.address || f.properties.activity || ""}`, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
+    items = [...head, ...local, ...places.slice(0, 3), ...ign.results.slice(0, 4)]; render();
   };
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 180); });
   input.addEventListener("focus", () => { onFocus?.(); run(); });
@@ -772,7 +806,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
 
 const pickMain = (it) => {
   if (pendingFav) return saveFav(it);
-  return it.kind === "station" ? openStation(it.id) : openPlace(it);
+  return it.kind === "station" ? openStation(it.id) : it.kind === "acces" ? openAcceslibre(it.f) : openPlace(it);
 };
 const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, { onFocus: () => isPhone() && Sheet.set("full") });
 autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) runTrip(); else $("#trip-to").focus(); }, { withMe: true });
