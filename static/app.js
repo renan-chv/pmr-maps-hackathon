@@ -705,28 +705,27 @@ function openStation(id) {
   setPin(null);
   show("detail", "half");
   flyTo(st.coord, 16);
-  const [title, sub] = verdictText(st);
-  const lifts = [...st.lifts].sort((a, b) => (b.status === "notavailable") - (a.status === "notavailable"));
-  const oldest = st.lifts.map((l) => l.source_update).filter(Boolean).sort()[0];
-  const who = st.staleLifts === st.lifts.length ? (st.lifts.length > 1 ? "all elevators" : "this elevator") : `${st.staleLifts} of ${st.lifts.length} elevators`;
+  // Service lifts would drown the answer: the verdict, the summary and the groups only count passenger ones.
+  const pub = st.lifts.filter((l) => !isServiceLift(l)), other = st.lifts.filter(isServiceLift);
+  const base = pub.length ? pub : st.lifts;
+  const [title, sub] = verdictText({ ...st, lifts: base, status: stationStatus(base) });
+  const groups = liftGroups(pub);
+  const stale = base.filter((l) => ageH(liftTime(l.source_update)) > STALE_H).length;
+  const oldest = base.map((l) => liftTime(l.source_update)).filter(Boolean).sort((a, b) => a - b)[0];
+  const who = stale === base.length ? (base.length > 1 ? "all elevators" : "this elevator") : `${stale} of ${base.length} elevators`;
+  const summary = groups.length > 1 ? groups.map((g) => `<span class="ls-sum-i">${esc(g.label)}: ${esc(groupState(g.lifts).short)}</span>`)
+    .join(`<span aria-hidden="true"> · </span>`) : esc(sub);
 
   $("#detail").innerHTML =
     `<h2 id="d-title" class="title">${esc(st.name)}</h2><p class="sub">${esc(MODE_FR[st.mode] || st.mode || "Station")}</p>` +
-    `<div class="verdict ${st.status}">${mark(st.status, "lg")}<span><strong>${esc(title)}</strong>${esc(sub)}</span></div>` +
-    (st.staleLifts ? `<p class="note">${icon("clock")}<span><b>To be confirmed.</b> For ${who}, the latest IDFM update was ${rel(oldest)}. It may have changed since.</span></p>` : "") +
+    `<div class="verdict ${stationStatus(base)}">${mark(stationStatus(base), "lg")}<span><strong>${esc(title)}</strong><span class="ls-sum">${summary}</span></span></div>` +
+    (stale ? `<p class="note">${icon("clock")}<span><b>To be confirmed.</b> For ${who}, ${oldest ? `the latest IDFM update was ${rel(oldest.toISOString())}` : "the status time is unknown"}. It may have changed since.</span></p>` : "") +
     `<div class="btn-row"><button class="btn primary" id="go-to">Go there</button><button class="btn" id="go-from">Start here</button></div>` +
     `<ul class="facts" id="st-facts" hidden></ul>` +
-    `<h3 class="h2">Elevators (${lifts.length})</h3><div class="card">` +
-    lifts.map((l) => {
-      const s = l.status === "available" ? "ok" : l.status === "notavailable" ? "ko" : "unk";
-      const old = ageH(l.source_update) > STALE_H;
-      return `<div class="lift">${mark(s)}<div class="lift-body"><div class="st">${esc(LIFT_FR[l.status] || l.status)}</div>` +
-        `<div class="where">${l.situation ? `<span lang="fr">${esc(l.situation)}</span>` : "Location not specified"}</div>${l.direction ? `<small lang="fr">${esc(l.direction)}</small>` : ""}` +
-        `<small class="${old ? "old" : ""}">IDFM update ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small>` +
-        `<small class="rel" data-rel="${esc(l.liftid)}"></small>` +
-        (l.status !== "notavailable" ? `<button class="linkish report-lift" data-lift="${esc(l.liftid)}">Report an outage</button>` : "") +
-        `</div></div>`;
-    }).join("") + `</div>` +
+    (pub.length ? `<h3 class="h2">${groups.length > 1 ? "Elevators by line" : "Elevators"} (${pub.length})</h3>` : "") +
+    groups.map((g, i) => liftGroupHTML(g, i, groups.length === 1)).join("") +
+    (other.length ? `<button class="linkish ls-more" id="ls-more" aria-expanded="false" aria-controls="ls-other">${icon("chev-r")}<span>Show ${plural(other.length, "other elevator", "other elevators")}</span></button>` +
+      `<div class="card ls-other" id="ls-other" hidden><p class="ls-note">Staff, service or technical elevators. They are not on the passenger route.</p><ul class="ls-lifts">${other.map((l) => liftRowHTML(l)).join("")}</ul></div>` : "") +
     nearSlot() +
     `<p class="src">Source: IDFM, elevator status (Licence Mobilité), area ${esc(st.id)}. Checked at ${hhmm(S.meta.lifts.fetched_at)}.</p>`;
   const spot = { label: st.name, lon: st.coord[0], lat: st.coord[1] };
@@ -735,7 +734,127 @@ function openStation(id) {
   fillPhoto(st.coord);
   fillReliability(st);
   fillStationFacts(st);
-  document.querySelectorAll(".report-lift").forEach((b) => b.addEventListener("click", () => reportLift(st, st.lifts.find((l) => l.liftid === b.dataset.lift))));
+  bindLiftGroups(st, groups);
+}
+
+// ---------- Station sheet helpers: elevators grouped by line ----------
+// IDFM lists staff and technical lifts next to passenger ones (checked on the live feed: "Bât. A Back-office",
+// "asc service", "Galerie technique", "Acces Directeur", RER E smoke shafts "Puits", lounges, internal codes).
+// They never have a public status worth acting on, so they go behind "Show N other elevators".
+const SERVICE_LIFT = /back.?office|\bservice\b|technique|directeur|\bb[aâ]t(?:\.|iment)|\blocaux\b|\bpuits\b|\blounge\b|relogement|\bpersonnel\b|\bfoyer\b|^ascenseur\s*-\s*\d/i;
+const isServiceLift = (l) => SERVICE_LIFT.test(l.situation || "") || (!!l.situation && !/\p{L}{3}/u.test(l.situation));
+// Missing or epoch-like stamps (new Date(null) is 1 Jan 1970) mean "no time", never a date.
+const liftTime = (iso) => { const d = iso ? new Date(iso) : null; return d && !isNaN(d) && d.getFullYear() >= 2000 ? d : null; };
+const liftStatusSt = (l) => (l.status === "available" ? "ok" : l.status === "notavailable" ? "ko" : "unk");
+// Lines named in the IDFM text, same idea as verify.line_tokens: "RER A", "Ligne M14", "ligne 14", "L14", "T3a", "ligne L".
+const LINE_RE = /(?<![\p{L}\d])(?:RER\s?([A-E])|(?:ligne\s+M?|M|L)(\d{1,2}b?)|T(\d{1,2}[ab]?)|ligne\s+([A-EHJKLNPRUV]))(?![\p{L}\d])/giu;
+function liftLines(l) {
+  const out = new Set();
+  for (const m of `${l.situation || ""} ${l.direction || ""}`.matchAll(LINE_RE)) {
+    if (m[1] || (m[4] && /[A-E]/i.test(m[4]))) out.add(`RER ${(m[1] || m[4]).toUpperCase()}`);
+    else if (m[2]) out.add(`M${m[2].toUpperCase()}`);
+    else if (m[3]) out.add(`T${m[3].toLowerCase()}`);
+    else if (m[4]) out.add(`Train ${m[4].toUpperCase()}`);
+  }
+  return [...out];
+}
+const LINE_ORDER = (k) => (k.startsWith("M") ? 0 : k.startsWith("RER") ? 1 : k.startsWith("T") && !k.startsWith("Train") ? 2 : k.startsWith("Train") ? 3 : 4);
+function lineInfo(k) {
+  if (k.startsWith("RER")) return { label: k, chip: k, mode: "RER", code: k.slice(4) };
+  if (k.startsWith("Train")) return { label: k, chip: k, mode: "Train", code: k.slice(6) };
+  if (k.startsWith("M")) return { label: `Line ${k.slice(1)}`, chip: `M ${k.slice(1)}`, mode: "Métro", code: k.slice(1) };
+  return { label: `Tram ${k}`, chip: k, mode: "Tramway", code: k.slice(1) };
+}
+// One group per line named in the descriptions (a lift serving two lines shows in both: each line's answer must
+// be complete). Lifts naming no line go to "Station access". No line anywhere: a single plain group.
+function liftGroups(lifts) {
+  const by = new Map(), rest = [];
+  for (const l of lifts) {
+    const ks = liftLines(l);
+    if (!ks.length) rest.push(l);
+    ks.forEach((k) => { if (!by.has(k)) by.set(k, []); by.get(k).push(l); });
+  }
+  const groups = [...by.entries()].sort(([a], [b]) => LINE_ORDER(a) - LINE_ORDER(b) || a.localeCompare(b, "en", { numeric: true }))
+    .map(([k, ls]) => ({ key: k, ...lineInfo(k), lifts: ls }));
+  if (rest.length) groups.push(groups.length ? { key: "access", label: "Station access", lifts: rest, note: "The data does not say which line these serve." }
+    : { key: "all", label: lifts.length > 1 ? "Elevators" : "Elevator", lifts: rest });
+  return groups;
+}
+// Synthetic state of a group: class, header words, short words for the summary line.
+function groupState(lifts) {
+  const n = lifts.length, ko = lifts.filter((l) => l.status === "notavailable").length, ok = lifts.filter((l) => l.status === "available").length, unk = n - ko - ok;
+  if (ok === n) return { st: "ok", text: n > 1 ? `All ${n} working` : "Working", short: n > 1 ? "elevators working" : "elevator working" };
+  if (ko === n) return { st: "ko", text: n > 1 ? `All ${n} out of order` : "Out of order", short: n > 1 ? `all ${n} out of order` : "out of order" };
+  if (ko) return { st: "warn", text: `${ko} of ${n} out of order`, short: `${ko} out of order` };
+  if (unk === n) return { st: "unk", text: "Status unknown", short: "status unknown" };
+  return { st: "unk", text: `${unk} of ${n} status unknown`, short: `${unk} status unknown` };
+}
+// "Ligne M1 direction Château de Vincennes" -> direction; "Accès 1 Porte Marguerite de Navarre" -> exit.
+// Only short segments: long sentences ("en direction de la sortie 1") would give nonsense.
+function liftWay(l) {
+  const segs = `${l.direction || ""}  /  ${l.situation || ""}`.split(/\s{2}\/\s{2}/).map((s) => s.trim()).filter((s) => s && s.length <= 70);
+  let dir = null, exit = null;
+  for (const s of segs) {
+    const d = !dir && s.match(/^(?:.*\s)?direction\s+(?!de\b|du\b|des\b)(.+)$/i);
+    if (d) dir = d[1].trim();
+    if (!dir && /^toutes directions$/i.test(s)) dir = "all";
+    const e = !exit && s.match(/^Acc[eè]s\s+(\d.*)$/i);
+    if (e) exit = e[1].replace(/\s+/g, " ").trim();
+  }
+  return { dir, exit };
+}
+// Plain-text name of a lift for buttons: "Line 14 elevator, toward Saint-Denis - Pleyel, exit 1 Cour de Rome".
+function liftName(l, g) {
+  const { dir, exit } = liftWay(l);
+  const bits = [dir ? (dir === "all" ? "all directions" : `toward ${dir}`) : "", exit ? `exit ${exit}` : ""].filter(Boolean);
+  if (!bits.length) bits.push((l.situation || "location not specified").split(/[.,]/)[0].replace(/\s+/g, " ").slice(0, 70));
+  return `${g && g.key !== "all" && g.key !== "access" ? `${g.label} elevator` : "Elevator"}, ${bits.join(", ")}`;
+}
+function liftRowHTML(l, showDir = true) {
+  const s = liftStatusSt(l), t = liftTime(l.source_update), { dir, exit } = liftWay(l);
+  const way = [showDir && dir ? (dir === "all" ? "All directions" : `Toward <span lang="fr">${esc(dir)}</span>`) : "", exit ? `Exit <span lang="fr">${esc(exit)}</span>` : ""].filter(Boolean).join(" · ");
+  return `<li class="lift">${mark(s)}<div class="lift-body"><div class="st">${esc(LIFT_FR[l.status] || l.status)}${way ? `<span class="ls-way">${way}</span>` : ""}</div>` +
+    `<div class="where">${l.situation ? `<span lang="fr">${esc(l.situation)}</span>` : "Location not specified"}</div>` +
+    (l.direction && !dir ? `<small lang="fr">${esc(l.direction)}</small>` : "") +
+    (t ? `<small class="${ageH(t) > STALE_H ? "old" : ""}">IDFM update ${rel(t.toISOString())} (${esc(dayTime(t))})</small>` : `<small class="old">Status time unknown</small>`) +
+    `<small class="rel" data-rel="${esc(l.liftid)}"></small></div></li>`;
+}
+function liftGroupHTML(g, i, only) {
+  const gs = groupState(g.lifts), open = only || gs.st !== "ok";
+  const order = { ko: 0, unk: 1, ok: 2 };
+  const lifts = [...g.lifts].sort((a, b) => order[liftStatusSt(a)] - order[liftStatusSt(b)]);
+  // Sub-headings by direction only when the data names at least two of them for this line.
+  const dirs = [...new Set(lifts.map((l) => liftWay(l).dir).filter(Boolean))];
+  const byDir = dirs.length > 1;
+  const body = byDir
+    ? [...dirs, null].map((d) => { const ls = lifts.filter((l) => (liftWay(l).dir || null) === d); return ls.length
+      ? `<h5 class="ls-dir">${d ? (d === "all" ? "All directions" : `Toward <span lang="fr">${esc(d)}</span>`) : "Direction not specified"}</h5><ul class="ls-lifts">${ls.map((l) => liftRowHTML(l, false)).join("")}</ul>` : ""; }).join("")
+    : `<ul class="ls-lifts">${lifts.map((l) => liftRowHTML(l)).join("")}</ul>`;
+  const can = lifts.filter((l) => l.status !== "notavailable");
+  const report = !can.length ? "" : can.length === 1
+    ? `<button class="linkish ls-report" data-g="${i}" data-lift="${esc(can[0].liftid)}" aria-label="Report an outage, ${esc(liftName(can[0], g))}">Report an outage</button>`
+    : `<button class="linkish ls-report" data-g="${i}" aria-expanded="false" aria-controls="ls-pick-${i}">Report an outage${g.key === "all" || g.key === "access" ? "" : ` on ${esc(g.label)}`}</button>` +
+      `<div class="ls-pick" id="ls-pick-${i}" hidden><p class="ls-note">Which elevator is out of order?</p>` +
+      can.map((l) => `<button class="ls-pick-b" data-lift="${esc(l.liftid)}" aria-label="Report an outage, ${esc(liftName(l, g))}">${esc(liftName(l, g).replace(/^[^,]*,\s*(.)/, (_, c) => c.toUpperCase()))}</button>`).join("") + `</div>`;
+  const chip = g.chip ? (() => { const bg = lineColor(g.mode, g.code); return `<span class="lchip" style="background:${bg};color:${inkOn(bg)}" aria-hidden="true">${esc(g.chip)}</span>`; })() : `<span class="ls-ic" aria-hidden="true">${icon("lift")}</span>`;
+  return `<section class="ls-group ${gs.st}"><h4 class="ls-h"><button class="ls-toggle" aria-expanded="${open}" aria-controls="ls-g-${i}">` +
+    `${chip}<span class="${g.chip === g.label ? "sr" : "ls-name"}">${esc(g.label)}</span><span class="sr">, </span> <span class="ls-state">${mark(gs.st, "sm")}${srState(gs.st)}<span class="sr">, </span><span>${esc(gs.text)}</span></span>${icon("chev-r", "ls-chev")}</button></h4>` +
+    `<div class="ls-body" id="ls-g-${i}"${open ? "" : " hidden"}>${g.note ? `<p class="ls-note">${esc(g.note)}</p>` : ""}${body}${report}</div></section>`;
+}
+function bindLiftGroups(st, groups) {
+  const flip = (btn, panel) => { const on = btn.getAttribute("aria-expanded") !== "true"; btn.setAttribute("aria-expanded", String(on)); panel.hidden = !on; return on; };
+  const find = (id) => st.lifts.find((l) => l.liftid === id);
+  document.querySelectorAll(".ls-toggle").forEach((b) => b.addEventListener("click", () => flip(b, document.getElementById(b.getAttribute("aria-controls")))));
+  document.querySelectorAll(".ls-report").forEach((b) => b.addEventListener("click", () => {
+    if (b.dataset.lift) return reportLift(st, find(b.dataset.lift));
+    if (flip(b, document.getElementById(b.getAttribute("aria-controls")))) document.querySelector(`#ls-pick-${b.dataset.g} .ls-pick-b`)?.focus();
+  }));
+  document.querySelectorAll(".ls-pick-b").forEach((b) => b.addEventListener("click", () => reportLift(st, find(b.dataset.lift))));
+  const more = $("#ls-more");
+  more?.addEventListener("click", () => {
+    const on = flip(more, $("#ls-other"));
+    more.querySelector("span").textContent = on ? "Hide the other elevators" : `Show ${plural(st.lifts.filter(isServiceLift).length, "other elevator", "other elevators")}`;
+  });
 }
 
 async function fillStationFacts(st) {
@@ -754,17 +873,18 @@ async function fillStationFacts(st) {
 }
 
 // Lift reliability from the Dispotrains archive (roadmap screen 6). Honest about the window.
+// One sentence per lift, worded like the trip detail (verify.lift_check) so both screens say the same thing.
+const UNRELIABLE_BELOW = 0.85;  // same threshold as app/verify.py
 async function fillReliability(st) {
   try {
     const d = await getJSON(`/api/stations/${encodeURIComponent(st.id)}/reliability`);
+    if ($("#d-title")?.textContent !== st.name) return;  // the user moved on
     for (const [liftid, r] of Object.entries(d.lifts || {})) {
-      const el = document.querySelector(`[data-rel="${CSS.escape(liftid)}"]`);
-      if (!el) continue;
-      const down = 1 - r.availability;
-      el.textContent = down < 0.02
-        ? `Very reliable: almost never out of order (last ${Math.round(r.window_days)} days)`
-        : `Out of order about 1 day in ${Math.max(2, Math.round(1 / down))} (last ${Math.round(r.window_days)} days, ${plural(r.outages, "outage", "outages")})`;
-      el.classList.toggle("bad", down >= 0.1);
+      // a lift serving two lines shows in both groups
+      document.querySelectorAll(`[data-rel="${CSS.escape(liftid)}"]`).forEach((el) => {
+        el.textContent = `History: working ${Math.round(r.availability * 100)}% of the time from 6 am to 9 pm over the last ${+Number(r.window_days).toFixed(1)} days, ${r.outages ? plural(r.outages, "outage", "outages") : "no outage"}.`;
+        el.classList.toggle("bad", r.availability < UNRELIABLE_BELOW);
+      });
     }
   } catch { /* the history is a bonus */ }
 }
