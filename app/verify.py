@@ -712,12 +712,16 @@ def crossing_check(line: List[List[float]], idx: dict, profile: str) -> Optional
                for p in line for x, y, _ in _grid_near(idx["lights"], p[0], p[1], COVERAGE_M)):
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
                 "message": "Audible traffic signals are only mapped inside Paris."}
-    xs, ys = [p[0] for p in line], [p[1] for p in line]
+    # Segment by segment, only the grid cells around that segment: the bounding box of a long diagonal walk
+    # holds thousands of lights, and testing each against every segment took seconds per walk.
     pad = 0.0003
-    gx0, gy0 = _grid_key(min(xs) - pad, min(ys) - pad)
-    gx1, gy1 = _grid_key(max(xs) + pad, max(ys) + pad)
-    heads = [h for gx in range(gx0, gx1 + 1) for gy in range(gy0, gy1 + 1) for h in idx["lights"].get((gx, gy), ())]
-    near = {code for x, y, code in heads if point_to_line_m([x, y], line) <= CROSSING_NEAR_M}
+    near: set = set()
+    for a, b in zip(line, line[1:]):
+        gx0, gy0 = _grid_key(min(a[0], b[0]) - pad, min(a[1], b[1]) - pad)
+        gx1, gy1 = _grid_key(max(a[0], b[0]) + pad, max(a[1], b[1]) + pad)
+        near.update(code for gx in range(gx0, gx1 + 1) for gy in range(gy0, gy1 + 1)
+                    for x, y, code in idx["lights"].get((gx, gy), ())
+                    if code not in near and _point_segment_m([x, y], a, b) <= CROSSING_NEAR_M)
     if not near:
         return None  # no traffic light along this walk: nothing to say
     audible = near & idx["sound"]

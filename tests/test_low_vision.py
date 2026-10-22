@@ -204,3 +204,25 @@ def test_malvoyant_without_layers_keeps_the_previous_result():
     j = DEMO["journeys"][0]
     it = verify.verify_journey(j, "malvoyant", LIFTS, now=MONDAY)
     assert not any(c["kind"] in ("audio", "crossings", "assistance", "tactile") for st in it["steps"] for c in st["checks"])
+
+
+def test_long_diagonal_walk_is_checked_fast_and_finds_the_same_lights():
+    # Hundreds of lights in the bounding box of a 5 km diagonal walk: only those along the path count,
+    # and the check must stay well under a second (it took seconds per walk, 28 s per trip).
+    import random
+    import time
+    rnd = random.Random(1)
+    idx = {"lights": {}, "sound": set(), "at": {}}
+    for i in range(6000):
+        x, y = rnd.uniform(2.25, 2.42), rnd.uniform(48.82, 48.90)
+        verify._grid_add(idx["lights"], x, y, (x, y, str(i)))
+        if i % 3 == 0:
+            idx["sound"].add(str(i))
+    line = [[2.30 + 0.12 * k / 600 + (0.0002 if k % 2 else 0), 48.84 + 0.04 * k / 600] for k in range(601)]
+    t = time.perf_counter()
+    out = verify.crossing_check(line, idx, "malvoyant")
+    assert time.perf_counter() - t < 0.5
+    expected = {c for g in idx["lights"].values() for x, y, c in g
+                if verify.point_to_line_m([x, y], line) <= verify.CROSSING_NEAR_M}
+    silent = len(expected - idx["sound"])
+    assert out["message"].startswith(f"{silent} crossings without sound")
