@@ -38,7 +38,8 @@ MATRIX: Dict[str, Dict[str, Effect]] = {
     "long_trajet_pied":   dict(manuel=_G, electrique=_N, poussette=_N, deambulateur=_G, malvoyant=_N, valide=_N),
     "pas_annonce_sonore": dict(manuel=_N, electrique=_N, poussette=_N, deambulateur=_N, malvoyant=_G, valide=_N),
 }
-LONG_WALK_BLOCKING_M = {"deambulateur": 500}  # beyond this distance a long walk becomes blocking
+# Beyond this distance a long walk (or roll) becomes blocking: nobody pushes a manual wheelchair for an hour.
+LONG_WALK_BLOCKING_M = {"deambulateur": 500, "manuel": 2500, "poussette": 4000, "electrique": 8000}
 
 # Community report categories (chantier B) mapped to obstacle kinds.
 REPORT_TO_OBSTACLE: Dict[str, str] = {

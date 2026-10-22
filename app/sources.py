@@ -332,6 +332,10 @@ def places_tile(tx: int, ty: int) -> dict:
 # --- Geocoding (IGN Géoplateforme, no key) ---------------------------------
 
 def geocode(q: str) -> Optional[dict]:
+    """Best match for free text, in Île-de-France (same ranking as the search box)."""
+    hits = suggest(q, limit=1)
+    if hits:
+        return {"label": hits[0]["label"], "lon": hits[0]["lon"], "lat": hits[0]["lat"]}
     r = _client.get(GEOCODER, params={"q": q, "limit": 1})
     r.raise_for_status()
     feats = r.json().get("features", [])
@@ -358,6 +362,37 @@ def warm_up() -> None:
             log.exception("warm-up failed for places (%s)", PLACES_WARM_BBOX)
 
 
+# City of Paris roadworks types (chantier_synthese), shown in the English UI.
+_WORKS_EN = {
+    "Construction ou réhabilitation d’immeuble": "Building construction or renovation",
+    "Travaux sur réseau électrique": "Electricity network works",
+    "Travaux sur réseau de gaz": "Gas network works",
+    "Aménagement ou entretien de l’espace public": "Public space works",
+    "Travaux sur édifice public (VdP*)": "Public building works",
+    "Aménagement de voirie (VdP*)": "Street redesign",
+    "Travaux sur réseau de transport public": "Public transport works",
+    "Travaux sur réseau de chauffage urbain": "District heating works",
+    "Travaux sur réseau d’assainissement": "Sewer works",
+    "Travaux sur réseau de climatisation": "District cooling works",
+    "Travaux sur réseau d’eau": "Water network works",
+    "Travaux sur mobiliers urbains": "Street furniture works",
+    "Travaux sur réseau d’éclairage public ou signalisation lumineuse tricolore": "Street lighting or traffic light works",
+    "Travaux sur réseau télécom": "Telecom network works",
+    "Espaces verts – Végétalisation de l’espace public": "Greening works",
+    "Espaces verts – Entretien des plantations": "Planting maintenance",
+    "Espaces verts – Emprise pour cantonnement ou stockage": "Site storage area",
+    "Aménagement de l’espace public": "Public space works",
+    "Aménagements de voirie pour la sécurité (ralentisseurs, passages surélevés, …)": "Road safety works (speed bumps, raised crossings)",
+    "Travaux sur station Vélib": "Vélib station works",
+    "Espaces verts – Travaux sur clôtures": "Fence works",
+}
+
+
+def works_en(summary: Optional[str]) -> str:
+    """English label of a roadworks type; unknown types keep the original text."""
+    return _WORKS_EN.get((summary or "").strip(), summary or "Roadworks")
+
+
 # IDF bounding box, used to drop homonyms elsewhere in France.
 IDF_BBOX = (1.40, 48.10, 3.60, 49.25)
 
@@ -366,8 +401,89 @@ def _in_idf(lon: float, lat: float) -> bool:
     return IDF_BBOX[0] <= lon <= IDF_BBOX[2] and IDF_BBOX[1] <= lat <= IDF_BBOX[3]
 
 
-def suggest(q: str, limit: int = 6) -> List[dict]:
-    """Places (POI) + addresses in Île-de-France for the search box."""
+# Photon (OpenStreetMap, Komoot): addresses AND places (shops, restaurants, hospitals) in one call,
+# ranked around the user like Google Maps. Public instance, fair use: self-host it for production.
+PHOTON = os.environ.get("PHOTON_URL", "https://photon.komoot.io/api/")
+PARIS = (2.3522, 48.8566)
+# OSM tags -> short English category shown under the name.
+_OSM_LABEL = {
+    "restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "fast_food": "Fast food", "pub": "Pub",
+    "hospital": "Hospital", "clinic": "Clinic", "doctors": "Doctor", "pharmacy": "Pharmacy", "dentist": "Dentist",
+    "supermarket": "Supermarket", "convenience": "Shop", "bakery": "Bakery", "museum": "Museum",
+    "school": "School", "university": "University", "library": "Library", "theatre": "Theatre", "cinema": "Cinema",
+    "townhall": "Town hall", "post_office": "Post office", "park": "Park", "attraction": "Attraction",
+    "hotel": "Hotel", "place_of_worship": "Place of worship", "station": "Station", "stop": "Station",
+    "tram_stop": "Tram stop", "bus_stop": "Bus stop", "house": "Address", "street": "Street",
+    "suburb": "Neighbourhood", "city": "City", "town": "Town", "village": "Village", "tower": "Landmark",
+}
+# Noise for a trip destination: bike docks, parkings, bus stops duplicate better results.
+_OSM_SKIP = {"bicycle_rental", "parking", "parking_entrance", "charging_station", "vending_machine",
+             "waste_basket", "bench", "toilets", "atm", "parking_space", "motorcycle_parking", "bus_stop"}
+
+
+def _photon_item(f: dict) -> Optional[dict]:
+    pr = f.get("properties", {})
+    lon, lat = f["geometry"]["coordinates"]
+    if not _in_idf(lon, lat) or pr.get("osm_value") in _OSM_SKIP:
+        return None
+    street = " ".join(x for x in (pr.get("housenumber"), pr.get("street")) if x)
+    place = " ".join(x for x in (pr.get("postcode"), pr.get("city")) if x)
+    is_address = pr.get("osm_value") in ("house", "street") or (not pr.get("name") and street)
+    if is_address:
+        label = street or pr.get("name") or ""
+        return {"kind": "address", "label": label, "sub": place, "lon": lon, "lat": lat}
+    cat = _OSM_LABEL.get(pr.get("osm_value"), "")
+    where = ", ".join(x for x in (street, pr.get("city")) if x)
+    return {"kind": "place", "label": pr.get("name") or street, "sub": " · ".join(x for x in (cat, where) if x),
+            "lon": lon, "lat": lat}
+
+
+_suggest_cache: Dict[tuple, Tuple[float, List[dict]]] = {}
+SUGGEST_TTL_S = 24 * 3600
+
+
+def _suggest_photon(q: str, near: Tuple[float, float], limit: int) -> List[dict]:
+    # Same text typed near the same place: answer from memory (typing sends many requests).
+    key = (q.strip().lower(), round(near[0], 2), round(near[1], 2), limit)
+    hit = _suggest_cache.get(key)
+    if hit and time.time() - hit[0] < SUGGEST_TTL_S:
+        return hit[1]
+    params = {"q": q, "limit": limit * 2, "lang": "fr", "lon": near[0], "lat": near[1],
+              "bbox": ",".join(str(v) for v in IDF_BBOX)}
+    r = _client.get(PHOTON, timeout=6, params=params)
+    if r.status_code in (429, 503):  # public instance throttling: one more try
+        time.sleep(0.4)
+        r = _client.get(PHOTON, timeout=6, params=params)
+    r.raise_for_status()
+    out, seen = [], set()
+    for f in r.json().get("features", []):
+        it = _photon_item(f)
+        if not it or not it["label"]:
+            continue
+        dedupe = (it["label"].lower(), round(it["lon"], 3), round(it["lat"], 3))
+        if dedupe not in seen:
+            seen.add(dedupe)
+            out.append(it)
+    out = out[:limit]
+    if len(_suggest_cache) > 5000:
+        _suggest_cache.clear()
+    _suggest_cache[key] = (time.time(), out)
+    return out
+
+
+def suggest(q: str, limit: int = 6, near: Optional[Tuple[float, float]] = None) -> List[dict]:
+    """Addresses and places in Île-de-France for the search box, closest to `near` first."""
+    try:
+        res = _suggest_photon(q, near or PARIS, limit)
+        if res:
+            return res
+    except (httpx.HTTPError, ValueError, KeyError):
+        log.warning("Photon unavailable for %r, falling back to the IGN geocoder", q, exc_info=False)
+    return _suggest_ign(q, limit)
+
+
+def _suggest_ign(q: str, limit: int = 6) -> List[dict]:
+    """Places (POI) + addresses in Île-de-France from the IGN geocoder (fallback)."""
     out, seen = [], set()
     # "10 rue de Rivoli", "boulevard Saint-Michel": the user wants an address, not a place named after it.
     looks_like_address = bool(re.match(r"\s*\d", q)) or bool(

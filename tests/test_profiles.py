@@ -26,3 +26,9 @@ def test_unknown_obstacle_is_rejected():
 def test_every_obstacle_covers_every_profile():
     for obstacle, row in profiles.MATRIX.items():
         assert set(row) == set(profiles.PROFILES), obstacle
+
+
+def test_very_long_roll_blocks_a_manual_wheelchair():
+    assert profiles.effect("long_trajet_pied", "manuel", walk_m=1200) == "genant"
+    assert profiles.effect("long_trajet_pied", "manuel", walk_m=6000) == "bloquant"
+    assert profiles.effect("long_trajet_pied", "valide", walk_m=6000) == "sans_effet"
