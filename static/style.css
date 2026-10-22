@@ -499,3 +499,49 @@ body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }
 .r-where { display: flex; align-items: center; gap: var(--sp-2); }
 .r-where .linkish { margin-left: auto; min-height: 44px; }
 @media (max-width: 1023px) { #toast { top: auto; bottom: calc(var(--safe-b) + 24px); } }  /* not over the Back button */
+
+/* ---------- Home (maps-app layout) ---------- */
+/* One question ("Where to?"), then one-tap places, then a few shortcuts. Network status stays below, as text. */
+#v-home .home-greet { margin: 0 0 var(--sp-2); font-size: 1.25em; line-height: 1.2; }
+#v-home .home-me { margin: 2px 0 0; min-height: 44px; }
+#v-home .home-me .linkish { padding: 0 6px; min-height: 44px; display: inline-flex; align-items: center; }
+
+/* Places: Home, Work, recents. A horizontal row of pills, like Google Maps (swipe for more). */
+.home-places { display: flex; gap: var(--sp-2); margin: var(--sp-1) calc(-1 * var(--sp-4)) 0; padding: var(--sp-1) var(--sp-4) var(--sp-2);
+  list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scroll-padding: 0 var(--sp-4); scrollbar-width: none; }
+.home-places::-webkit-scrollbar { display: none; }
+.home-places:empty { display: none; }
+.hp { flex: none; display: flex; align-items: stretch; max-width: 78%; border-radius: 99px; background: var(--surface); box-shadow: var(--shadow-1); }
+.hp-go { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 52px; padding: 4px var(--sp-4) 4px var(--sp-3); border: 0; border-radius: 99px; background: none; text-align: left; }
+.hp.set .hp-go { padding-right: var(--sp-2); }
+.hp-go > .i { color: var(--brand); }
+.hp-go[data-recent] > .i { color: var(--ink-2); }
+.hp-go .t { min-width: 0; line-height: 1.2; }
+.hp-go b, .hp-go small { display: block; max-width: 13em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-go b { font-size: var(--t-meta); font-weight: 800; }
+.hp-go small { font-size: var(--t-meta); color: var(--ink-2); }
+.hp-go:not([data-recent]) b { font-size: var(--t-body); }
+.hp-edit { flex: none; width: 44px; min-height: 44px; display: grid; place-items: center; margin: 4px 4px 4px 0; padding: 0; border: 0; border-radius: 99px; background: var(--raised); color: var(--brand); }
+.hp-edit .i { width: 18px; height: 18px; }
+.hp-go:focus-visible, .hp-edit:focus-visible { outline-offset: -3px; border-radius: 99px; }
+.hp-go:active, .hp-edit:active { background: var(--raised); }
+
+/* Shortcuts: compact rows in one card (not tiles), one hue per job kept from the old tiles. */
+.home-acts { margin: var(--sp-2) 0 0; padding: 0; list-style: none; background: var(--surface); border-radius: var(--r-m); box-shadow: var(--shadow-1); overflow: hidden; }
+.home-acts > li + li { border-top: 1px solid var(--line); }
+.home-act { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 56px; padding: 6px var(--sp-3); border: 0; background: none; text-align: left; }
+.home-act:active { background: var(--raised); }
+.home-act:focus-visible { outline-offset: -3px; }
+.home-act .t { flex: 1; min-width: 0; line-height: 1.25; }
+.home-act b { display: block; font-size: var(--t-title); font-weight: 700; }
+.home-act small { display: block; font-size: var(--t-meta); color: var(--ink-2); }
+.home-act .chev { color: var(--ink-2); }
+.home-act-ic { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 11px; color: #fff; }
+.home-act-ic .i { width: 20px; height: 20px; }
+.a-food .home-act-ic { background: var(--t-food); } .a-near .home-act-ic { background: var(--t-near); } .a-lift .home-act-ic { background: var(--t-lift); }
+.a-lift .home-act-ic .i { stroke-width: 3; }
+
+/* Below the fold: the status, the feed and the legend (the text alternative to the map). */
+#v-home .home-status { margin-top: var(--sp-6); padding-top: var(--sp-4); border-top: 1px solid var(--line-2); }
+#v-home .home-status + .today { margin-top: 0; }
+@media (hover: hover) { .hp-go:hover, .home-act:hover { background: var(--raised); } }
