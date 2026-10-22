@@ -3,7 +3,7 @@
 // - Map tiles and fonts: cache first, capped.
 // - API GETs: network first (4 s), fall back to the last answer. Payloads carry their own fetched_at,
 //   so the UI keeps showing how old the data is. Live journeys and POSTs are never served from cache.
-const V = "roulib-v2";
+const V = "roulib-v3";
 const SHELL = ["/", "/static/style.css", "/static/app.js", "/static/profiles.js", "/static/manifest.webmanifest", "/static/icon.svg"];
 const TILE_MAX = 400;
 

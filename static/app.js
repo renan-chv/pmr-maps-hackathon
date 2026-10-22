@@ -1,7 +1,11 @@
 // Roulib – front-end (mobile first, friendly). Big tiles, plain words, freshness always visible.
 "use strict";
 
-const C = { ok: "#30d158", warn: "#ffd60a", ko: "#ff5a4f", unk: "#98a2b3", works: "#ff9f0a", brand: "#7fb0ff", ink: "#f5f7fa", night: "#0b0f17" };
+// Two themes share one grammar: light (default, daylight outdoors) and night (Flighty's dark).
+const THEME = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+const C = THEME === "dark"
+  ? { ok: "#30d158", warn: "#ffd60a", ko: "#ff5a4f", unk: "#98a2b3", works: "#ff9f0a", brand: "#7fb0ff", ink: "#f5f7fa", night: "#0b0f17", ring: "#0b0f17", halo: "#0b0f17" }
+  : { ok: "#137a34", warn: "#9a5b00", ko: "#d0261b", unk: "#5c6470", works: "#c2410c", brand: "#0a5bd8", ink: "#0b0f17", night: "#0b0f17", ring: "#ffffff", halo: "#ffffff" };
 const LIFT_FR = { available: "Fonctionne", notavailable: "En panne", unknown: "État inconnu" };
 const ACCESS_FR = { true: "accessible", partial: "partiellement accessible", false: "non accessible", unknown: "sans information" };
 const TYPE_FR = { metro: "Métro", rail: "Train / RER", tram: "Tram", cableway: "Câble", bus: "Bus" };
@@ -195,7 +199,7 @@ async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
 // Map
 // ---------------------------------------------------------------------------
 const map = new maplibregl.Map({
-  container: "map", style: "https://tiles.openfreemap.org/styles/dark",
+  container: "map", style: `https://tiles.openfreemap.org/styles/${THEME === "dark" ? "dark" : "positron"}`,
   center: [2.3488, 48.8566], zoom: 12.4, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
 });
 map.touchZoomRotate.disableRotation();
@@ -208,17 +212,17 @@ function markImage(color, glyph, { size = 44, square = false } = {}) {
   const g = c.getContext("2d"), pad = 2.5 * r;
   g.beginPath();
   if (square) g.roundRect(pad, pad, px - 2 * pad, px - 2 * pad, 11 * r); else g.arc(px / 2, px / 2, px / 2 - pad, 0, Math.PI * 2);
-  g.fillStyle = color; g.fill(); g.lineWidth = 3 * r; g.strokeStyle = C.night; g.stroke();
+  g.fillStyle = color; g.fill(); g.lineWidth = 3 * r; g.strokeStyle = C.ring; g.stroke();
   const s = (px * 0.56) / 24; g.translate(px / 2 - 12 * s, px / 2 - 12 * s); g.scale(s, s);
-  g.strokeStyle = C.night; g.lineWidth = glyph === "food" ? 2.4 : 3.2; g.lineCap = "round"; g.lineJoin = "round"; g.stroke(new Path2D(MARK_PATHS[glyph]));
+  g.strokeStyle = C.ring; g.lineWidth = glyph === "food" ? 2.4 : 3.2; g.lineCap = "round"; g.lineJoin = "round"; g.stroke(new Path2D(MARK_PATHS[glyph]));
   return { image: g.getImageData(0, 0, px, px), pixelRatio: r };
 }
 function hatchImage() {
   const r = Math.max(2, window.devicePixelRatio || 1), px = 12 * r, c = document.createElement("canvas");
   c.width = c.height = px;
   const g = c.getContext("2d");
-  g.fillStyle = "rgba(255,159,10,.12)"; g.fillRect(0, 0, px, px);
-  g.strokeStyle = "rgba(255,159,10,.8)"; g.lineWidth = 2.2 * r;
+  g.fillStyle = THEME === "dark" ? "rgba(255,159,10,.12)" : "rgba(194,65,12,.14)"; g.fillRect(0, 0, px, px);
+  g.strokeStyle = THEME === "dark" ? "rgba(255,159,10,.8)" : "rgba(194,65,12,.85)"; g.lineWidth = 2.2 * r;
   for (const o of [-px, 0, px]) { g.beginPath(); g.moveTo(o, px); g.lineTo(o + px, 0); g.stroke(); }
   return { image: g.getImageData(0, 0, px, px), pixelRatio: r };
 }
@@ -237,14 +241,22 @@ map.on("load", () => {
     highway_motorway_casing: ["line-color", "#3b4a66"], highway_motorway_inner: ["line-color", "#334060"], highway_motorway_subtle: ["line-color", "#2a3548"],
     railway_transit: ["line-color", "#2a3446"], railway: ["line-color", "#2a3446"], railway_minor: ["line-color", "#2a3446"],
   };
+  // Day base: positron's calm greys with a little life, water in blue, parks in green.
+  const DAY = {
+    background: ["background-color", "#f4f4f1"], water: ["fill-color", "#cfe1f3"], waterway: ["line-color", "#cfe1f3"],
+    park: ["fill-color", "#dcebd8"], landcover_wood: ["fill-color", "#dcebd8"], building: ["fill-color", "#e8e7e2"],
+  };
+  const TINT = THEME === "dark" ? NIGHT : DAY;
   for (const l of map.getStyle().layers) {
     if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
-    if (NIGHT[l.id]) map.setPaintProperty(l.id, ...NIGHT[l.id]);
+    if (TINT[l.id]) map.setPaintProperty(l.id, ...TINT[l.id]);
     if (l.type === "fill-extrusion") map.setLayoutProperty(l.id, "visibility", "none");
     if (l.type === "symbol" && l.layout && l.layout["text-field"]) {
       map.setLayoutProperty(l.id, "text-field", ["coalesce", ["get", "name:fr"], ["get", "name"]]);
-      map.setPaintProperty(l.id, "text-color", /place_(city|town|suburb)/.test(l.id) ? "#c3cbd8" : "#8b96a8");
-      map.setPaintProperty(l.id, "text-halo-color", "#0b0f17");
+      if (THEME === "dark") {
+        map.setPaintProperty(l.id, "text-color", /place_(city|town|suburb)/.test(l.id) ? "#c3cbd8" : "#8b96a8");
+        map.setPaintProperty(l.id, "text-halo-color", "#0b0f17");
+      }
     }
   }
   for (const k of ["ok", "warn", "ko", "unk"]) {
@@ -259,9 +271,9 @@ map.on("load", () => {
   map.addLayer({ id: "works-line", type: "line", source: "works", minzoom: 14.5, paint: { "line-color": C.works, "line-width": 1.5 } });
   const accColor = ["match", ["get", "accessibility"], "true", C.ok, "partial", C.warn, "false", C.ko, C.unk];
   map.addLayer({ id: "quais", type: "circle", source: "quais", layout: { visibility: "none" },
-    paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 16, 8], "circle-color": accColor, "circle-stroke-color": C.night, "circle-stroke-width": 1.5 } });
+    paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 16, 8], "circle-color": accColor, "circle-stroke-color": C.ring, "circle-stroke-width": 1.5 } });
   map.addLayer({ id: "bus", type: "circle", source: "bus", minzoom: 14.5, layout: { visibility: "none" },
-    paint: { "circle-radius": 6, "circle-color": accColor, "circle-stroke-color": C.night, "circle-stroke-width": 2 } });
+    paint: { "circle-radius": 6, "circle-color": accColor, "circle-stroke-color": C.ring, "circle-stroke-width": 2 } });
   map.addLayer({ id: "places", type: "symbol", source: "places", minzoom: 15, layout: {
     visibility: "none", "icon-image": ["concat", "pl-", ["get", "st"]], "icon-allow-overlap": false, "icon-padding": 3,
     "symbol-sort-key": ["match", ["get", "st"], "ok", 3, "warn", 2, "ko", 1, 0],
@@ -279,7 +291,7 @@ map.on("load", () => {
     paint: {
       "circle-color": ["match", ["get", "status"], "ok", C.ok, "warn", C.warn, "ko", C.ko, C.unk],
       "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, ["match", ["get", "status"], "ko", 3.5, "warn", 3, 2.5], 12, ["match", ["get", "status"], "ko", 6.5, "warn", 5.5, 4.5], 13.5, ["match", ["get", "status"], "ko", 8.5, "warn", 7.5, 6.5]],
-      "circle-stroke-color": C.night, "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 13, 2],
+      "circle-stroke-color": C.ring, "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 13, 2],
     } });
   map.addLayer({ id: "stations", type: "symbol", source: "stations", minzoom: 13.5,
     layout: {
@@ -288,14 +300,14 @@ map.on("load", () => {
       "text-field": ["step", ["zoom"], "", 13.5, ["get", "name"]], "text-font": ["Noto Sans Bold"],
       "text-size": 14, "text-offset": [0, 1.8], "text-anchor": "top", "text-optional": true,
     },
-    paint: { "text-color": C.ink, "text-halo-color": C.night, "text-halo-width": 2 } });
+    paint: { "text-color": C.ink, "text-halo-color": C.halo, "text-halo-width": 2 } });
   map.addLayer({ id: "pin", type: "circle", source: "pin",
-    paint: { "circle-radius": 10, "circle-color": "#ffffff", "circle-stroke-color": C.night, "circle-stroke-width": 4 } });
+    paint: { "circle-radius": 10, "circle-color": "#ffffff", "circle-stroke-color": C.ring, "circle-stroke-width": 4 } });
   map.addLayer({ id: "me-halo", type: "circle", source: "me", paint: { "circle-radius": 22, "circle-color": "#1a73e8", "circle-opacity": 0.15 } });
   map.addLayer({ id: "me", type: "symbol", source: "me", layout: {
     "text-field": "Vous êtes ici", "text-font": ["Noto Sans Bold"], "text-size": 14, "text-offset": [0, 1.6], "text-anchor": "top", "text-allow-overlap": true,
-  }, paint: { "text-color": "#7fb0ff", "text-halo-color": C.night, "text-halo-width": 2 } });
-  map.addLayer({ id: "me-dot", type: "circle", source: "me", paint: { "circle-radius": 9, "circle-color": "#1a73e8", "circle-stroke-color": C.night, "circle-stroke-width": 3 } });
+  }, paint: { "text-color": THEME === "dark" ? "#7fb0ff" : "#0a5bd8", "text-halo-color": C.halo, "text-halo-width": 2 } });
+  map.addLayer({ id: "me-dot", type: "circle", source: "me", paint: { "circle-radius": 9, "circle-color": "#1a73e8", "circle-stroke-color": C.ring, "circle-stroke-width": 3 } });
 
   map.on("click", "stations", (e) => openStation(e.features[0].properties.id));
   map.on("click", "stations-dot", (e) => openStation(e.features[0].properties.id));
@@ -1277,6 +1289,11 @@ document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("clic
     map.easeTo({ zoom: minZ + 0.5, padding: Sheet.padding() });
   } else if (k === "places") loadPlacesLayer();
 }));
+
+const themeBtn = $("#themetoggle");
+themeBtn.setAttribute("aria-pressed", String(THEME === "dark"));
+themeBtn.addEventListener("click", () => { store.set("theme", THEME === "dark" ? "light" : "dark"); location.reload(); });
+document.querySelector('meta[name="theme-color"]').content = THEME === "dark" ? "#0b0f17" : "#f2f2f7";
 
 const textBtn = $("#textsize");
 function setBig(on) {

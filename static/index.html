@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#0b0f17">
+  <meta name="theme-color" content="#f2f2f7">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Roulib">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-180.png">
+  <script>try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; } catch { document.documentElement.dataset.theme = "light"; }</script>
   <title>Roulib – Se déplacer en fauteuil en Île-de-France</title>
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
@@ -65,6 +66,7 @@
         <h1 id="h-home" class="greet">Bonjour&nbsp;! Où allez-vous&nbsp;?</h1>
         <button id="me-chip" class="me-line" aria-label="Changer de profil"><span id="me-ic"></span><span>Pour&nbsp;: <b id="me-name">votre profil</b></span><span class="linkish">Changer</span></button>
         <button id="textsize" class="me-line text-toggle" aria-pressed="false"><span class="aa" aria-hidden="true">A<small>A</small></span><span>Texte plus grand</span><span class="switch" aria-hidden="true"></span></button>
+        <button id="themetoggle" class="me-line text-toggle" aria-pressed="false"><span class="aa" aria-hidden="true"><svg class="i"><use href="#i-moon"/></svg></span><span>Mode nuit</span><span class="switch" aria-hidden="true"></span></button>
         <div class="search" role="search">
           <svg class="i search-i" aria-hidden="true"><use href="#i-search"/></svg>
           <label for="search" class="sr">Rechercher une station, un lieu ou une adresse</label>
@@ -199,6 +201,7 @@
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
       <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
       <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
       <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
       <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>

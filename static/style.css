@@ -546,3 +546,34 @@ body { -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
 .bp-places span:last-child { text-align: right; }
 .bp-chips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--line-2); }
 .route .route-why { margin-top: var(--sp-3); }
+
+/* =====================================================================
+   Light theme (default): Flighty's day look, iOS grouped background.
+   ===================================================================== */
+html[data-theme="light"] {
+  --ground: #f2f2f7; --surface: #ffffff; --raised: #f2f2f7;
+  --ink: #0b0f17; --ink-2: #5c6470; --line: #e3e5ea; --line-2: #d1d5dc;
+  --brand: #0a5bd8; --brand-ink: #ffffff; --brand-soft: #e6efff;
+  --ok: #137a34; --ok-soft: #e4f5e9; --warn: #9a5b00; --warn-soft: #fff4d6; --ko: #d0261b; --ko-soft: #fde8e6;
+  --unk: #5c6470; --unk-soft: #eef0f3; --works: #ff9f0a;
+  --t-trip-soft: #ffffff; --t-food-soft: #ffffff; --t-near-soft: #ffffff; --t-lift-soft: #ffffff;
+  --shadow-2: 0 -1px 0 var(--line), 0 -12px 32px rgba(11, 15, 23, .12);
+  color-scheme: light;
+}
+html[data-theme="light"] ::selection { background: #cfe0ff; color: var(--ink); }
+html[data-theme="light"] .mark { color: #ffffff; }
+html[data-theme="light"] .mark.neutral { color: var(--ink-2); }
+html[data-theme="light"] .chip-flag { color: #ffffff; }
+html[data-theme="light"] .btn.primary { background: #0b0f17; border-color: #0b0f17; color: #ffffff; }
+html[data-theme="light"] .mic { background: #0b0f17; color: #ffffff; }
+html[data-theme="light"] .chip, html[data-theme="light"] .chip:not(.on), html[data-theme="light"] .fab { background: rgba(255, 255, 255, .94); color: var(--ink); border-color: var(--line); }
+html[data-theme="light"] .chip.on { background: #0b0f17; color: #ffffff; border-color: #0b0f17; }
+html[data-theme="light"] .zoom, html[data-theme="light"] .zoom .fab + .fab { border-color: var(--line); }
+html[data-theme="light"] #toast, html[data-theme="light"] .badge-b { background: #0b0f17; color: #ffffff; }
+html[data-theme="light"] .ptile[aria-checked="true"] .tile-ic { color: #ffffff; }
+html[data-theme="light"] .route.ko .bp-line { background: linear-gradient(90deg, var(--line-2) 55%, var(--ko) 55%); }
+html[data-theme="light"] .tl-dot { background: #ffffff; }
+html[data-theme="light"] .hatch { background: repeating-linear-gradient(-45deg, rgba(194,65,12,.85) 0 2.5px, rgba(194,65,12,.12) 2.5px 8px); border-color: #c2410c; }
+html[data-theme="light"] .maplibregl-ctrl-attrib { background: rgba(255, 255, 255, .8) !important; color: var(--ink-2); }
+html[data-theme="light"] .maplibregl-ctrl-attrib a { color: var(--ink-2) !important; }
+html[data-theme="light"] .text-toggle[aria-pressed="true"] .switch { background: var(--ok); }
