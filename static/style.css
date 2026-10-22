@@ -499,3 +499,31 @@ body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }
 .r-where { display: flex; align-items: center; gap: var(--sp-2); }
 .r-where .linkish { margin-left: auto; min-height: 44px; }
 @media (max-width: 1023px) { #toast { top: auto; bottom: calc(var(--safe-b) + 24px); } }  /* not over the Back button */
+
+/* ---------- Departure time ---------- */
+/* Compact "Leave now" button under From/To; opens a small inline picker (native datetime-local). */
+.when { margin: var(--sp-2) 0 0; }
+.when-btn { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 44px; padding: 8px 14px 8px 10px; border: 2px solid var(--line-2); border-radius: 99px; background: var(--surface); color: var(--ink); font-weight: 700; }
+.when-btn .i { width: 20px; height: 20px; color: var(--brand); }
+.when-btn[aria-expanded="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.when-panel { margin-top: var(--sp-2); padding: var(--sp-3); border: 2px solid var(--line-2); border-radius: var(--r-m); background: var(--surface); box-shadow: var(--shadow-1); }
+.when-panel[hidden] { display: none; }
+.when-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: var(--r-s); background: var(--raised); }
+.when-seg label { position: relative; display: block; }
+/* Radios stay real (keyboard arrows, screen readers); the visible part is the span. */
+.when-seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.when-seg span { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 4px 6px; border-radius: 9px; text-align: center; font-size: var(--t-meta); font-weight: 800; color: var(--ink-2); }
+.when-seg input:checked + span { background: var(--surface); color: var(--brand); box-shadow: var(--shadow-1); }
+.when-seg input:focus-visible + span { outline: 3px solid var(--brand); outline-offset: 2px; }
+.when-at-l { display: block; margin: var(--sp-3) 0 var(--sp-1); font-size: var(--t-meta); font-weight: 700; color: var(--ink-2); }
+.when-at-l.off { opacity: .5; }
+#when-at { display: block; width: 100%; }
+#when-at:disabled { opacity: .5; }
+.when-err { margin: var(--sp-2) 0 0; font-size: var(--t-meta); font-weight: 700; }
+.when-err:empty { display: none; }
+.when-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); margin-top: var(--sp-3); }
+.when-actions .btn { min-height: 48px; }
+/* Results header: chosen time, then the honest note that lift statuses are today's. */
+.when-line { display: flex; align-items: flex-start; gap: var(--sp-2); margin: var(--sp-2) 0; }
+.when-line .i { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--brand); }
+.when-line small { display: block; margin-top: 2px; font-size: var(--t-meta); color: var(--warn); font-weight: 700; }

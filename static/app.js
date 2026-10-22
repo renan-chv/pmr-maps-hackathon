@@ -1088,6 +1088,8 @@ async function runTrip(opts = {}) {
   const q = new URLSearchParams({ profile: Profile.key() });
   if (demo) { q.set("replay", "demo"); q.set("from", "demo"); q.set("to", "demo"); }
   else { q.set("from", `${trip.from.lon},${trip.from.lat}`); q.set("to", `${trip.to.lon},${trip.to.lat}`); }
+  // The recorded demo has fixed times: only a live trip carries the chosen time.
+  if (!demo && tripTime.mode !== "now") { q.set("when", tripTime.at); if (tripTime.mode === "arrive") q.set("arrive", "true"); }
   try {
     const d = await getJSON(`/api/journey?${q}`);
     if (demo) { trip.from = d.from; trip.to = d.to; $("#trip-from").value = d.from.label; $("#trip-to").value = d.to.label; }
@@ -1099,6 +1101,70 @@ async function runTrip(opts = {}) {
     bindDemo();
   }
 }
+
+// Trip time, like Google Maps: "Leave now" by default, or "Depart at" / "Arrive by" a local Paris time.
+const tripTime = { mode: "now", at: "" };
+const WHEN_MAX_DAYS = 30;  // same limit as the server: timetables are not published further ahead
+// datetime-local wants "YYYY-MM-DDTHH:MM" in local time, not toISOString's UTC.
+const localISO = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+// "18:30" today, "Fri 23 Oct, 18:30" another day.
+function whenText(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const t = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? t
+    : `${d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, ${t}`;
+}
+const whenPhrase = (mode, at) => (mode === "now" || !at ? "Leave now" : `${mode === "arrive" ? "Arrive by" : "Depart at"} ${whenText(at)}`);
+const whenMode = () => document.querySelector('input[name="when-mode"]:checked')?.value || "now";
+
+function openWhen() {
+  document.querySelector(`input[name="when-mode"][value="${tripTime.mode}"]`).checked = true;
+  // Next 5-minute slot by default, so "Depart at" is one tap away from a valid time.
+  const next = new Date(Math.ceil(Date.now() / 300000) * 300000);
+  $("#when-at").value = tripTime.at || localISO(next);
+  $("#when-at").min = localISO(new Date());
+  $("#when-at").max = localISO(new Date(Date.now() + WHEN_MAX_DAYS * 864e5));
+  $("#when-err").textContent = "";
+  syncWhenMode();
+  $("#when-panel").hidden = false;
+  $("#when-btn").setAttribute("aria-expanded", "true");
+  document.querySelector('input[name="when-mode"]:checked').focus();
+}
+function closeWhen() {
+  $("#when-panel").hidden = true;
+  $("#when-btn").setAttribute("aria-expanded", "false");
+  $("#when-btn").focus();
+}
+// The date field only matters for "Depart at" / "Arrive by".
+function syncWhenMode() {
+  const now = whenMode() === "now";
+  $("#when-at").disabled = now;
+  $(".when-at-l").classList.toggle("off", now);
+}
+function applyWhen() {
+  const mode = whenMode(), at = $("#when-at").value;
+  if (mode !== "now") {
+    const t = new Date(at);
+    const err = isNaN(t) ? "Pick a date and a time."
+      : t < Date.now() - 10 * 60000 ? "This time has passed. Pick a later time, or Leave now."
+      : t > Date.now() + WHEN_MAX_DAYS * 864e5 ? `Pick a time within the next ${WHEN_MAX_DAYS} days.` : "";
+    if (err) { $("#when-err").textContent = err; $("#when-at").focus(); return; }
+  }
+  Object.assign(tripTime, { mode, at: mode === "now" ? "" : at });
+  $("#when-label").textContent = whenPhrase(mode, at);
+  closeWhen();
+  if (trip.from && trip.to) runTrip();
+}
+$("#when-btn").addEventListener("click", () => ($("#when-panel").hidden ? openWhen() : closeWhen()));
+$("#when-ok").addEventListener("click", applyWhen);
+$("#when-cancel").addEventListener("click", closeWhen);
+document.querySelectorAll('input[name="when-mode"]').forEach((r) => r.addEventListener("change", syncWhenMode));
+$("#when-panel").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeWhen(); }
+  else if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); applyWhen(); }
+});
+
 const demoButton = () => `<button class="btn block" id="trip-demo">${icon("route")}See a sample trip (recorded)</button>`;
 const bindDemo = () => $("#trip-demo")?.addEventListener("click", () => runTrip({ demo: true }));
 
@@ -1147,8 +1213,10 @@ function renderResults(d) {
   if (!its.length) { $("#trip-result").innerHTML = `<p class="err">I couldn't find a trip between these two places. Try a nearby station.</p>`; return; }
   const best = its[0];
   $("#trip-result").innerHTML =
-    `<p class="results-head">${best.verdict === "bloque" ? `No trip works${esc(forWho())} right now.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")}${esc(forWho())}`}</p>` +
+    `<p class="results-head">${best.verdict === "bloque" ? `No trip works${esc(forWho())} ${d.when ? "at that time" : "right now"}.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")}${esc(forWho())}`}</p>` +
     (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
+    // The chosen time, and plainly that lift statuses are today's, not a forecast.
+    (d.when ? `<p class="when-line">${icon("clock")}<span><b>${esc(whenPhrase(d.arrive ? "arrive" : "depart", d.when))}</b>${d.time_note ? `<small>${esc(d.time_note)}</small>` : ""}</span></p>` : "") +
     `<ul class="routes">` + its.map((it, i) => {
       const V = VERDICT[it.verdict] || VERDICT.risque;
       const why = it.verdict === "bloque" ? V.title(it)

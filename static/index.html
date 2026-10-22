@@ -158,6 +158,21 @@
             <label for="trip-to" class="sr">To</label>
             <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="To…" autocomplete="off" role="combobox" aria-controls="suggest-to" aria-autocomplete="list" aria-expanded="false"></div>
           <ul id="suggest-to" class="suggest" role="listbox" aria-label="Destination suggestions" hidden></ul>
+          <div class="when">
+            <button id="when-btn" class="when-btn" type="button" aria-expanded="false" aria-controls="when-panel"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span id="when-label">Leave now</span><span class="sr">, change the trip time</span></button>
+            <div id="when-panel" class="when-panel" role="group" aria-labelledby="when-title" hidden>
+              <p id="when-title" class="sr">Trip time</p>
+              <div class="when-seg">
+                <label><input type="radio" name="when-mode" value="now" checked><span>Leave now</span></label>
+                <label><input type="radio" name="when-mode" value="depart"><span>Depart at</span></label>
+                <label><input type="radio" name="when-mode" value="arrive"><span>Arrive by</span></label>
+              </div>
+              <label for="when-at" class="when-at-l">Date and time</label>
+              <input id="when-at" class="field" type="datetime-local" step="300" aria-describedby="when-err">
+              <p id="when-err" class="err when-err" role="alert"></p>
+              <div class="when-actions"><button id="when-cancel" class="btn" type="button">Cancel</button><button id="when-ok" class="btn primary" type="button">Done</button></div>
+            </div>
+          </div>
           <button id="trip-go" class="btn primary block">Check my trip</button>
         </div>
         <div id="trip-result"></div>

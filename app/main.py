@@ -329,9 +329,49 @@ def _resolve(q: str) -> Optional[dict]:
 FIXTURES = STATIC / "fixtures"
 
 
-def _navitia(a: dict, b: dict, forbidden: List[str] = ()) -> List[dict]:
+# Trip time (Google Maps style "Depart at" / "Arrive by"): local Paris time, as Navitia expects it.
+from datetime import datetime, timedelta  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+PARIS_TZ = ZoneInfo("Europe/Paris")
+WHEN_PAST_TOLERANCE = timedelta(minutes=10)  # the user picked "now" a few minutes ago: still fine
+WHEN_MAX_AHEAD = timedelta(days=30)  # beyond that, the timetables are not published yet
+WHEN_FUTURE_NOTE = timedelta(minutes=15)  # later than this, say that the lift status is today's
+
+
+def _parse_when(when: Optional[str], now: Optional[datetime] = None) -> Optional[datetime]:
+    """ISO local datetime ("2026-10-22T18:30", Europe/Paris) -> aware datetime, or HTTP 400."""
+    if when is None or not when.strip():
+        return None
+    try:
+        t = datetime.fromisoformat(when.strip())
+    except ValueError:
+        raise HTTPException(400, "when must be an ISO date and time, e.g. 2026-10-22T18:30")
+    t = t.replace(tzinfo=PARIS_TZ) if t.tzinfo is None else t.astimezone(PARIS_TZ)
+    now = now or datetime.now(PARIS_TZ)
+    if t < now - WHEN_PAST_TOLERANCE:
+        raise HTTPException(400, "when is in the past")
+    if t > now + WHEN_MAX_AHEAD:
+        raise HTTPException(400, "when is more than 30 days ahead")
+    return t
+
+
+def _time_note(when: Optional[datetime], now: Optional[datetime] = None) -> Optional[str]:
+    """Lift statuses are live: for a later trip, say plainly that they may change by then."""
+    now = now or datetime.now(PARIS_TZ)
+    if when is None or when - now < WHEN_FUTURE_NOTE:
+        return None
+    day = "" if when.date() == now.date() else f" on {when.strftime('%a %d %b')}"
+    return f"Elevator status is from now ({now:%H:%M}); it may change by {when:%H:%M}{day}."
+
+
+def _navitia(a: dict, b: dict, forbidden: List[str] = (), when: Optional[datetime] = None,
+             arrive: bool = False) -> List[dict]:
     params = [("from", f"{a['lon']};{a['lat']}"), ("to", f"{b['lon']};{b['lat']}"),
               ("wheelchair", "true"), ("count", 3)] + [("forbidden_uris[]", u) for u in forbidden]
+    if when is not None:  # without it Navitia plans from now
+        params += [("datetime", when.astimezone(PARIS_TZ).strftime("%Y%m%dT%H%M%S")),
+                   ("datetime_represents", "arrival" if arrive else "departure")]
     r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params=params)
     if r.status_code != 200:
         raise HTTPException(502, f"PRIM answered {r.status_code}: {r.text[:300]}")
@@ -443,9 +483,13 @@ def _check_all(journeys: List[dict], profile: str, lifts: dict, prefix: str = "i
 @app.get("/api/journey")
 def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., alias="to"),
                 profile: str = Query(profiles.DEFAULT_PROFILE, description=", ".join(profiles.PROFILES)),
-                replay: Optional[str] = Query(None, description="demo: recorded journeys and lift snapshot")):
+                replay: Optional[str] = Query(None, description="demo: recorded journeys and lift snapshot"),
+                when: Optional[str] = Query(None, max_length=40, description="local Paris time, e.g. 2026-10-22T18:30; default now"),
+                arrive: bool = Query(False, description="true: 'when' is the arrival time (Arrive by)")):
     if profile not in profiles.PROFILES:
         raise HTTPException(400, f"profile must be one of: {', '.join(profiles.PROFILES)}")
+    # The recorded demo has fixed times: the chosen time does not apply to it.
+    at = None if replay == "demo" else _parse_when(when)
     if replay == "demo":
         try:
             demo = json.loads((FIXTURES / "navitia_demo.json").read_text())
@@ -460,7 +504,7 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
         a, b = _resolve(from_q), _resolve(to_q)
         if not a or not b:
             raise HTTPException(404, "departure or arrival address not found")
-        journeys = _navitia(a, b)
+        journeys = _navitia(a, b, when=at, arrive=arrive)
         lifts = sources.lifts()
         rel = None
     itineraries = _check_all(journeys, profile, lifts, rel=rel)
@@ -468,7 +512,7 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
         forbidden = verify.blocking_stop_areas(itineraries[0])
         if forbidden:
             try:
-                itineraries += _check_all(_navitia(a, b, forbidden), profile, lifts, prefix="b")
+                itineraries += _check_all(_navitia(a, b, forbidden, when=at, arrive=arrive), profile, lifts, prefix="b")
             except HTTPException:
                 logging.warning("plan B request failed, keeping the blocked itineraries only")
     itineraries = verify.pick_plan_b(itineraries)
@@ -476,7 +520,9 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
             "journeys": [] if replay == "demo" else [_legacy(j) for j in journeys],  # kept for the current UI
             "baseline": [_summary(j) for j in journeys], "replay": replay,
             "source": "PRIM / Navitia (wheelchair=true) checked by Roulib",
-            "lifts_fetched_at": lifts.get("fetched_at")}
+            "lifts_fetched_at": lifts.get("fetched_at"),
+            "when": at.strftime("%Y-%m-%dT%H:%M") if at else None, "arrive": bool(at and arrive),
+            "time_note": _time_note(at)}
 
 
 # --- Health & page ---------------------------------------------------------
