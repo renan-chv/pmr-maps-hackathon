@@ -108,3 +108,36 @@ def test_crow_fly_line_is_not_checked_for_obstacles():
                                          "geojson": {"type": "LineString", "coordinates": [[2.3500, 48.85], [2.3510, 48.85]]}}]}
     it = verify.verify_journey(j, "manuel", [], stairs=[{"geometry": square(2.3505, 48.8500)}])
     assert it["verdict"] == "passe"
+
+
+def _lift_report(liftid, at):
+    return {"categorie": "ascenseur_panne", "target_type": "lift", "target_id": liftid, "created_at": at,
+            "confirmations": 1, "temporaire": True}
+
+
+def test_fresh_report_overrides_older_official_status():
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
+    rows = [lift("available", "Ligne M1", liftid="a")]  # official update 07:52 Paris
+    c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel",
+                          reports=[_lift_report("a", "2026-10-22T11:30:00+00:00")], now=now)
+    assert c["status"] == "en_panne" and c["effect"] == "bloquant" and c["confidence"] == 2
+    assert "Signalement" in c["source"] and "plus récent" in c["source"]
+
+
+def test_report_older_than_official_update_is_ignored():
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 22, 12, 0, tzinfo=timezone.utc)
+    rows = [lift("available", "Ligne M1", liftid="a")]  # official 07:52 Paris = 05:52 UTC
+    c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel",
+                          reports=[_lift_report("a", "2026-10-22T05:00:00+00:00")], now=now)
+    assert c["status"] == "ok"
+
+
+def test_report_older_than_a_day_no_longer_overrides():
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
+    rows = [lift("available", "Ligne M1", liftid="a")]
+    c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel",
+                          reports=[_lift_report("a", "2026-10-22T09:00:00+00:00")], now=now)
+    assert c["status"] == "ok"
