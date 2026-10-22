@@ -18,6 +18,7 @@ from . import profiles
 LIFT_RADIUS_M = 150     # lifts are geolocated at the station centroid
 NEAR_WALK_M = 15        # an obstacle closer than this to a walking step is on the way
 LONG_WALK_M = 400       # beyond this a walking step is flagged as long
+UNRELIABLE_BELOW = 0.85  # lift in service less than this share of the time: warn (estimate)
 RAIL_MODES = ("metro", "métro", "rer", "train", "transilien", "ter")
 VERDICT = {"sans_effet": "passe", "genant": "risque", "bloquant": "bloque"}
 _RANK = {"passe": 0, "risque": 1, "bloque": 2}
@@ -128,9 +129,14 @@ def _direction_word(direction: Optional[str]) -> Optional[str]:
     return head.split(" ")[0] if head else None
 
 
+def _worst_reliability(rows: List[dict], reliability: Optional[Dict[str, dict]]) -> Optional[dict]:
+    known = [reliability[r["liftid"]] for r in rows if reliability and r.get("liftid") in reliability]
+    return min(known, key=lambda x: x["availability"]) if known else None
+
+
 def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: Optional[str],
                lifts_rows: Iterable[dict], fetched_at: Optional[str], profile: str,
-               reliability: Optional[Dict[str, float]] = None, direction: Optional[str] = None) -> dict:
+               reliability: Optional[Dict[str, dict]] = None, direction: Optional[str] = None) -> dict:
     """Lift status for one line at one station.
 
     Only lifts that mention the line count when some do; among them, only those serving the
@@ -155,9 +161,12 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
     base = {"kind": "lift", "source": "IDFM – État des ascenseurs", "fetched_at": fetched_at,
             "station": station, "zdcid": (relevant[0].get("zdcid") if relevant else None),
             "lift_ids": [r.get("liftid") for r in relevant]}
-    if reliability:
-        known = [reliability[r["liftid"]] for r in relevant if r.get("liftid") in reliability]
-        base["reliability"] = round(min(known), 2) if known else None
+    rel = _worst_reliability(relevant, reliability)
+    if rel:
+        base.update(reliability=rel["availability"], reliability_window_days=rel["window_days"],
+                    reliability_outages=rel.get("outages"), reliability_source=rel["source"])
+    rel_text = (f" Historique : en service {round(rel['availability'] * 100)} % du temps de 6h à 21h "
+                f"sur les {rel['window_days']:g} derniers jours, {rel.get('outages', 0)} panne(s).") if rel else ""
 
     full = profiles.effect("ascenseur_panne", profile)
     if not relevant:
@@ -171,19 +180,23 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
         extra = f", {unknown} à l'état inconnu" if unknown else ""
         return {**base, "status": "en_panne", "confidence": conf, "obstacle": "ascenseur_panne", "effect": full,
                 "label": f"Ascenseur {line_label} à {station}",
-                "message": f"{len(down)} ascenseur(s) sur {len(relevant)} en panne{since}{extra}, aucun en service confirmé"}
+                "message": f"{len(down)} ascenseur(s) sur {len(relevant)} en panne{since}{extra}, aucun en service confirmé.{rel_text}"}
     if down:
         eff = _at_most_genant(full)
         return {**base, "status": "partiel", "confidence": conf, "obstacle": "ascenseur_panne", "effect": eff,
                 "label": f"Ascenseurs {line_label} à {station}",
-                "message": f"{len(down)} ascenseur(s) sur {len(relevant)} en panne : vérifier que le vôtre fonctionne"}
+                "message": f"{len(down)} ascenseur(s) sur {len(relevant)} en panne : vérifier que le vôtre fonctionne.{rel_text}"}
     if not up:
         eff = _at_most_genant(full)
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": "ascenseur_panne", "effect": eff,
                 "label": f"Ascenseurs {line_label} à {station}", "message": "État des ascenseurs inconnu"}
+    if rel and rel["availability"] < UNRELIABLE_BELOW:
+        return {**base, "status": "ok", "confidence": conf, "obstacle": "ascenseur_panne",
+                "effect": _at_most_genant(full), "label": f"Ascenseurs {line_label} à {station}",
+                "message": f"{len(up)} ascenseur(s) en service, mais souvent en panne : prévoir un plan B.{rel_text}"}
     return {**base, "status": "ok", "confidence": conf, "obstacle": None, "effect": "sans_effet",
             "label": f"Ascenseurs {line_label} à {station}",
-            "message": f"{len(up)} ascenseur(s) en service"}
+            "message": f"{len(up)} ascenseur(s) en service.{rel_text}"}
 
 
 # --- Walking steps -------------------------------------------------------------
@@ -259,7 +272,7 @@ def _step_verdict(checks: List[dict]) -> str:
 def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_at: Optional[str] = None,
                    works: Iterable[dict] = (), works_fetched_at: Optional[str] = None,
                    stairs: Iterable[dict] = (), reports: Iterable[dict] = (),
-                   reliability: Optional[Dict[str, float]] = None, it_id: str = "it1",
+                   reliability: Optional[Dict[str, dict]] = None, it_id: str = "it1",
                    now: Optional[datetime] = None) -> dict:
     profile = profiles.normalize(profile)
     works, stairs, reports = list(works), list(stairs), list(reports)

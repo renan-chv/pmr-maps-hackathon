@@ -1,0 +1,80 @@
+{
+ "RATP:LiftEquipment:137029-SY-ASC-ASC02:LOC": {
+  "availability": 0.985,
+  "window_days": 9.4,
+  "outages": 2,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137029-SY-ASC-AS03:LOC": {
+  "availability": 0.828,
+  "window_days": 8.1,
+  "outages": 7,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137023-SY-ASC-ASC_6:LOC": {
+  "availability": 0.915,
+  "window_days": 11.4,
+  "outages": 2,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137023-SY-ASC-PBS_5:LOC": {
+  "availability": 0.963,
+  "window_days": 11.3,
+  "outages": 2,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137029-SY-ASC-ASC01:LOC": {
+  "availability": 0.0,
+  "window_days": 13.2,
+  "outages": 1,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137023-SY-ASC-PBS_4:LOC": {
+  "availability": 0.998,
+  "window_days": 11.3,
+  "outages": 1,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:101079-SY-ASC-PBS_1:LOC": {
+  "availability": 0.875,
+  "window_days": 11.1,
+  "outages": 6,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137029-SY-ASC-ASC06:LOC": {
+  "availability": 0.967,
+  "window_days": 5.9,
+  "outages": 2,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137023-SY-ASC-ASC_7:LOC": {
+  "availability": 0.967,
+  "window_days": 10.9,
+  "outages": 2,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137029-SY-ASC-ASC04:LOC": {
+  "availability": 0.977,
+  "window_days": 10.4,
+  "outages": 2,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137023-SY-ASC-PBS_2:LOC": {
+  "availability": 0.958,
+  "window_days": 8.8,
+  "outages": 7,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137023-SY-ASC-PBS_3:LOC": {
+  "availability": 0.965,
+  "window_days": 11.3,
+  "outages": 3,
+  "source": "Dispotrains (historique des états IDFM)"
+ },
+ "RATP:LiftEquipment:137023-SY-ASC-PBS8:LOC": {
+  "availability": 0.978,
+  "window_days": 10.9,
+  "outages": 2,
+  "source": "Dispotrains (historique des états IDFM)"
+ }
+}

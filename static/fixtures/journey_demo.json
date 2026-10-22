@@ -55,7 +55,7 @@
        "obstacle": "trottoir_etroit",
        "effect": "genant",
        "source": "Ville de Paris – Chantiers à Paris",
-       "fetched_at": "2026-10-22T09:17:03+00:00",
+       "fetched_at": "2026-10-22T09:22:16+00:00",
        "label": "Chantier sur le trottoir",
        "message": "Construction ou réhabilitation d’immeuble (jusqu'au 2026-12-31)"
       }
@@ -105,12 +105,16 @@
         "RATP:LiftEquipment:137023-SY-ASC-ASC_6:LOC",
         "RATP:LiftEquipment:137023-SY-ASC-ASC_7:LOC"
        ],
+       "reliability": 0.915,
+       "reliability_window_days": 11.4,
+       "reliability_outages": 2,
+       "reliability_source": "Dispotrains (historique des états IDFM)",
        "status": "ok",
        "confidence": 5,
        "obstacle": null,
        "effect": "sans_effet",
        "label": "Ascenseurs ligne 1 à Châtelet - Les Halles",
-       "message": "2 ascenseur(s) en service",
+       "message": "2 ascenseur(s) en service. Historique : en service 92 % du temps de 6h à 21h sur les 11.4 derniers jours, 2 panne(s).",
        "at": "from",
        "stop_area": "stop_area:IDFM:474151"
       },
@@ -123,12 +127,16 @@
        "lift_ids": [
         "RATP:LiftEquipment:101079-SY-ASC-PBS_1:LOC"
        ],
+       "reliability": 0.875,
+       "reliability_window_days": 11.1,
+       "reliability_outages": 6,
+       "reliability_source": "Dispotrains (historique des états IDFM)",
        "status": "en_panne",
        "confidence": 5,
        "obstacle": "ascenseur_panne",
        "effect": "bloquant",
        "label": "Ascenseur ligne 1 à Esplanade de la Défense",
-       "message": "1 ascenseur(s) sur 1 en panne (signalé le 22/10 à 07h52), aucun en service confirmé",
+       "message": "1 ascenseur(s) sur 1 en panne (signalé le 22/10 à 07h52), aucun en service confirmé. Historique : en service 88 % du temps de 6h à 21h sur les 11.1 derniers jours, 6 panne(s).",
        "at": "to",
        "stop_area": "stop_area:IDFM:71485"
       }
@@ -212,7 +220,7 @@
        "obstacle": "trottoir_etroit",
        "effect": "genant",
        "source": "Ville de Paris – Chantiers à Paris",
-       "fetched_at": "2026-10-22T09:17:03+00:00",
+       "fetched_at": "2026-10-22T09:22:16+00:00",
        "label": "Chantier sur le trottoir",
        "message": "Construction ou réhabilitation d’immeuble (jusqu'au 2026-12-31)"
       }
@@ -266,12 +274,16 @@
         "RATP:LiftEquipment:137023-SY-ASC-ASC_6:LOC",
         "RATP:LiftEquipment:137023-SY-ASC-ASC_7:LOC"
        ],
+       "reliability": 0.915,
+       "reliability_window_days": 11.4,
+       "reliability_outages": 2,
+       "reliability_source": "Dispotrains (historique des états IDFM)",
        "status": "ok",
        "confidence": 5,
        "obstacle": null,
        "effect": "sans_effet",
        "label": "Ascenseurs ligne 1 à Châtelet - Les Halles",
-       "message": "2 ascenseur(s) en service",
+       "message": "2 ascenseur(s) en service. Historique : en service 92 % du temps de 6h à 21h sur les 11.4 derniers jours, 2 panne(s).",
        "at": "from",
        "stop_area": "stop_area:IDFM:474151"
       },
@@ -284,12 +296,16 @@
        "lift_ids": [
         "RATP:LiftEquipment:137029-SY-ASC-ASC04:LOC"
        ],
+       "reliability": 0.977,
+       "reliability_window_days": 10.4,
+       "reliability_outages": 2,
+       "reliability_source": "Dispotrains (historique des états IDFM)",
        "status": "ok",
        "confidence": 5,
        "obstacle": null,
        "effect": "sans_effet",
        "label": "Ascenseurs ligne 1 à La Défense",
-       "message": "1 ascenseur(s) en service",
+       "message": "1 ascenseur(s) en service. Historique : en service 98 % du temps de 6h à 21h sur les 10.4 derniers jours, 2 panne(s).",
        "at": "to",
        "stop_area": "stop_area:IDFM:71517"
       }
