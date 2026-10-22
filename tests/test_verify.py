@@ -122,7 +122,7 @@ def test_fresh_report_overrides_older_official_status():
     c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel",
                           reports=[_lift_report("a", "2026-10-22T11:30:00+00:00")], now=now)
     assert c["status"] == "en_panne" and c["effect"] == "bloquant" and c["confidence"] == 2
-    assert "Signalement" in c["source"] and "plus récent" in c["source"]
+    assert "report" in c["source"] and "newer" in c["source"]
 
 
 def test_report_older_than_official_update_is_ignored():

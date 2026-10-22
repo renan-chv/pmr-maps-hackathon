@@ -311,10 +311,10 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
     reported = [r for r in down if r.get("reported")]
     if reported:
         # a live user report overrides older official data: say so, with the report's own confidence
-        base["source"] = "Signalement Roulib, plus récent que l'info IDFM"
+        base["source"] = "Roulib report, newer than the IDFM data"
         conf = max(r["report_confidence"] for r in reported)
-        rel_text = (f" Signalé en panne par un utilisateur après la dernière mise à jour officielle "
-                    f"(IDFM : « {'en service' if reported[0].get('liftstatus_official') == 'available' else 'inconnu'} »).") + rel_text
+        rel_text = (f" Reported out of order by a user after the latest official update "
+                    f"(IDFM: \"{'working' if reported[0].get('liftstatus_official') == 'available' else 'unknown'}\").") + rel_text
     if down and not up:
         since = _since(min((r.get("liftstateupdate") or "") for r in down) or None)
         unknown = len(relevant) - len(down)
