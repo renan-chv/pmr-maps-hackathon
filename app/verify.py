@@ -74,6 +74,22 @@ def _vertices(geometry: dict) -> List[List[float]]:
     return out
 
 
+def feature_bbox(geometry: dict) -> Optional[Tuple[float, float, float, float]]:
+    pts = _vertices(geometry)
+    if not pts:
+        return None
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _bbox_apart(f: dict, line_box: Tuple[float, float, float, float], pad: float) -> bool:
+    """Cheap reject with the feature's precomputed bbox (main._layer adds it once per layer)."""
+    b = f.get("_bbox")
+    if b is None:
+        return False
+    return b[2] < line_box[0] - pad or b[0] > line_box[2] + pad or b[3] < line_box[1] - pad or b[1] > line_box[3] + pad
+
+
 def _rings(geometry: dict) -> List[List[List[float]]]:
     g = geometry or {}
     if g.get("type") == "Polygon":
@@ -98,19 +114,24 @@ def _segments_cross(a, b, c, d) -> bool:
     return (orient(a, b, c) > 0) != (orient(a, b, d) > 0) and (orient(c, d, a) > 0) != (orient(c, d, b) > 0)
 
 
-def _crosses(geometry: dict, line: List[List[float]]) -> bool:
+def _crosses(geometry: dict, line: List[List[float]], fbox: Optional[Tuple[float, float, float, float]] = None) -> bool:
     """True when the walking line enters a footprint (polygon); lines and points fall back to 5 m."""
     rings = _rings(geometry)
     if not rings:
         return _near_line(geometry, line, within=5)
-    xs, ys = [p[0] for p in line], [p[1] for p in line]
-    pts = [p for r in rings for p in r]
-    if not any(min(xs) - 1e-4 <= p[0] <= max(xs) + 1e-4 and min(ys) - 1e-4 <= p[1] <= max(ys) + 1e-4 for p in pts):
+    fbox = fbox or feature_bbox(geometry)
+    if fbox is None:
         return False
-    if any(_inside(p, r) for p in line for r in rings):
+    x0, y0, x1, y1 = fbox
+    # only the parts of the walk that reach the footprint's box can cross it
+    segs = [(line[i], line[i + 1]) for i in range(len(line) - 1)
+            if not (max(line[i][0], line[i + 1][0]) < x0 or min(line[i][0], line[i + 1][0]) > x1
+                    or max(line[i][1], line[i + 1][1]) < y0 or min(line[i][1], line[i + 1][1]) > y1)]
+    if not segs:
+        return False
+    if any(_inside(p, r) for a, b in segs for p in (a, b) if x0 <= p[0] <= x1 and y0 <= p[1] <= y1 for r in rings):
         return True
-    return any(_segments_cross(line[i], line[i + 1], r[j - 1], r[j])
-               for i in range(len(line) - 1) for r in rings for j in range(len(r)))
+    return any(_segments_cross(a, b, r[j - 1], r[j]) for a, b in segs for r in rings for j in range(len(r)))
 
 
 def _near_line(geometry: dict, line: List[List[float]], within: float = NEAR_WALK_M) -> bool:
@@ -264,8 +285,12 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
                 works_fetched_at: Optional[str] = None, now: Optional[datetime] = None) -> List[dict]:
     now = now or datetime.now(timezone.utc)
     out: List[dict] = []
+    xs, ys = [p[0] for p in line], [p[1] for p in line]
+    box = (min(xs), min(ys), max(xs), max(ys))
     for f in works:
-        if _crosses(f.get("geometry"), line):
+        if _bbox_apart(f, box, 1e-4):
+            continue
+        if _crosses(f.get("geometry"), line, f.get("_bbox")):
             p = f.get("properties") or {}
             # a sidewalk worksite usually leaves a way round: never more than "genant" on its own
             eff = _at_most_genant(profiles.effect("trottoir_etroit", profile))
@@ -274,7 +299,9 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
                         "label": "Chantier sur le trottoir",
                         "message": f"{p.get('summary') or 'Chantier'}" + (f" (jusqu'au {p['end']})" if p.get("end") else "")})
     for f in stairs:
-        if _crosses(f.get("geometry"), line):
+        if _bbox_apart(f, box, 1e-4):
+            continue
+        if _crosses(f.get("geometry"), line, f.get("_bbox")):
             out.append({"kind": "stairs", "status": "obstacle", "confidence": 3, "obstacle": "escalier",
                         "effect": profiles.effect("escalier", profile),
                         "source": "Ville de Paris – Voies en escalier", "fetched_at": None,
