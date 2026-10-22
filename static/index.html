@@ -3,79 +3,98 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#f7f5f0">
+  <meta name="theme-color" content="#fff9f1">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <title>PMR Maps – Île-de-France</title>
+  <title>PMR Maps – Se déplacer en fauteuil en Île-de-France</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <a class="skip" href="#search">Aller à la recherche</a>
-  <div id="map" role="application" aria-label="Carte de l'accessibilité en fauteuil roulant"></div>
+  <div id="map" role="application" aria-label="Carte"></div>
 
-  <div id="chips" role="toolbar" aria-label="Afficher sur la carte">
+  <div id="chips" role="toolbar" aria-label="Ce que la carte affiche">
     <button class="chip on" data-layer="lifts" aria-pressed="true"><svg class="i"><use href="#i-lift"/></svg>Ascenseurs</button>
+    <button class="chip" data-layer="places" aria-pressed="false"><svg class="i"><use href="#i-food"/></svg>Restos</button>
     <button class="chip on" data-layer="works" aria-pressed="true"><svg class="i"><use href="#i-cone"/></svg>Travaux</button>
-    <button class="chip" data-layer="quais" aria-pressed="false"><svg class="i"><use href="#i-train"/></svg>Quais</button>
     <button class="chip" data-layer="bus" aria-pressed="false"><svg class="i"><use href="#i-bus"/></svg>Bus</button>
+    <button class="chip" data-layer="quais" aria-pressed="false"><svg class="i"><use href="#i-train"/></svg>Quais</button>
   </div>
 
   <div id="map-tools">
     <button id="textsize" class="fab" aria-label="Agrandir le texte" aria-pressed="false"><svg class="i"><use href="#i-type"/></svg></button>
-    <button id="locate" class="fab" aria-label="Centrer sur ma position"><svg class="i"><use href="#i-locate"/></svg></button>
+    <button id="locate" class="fab" aria-label="Me situer sur la carte"><svg class="i"><use href="#i-locate"/></svg></button>
   </div>
 
-  <main id="sheet" aria-label="Panneau d'informations" data-snap="peek">
-    <div id="grip" role="slider" tabindex="0" aria-label="Taille du panneau" aria-valuetext="réduit"><span></span></div>
+  <main id="sheet" aria-label="Panneau principal">
+    <div id="grip" role="slider" tabindex="0" aria-label="Taille du panneau" aria-valuetext="moitié"><span></span></div>
     <div id="sheet-body">
 
+      <!-- HOME -->
       <section class="view" id="v-home" aria-labelledby="h-home">
-        <h1 id="h-home" class="sr">PMR Maps, accessibilité en fauteuil roulant en Île-de-France</h1>
+        <h1 id="h-home" class="greet">Bonjour&nbsp;! Où allez-vous&nbsp;?</h1>
         <div class="search" role="search">
           <svg class="i search-i" aria-hidden="true"><use href="#i-search"/></svg>
-          <label for="search" class="sr">Où voulez-vous aller ?</label>
-          <input id="search" type="search" enterkeyhint="search" placeholder="Où voulez-vous aller ?" autocomplete="off"
+          <label for="search" class="sr">Rechercher une station, un lieu ou une adresse</label>
+          <input id="search" type="search" enterkeyhint="search" placeholder="Une station, un lieu, une adresse" autocomplete="off"
                  role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
-          <button id="mic" class="icon-btn" aria-label="Dicter la destination"><svg class="i"><use href="#i-mic"/></svg></button>
+          <button id="mic" class="mic" aria-label="Dire où vous allez"><svg class="i"><use href="#i-mic"/></svg></button>
         </div>
         <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
 
-        <div id="today" class="today" aria-live="polite"><p class="muted">Chargement de l'état des ascenseurs…</p></div>
+        <div class="tiles">
+          <button class="tile t-trip" data-go="trip"><span class="tile-ic"><svg class="i"><use href="#i-route"/></svg></span><b>Aller quelque part</b><small>Trajet en fauteuil</small></button>
+          <button class="tile t-food" data-go="food"><span class="tile-ic"><svg class="i"><use href="#i-food"/></svg></span><b>Manger</b><small>Restos accessibles</small></button>
+          <button class="tile t-near" data-go="near"><span class="tile-ic"><svg class="i"><use href="#i-pin"/></svg></span><b>Autour de moi</b><small>Stations avec ascenseur</small></button>
+          <button class="tile t-lift" data-go="pannes"><span class="tile-ic"><svg class="i"><use href="#i-lift"/></svg></span><b>Pannes</b><small id="tile-pannes">Ascenseurs en panne</small></button>
+        </div>
 
-        <button id="nearby" class="row-btn"><svg class="i"><use href="#i-pin"/></svg><span>Stations autour de moi</span><svg class="i chev"><use href="#i-chev-r"/></svg></button>
-        <div id="nearby-list"></div>
+        <h2 class="h2">Mes endroits</h2>
+        <ul class="list" id="favs"></ul>
 
-        <h2 class="h2">Changements détectés</h2>
-        <ul id="alerts" class="alerts" aria-live="polite"></ul>
+        <div id="today" class="today" aria-live="polite"><p class="muted">Je regarde l'état des ascenseurs…</p></div>
+
+        <h2 class="h2">Ça vient de changer</h2>
+        <ul id="alerts" class="list" aria-live="polite"></ul>
 
         <details class="sources">
-          <summary>D'où viennent les données</summary>
+          <summary>D'où viennent les informations</summary>
           <ul id="sources-list"></ul>
         </details>
       </section>
 
+      <!-- LIST (restos, nearby, pannes) -->
+      <section class="view" id="v-list" hidden aria-labelledby="l-title">
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
+        <h2 id="l-title" class="title"></h2>
+        <p id="l-sub" class="sub"></p>
+        <div id="l-filters" class="filters" role="group" aria-label="Filtres"></div>
+        <div id="l-body" aria-live="polite"></div>
+      </section>
+
+      <!-- DETAIL (station, place, works) -->
       <section class="view" id="v-detail" hidden aria-labelledby="d-title">
         <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
         <div id="detail"></div>
       </section>
 
+      <!-- TRIP -->
       <section class="view" id="v-trip" hidden aria-labelledby="t-title">
         <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
-        <h2 id="t-title" class="title">Vérifier un trajet</h2>
+        <h2 id="t-title" class="title">Où voulez-vous aller&nbsp;?</h2>
         <div class="trip-fields">
           <div class="trip-row"><span class="pin a" aria-hidden="true"></span>
-            <label for="trip-from" class="sr">Départ</label>
-            <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="Départ" autocomplete="off"></div>
+            <label for="trip-from" class="sr">Je pars de</label>
+            <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="Je pars de…" autocomplete="off"></div>
           <ul id="suggest-from" class="suggest" role="listbox" aria-label="Suggestions de départ" hidden></ul>
           <div class="trip-row"><span class="pin b" aria-hidden="true"></span>
-            <label for="trip-to" class="sr">Arrivée</label>
-            <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="Arrivée" autocomplete="off"></div>
+            <label for="trip-to" class="sr">Je vais à</label>
+            <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="Je vais à…" autocomplete="off"></div>
           <ul id="suggest-to" class="suggest" role="listbox" aria-label="Suggestions d'arrivée" hidden></ul>
-          <button id="trip-go" class="btn primary block">Vérifier le trajet</button>
+          <button id="trip-go" class="btn primary block">C'est parti</button>
         </div>
         <div id="trip-result" aria-live="polite"></div>
       </section>
@@ -92,13 +111,22 @@
       <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
       <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
       <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 7V5h10v2M9 5v14M7 19h4M14 13v-1h6v1M17 12v7M15.5 19h3"/></symbol>
-      <symbol id="i-lift" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m9 9 2-2 2 2M9 15l2 2 2-2M11 7v4M11 13v4" transform="translate(1 0)"/></symbol>
+      <symbol id="i-lift" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m10 9 2-2 2 2M10 15l2 2 2-2M12 7v4M12 13v4"/></symbol>
       <symbol id="i-cone" viewBox="0 0 24 24"><path d="M10 3h4l5 16H5z"/><path d="M3 21h18M8 11h8M7 15h10"/></symbol>
       <symbol id="i-train" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 14h.01M15 14h.01M8 21l2-4M16 21l-2-4"/></symbol>
       <symbol id="i-bus" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="2"/><path d="M4 11h16M8 15h.01M16 15h.01M7 18v3M17 18v3"/></symbol>
+      <symbol id="i-food" viewBox="0 0 24 24"><path d="M7 3v18M4 3v5a3 3 0 0 0 6 0V3M18 21V3c-2.5 1.5-4 4.5-4 8h4"/></symbol>
       <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></symbol>
+      <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v12h14V9M10 21v-6h4v6"/></symbol>
+      <symbol id="i-work" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18"/></symbol>
       <symbol id="i-place" viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12"/><path d="M9 21v-6h6v6"/></symbol>
-      <symbol id="i-address" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v12h14V9"/></symbol>
+      <symbol id="i-address" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/></symbol>
+      <symbol id="i-wc" viewBox="0 0 24 24"><circle cx="7" cy="5" r="1.5"/><circle cx="17" cy="5" r="1.5"/><path d="M5 9h4v6H8v6H6v-6H5zM15 9h4l1.5 7H19v5h-4v-5h-1.5z"/></symbol>
+      <symbol id="i-parking" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/></symbol>
+      <symbol id="i-door" viewBox="0 0 24 24"><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17M3 21h18M15 12h.01"/></symbol>
+      <symbol id="i-steps" viewBox="0 0 24 24"><path d="M3 20h5v-5h5v-5h5V5h3"/></symbol>
+      <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
       <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
       <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
       <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
@@ -106,8 +134,7 @@
       <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 5v9M12 19h.01"/></symbol>
       <symbol id="i-unk" viewBox="0 0 24 24"><path d="M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
-      <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></symbol>
-      <symbol id="i-walk" viewBox="0 0 24 24"><circle cx="13" cy="4.5" r="1.5"/><path d="M10 21l2-6 3 3v3M9 12l2-4 4 3 3 1M11 8l-3 2v3"/></symbol>
+      <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-.5a6 6 0 0 1-5-2.7L3 15.5a1.5 1.5 0 0 1 2.4-1.8L8 16"/></symbol>
     </defs>
   </svg>
 

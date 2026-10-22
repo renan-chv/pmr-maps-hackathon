@@ -1,17 +1,30 @@
-// PMR Maps – front-end (mobile first). One search, plain-language answers, freshness always visible.
+// PMR Maps – front-end (mobile first, friendly). Big tiles, plain words, freshness always visible.
 "use strict";
 
-const C = { ok: "#157a3c", warn: "#9a5800", ko: "#b42318", unk: "#5f6670", works: "#c2410c", brand: "#2338a0", ink: "#16191d" };
-const LIFT_FR = { available: "En service", notavailable: "En panne", unknown: "État inconnu" };
+const C = { ok: "#157a3c", warn: "#9a5800", ko: "#b42318", unk: "#5f6670", works: "#c2410c", brand: "#3d3bd6", ink: "#1e1a16" };
+const LIFT_FR = { available: "Fonctionne", notavailable: "En panne", unknown: "État inconnu" };
 const ACCESS_FR = { true: "accessible", partial: "partiellement accessible", false: "non accessible", unknown: "sans information" };
 const TYPE_FR = { metro: "Métro", rail: "Train / RER", tram: "Tram", cableway: "Câble", bus: "Bus" };
 const MODE_FR = { Metro: "Métro", RapidTransit: "RER / Train", Tramway: "Tram", LocalTrain: "Train" };
+// Acceslibre wheelchair verdict -> our status + plain words
+const PLACE_ST = { true: "ok", partial: "warn", false: "ko", unknown: "unk" };
+const PLACE_FR = {
+  true: ["Accessible en fauteuil", "Entrée sans obstacle."],
+  partial: ["Accessible avec un peu d'aide", "Rampe à demander ou petit obstacle."],
+  false: ["Difficile en fauteuil", "Obstacle à l'entrée."],
+  unknown: ["Pas encore renseigné", "Personne n'a encore décrit l'entrée."],
+};
+const WC_FR = { true: ["ok", "Toilettes adaptées"], false: ["ko", "Toilettes non adaptées"], none: ["unk", "Pas de toilettes"], unknown: ["unk", "Toilettes : non renseigné"] };
 const STALE_H = 48; // IDFM info older than this lowers confidence
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const norm = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  json(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } },
+};
 const icon = (name, cls = "") => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const mark = (st, cls = "") => `<span class="mark ${st} ${cls}" aria-hidden="true">${icon(st)}</span>`;
 const isPhone = () => window.matchMedia("(max-width: 1023px) and (not ((orientation: landscape) and (max-height: 540px)))").matches;
@@ -42,32 +55,31 @@ function distM(a, b) {
   return 6371000 * Math.hypot(x, y);
 }
 const fmtDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1).replace(".", ",")} km`);
+const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
 
-function toast(msg, ms = 3500) {
+function toast(msg, ms = 3800) {
   const t = $("#toast"); t.textContent = msg; t.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms);
 }
 
 // ---------------------------------------------------------------------------
-// Bottom sheet: three snap points on phones, side panel elsewhere (CSS)
+// Bottom sheet: three heights on phones, side panel elsewhere (CSS)
 // ---------------------------------------------------------------------------
 const Sheet = (() => {
   const el = $("#sheet"), grip = $("#grip"), body = $("#sheet-body");
   const LABEL = { peek: "réduit", half: "moitié", full: "plein écran" };
-  let snap = "peek";
+  let snap = "half";
   const heights = () => {
     const vh = window.innerHeight;
-    return { peek: Math.min(236, Math.round(vh * 0.36)), half: Math.round(vh * 0.56), full: vh - 76 };
+    return { peek: Math.min(210, Math.round(vh * 0.3)), half: Math.round(vh * 0.6), full: vh - 76 };
   };
   const apply = (h) => document.documentElement.style.setProperty("--sheet-h", `${Math.round(h)}px`);
   function set(name) {
     snap = name;
-    el.dataset.snap = name;
     grip.setAttribute("aria-valuetext", LABEL[name]);
     document.body.classList.toggle("sheet-full", name === "full" && isPhone());
     apply(isPhone() ? heights()[name] : 0);
   }
-  // Drag on the grip; tap or keyboard cycles.
   let startY = 0, startH = 0, moved = false;
   grip.addEventListener("pointerdown", (e) => {
     if (!isPhone()) return;
@@ -86,8 +98,7 @@ const Sheet = (() => {
     el.classList.remove("dragging");
     if (!moved) return set(snap === "peek" ? "half" : snap === "half" ? "full" : "peek");
     const h = el.getBoundingClientRect().height, hs = heights();
-    const nearest = Object.entries(hs).sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0];
-    set(nearest);
+    set(Object.entries(hs).sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0]);
   };
   grip.addEventListener("pointerup", end);
   grip.addEventListener("pointercancel", end);
@@ -98,12 +109,11 @@ const Sheet = (() => {
     if (e.key === "Enter" || e.key === " ") { set(order[(i + 1) % 3]); e.preventDefault(); }
   });
   window.addEventListener("resize", () => set(snap));
-  set("peek");
+  set("half");
   return {
     set, get: () => snap,
-    // Room the map keeps clear: bottom on phones (sheet), left elsewhere (panel).
-    padding: () => (isPhone() ? { bottom: heights()[snap === "full" ? "half" : snap] + 20, top: 70, left: 20, right: 20 }
-      : { left: el.getBoundingClientRect().right + 20, top: 70, right: 70, bottom: 40 }),
+    padding: () => (isPhone() ? { bottom: heights()[snap === "full" ? "half" : snap] + 20, top: 76, left: 24, right: 24 }
+      : { left: el.getBoundingClientRect().right + 20, top: 76, right: 76, bottom: 40 }),
     scrollTop: () => { body.scrollTop = 0; },
   };
 })();
@@ -111,7 +121,7 @@ const Sheet = (() => {
 // ---------------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------------
-const S = { stations: new Map(), quais: [], train: [], worksCenters: [], meta: {}, myPos: null };
+const S = { stations: new Map(), quais: [], worksCenters: [], meta: {}, myPos: null, places: [] };
 
 function stationStatus(lifts) {
   const n = lifts.length, ko = lifts.filter((l) => l.status === "notavailable").length;
@@ -127,11 +137,11 @@ function verdictText(st) {
   const n = st.lifts.length, ko = st.lifts.filter((l) => l.status === "notavailable").length;
   const unk = st.lifts.filter((l) => l.status === "unknown").length;
   switch (st.status) {
-    case "ok": return [n > 1 ? `Les ${n} ascenseurs fonctionnent` : "L'ascenseur fonctionne", "Accès en fauteuil possible par ascenseur."];
-    case "ko": return [n > 1 ? `Aucun des ${n} ascenseurs ne fonctionne` : "L'ascenseur est en panne", "Évitez cette station pour l'instant."];
-    case "warn": return [ko ? `${ko} ascenseur${ko > 1 ? "s" : ""} sur ${n} en panne` : `État inconnu pour ${unk} ascenseur${unk > 1 ? "s" : ""} sur ${n}`,
-      "Vérifiez que celui dont vous avez besoin fonctionne."];
-    default: return ["État des ascenseurs inconnu", "IDFM n'a pas d'information à jour."];
+    case "ok": return [n > 1 ? `Les ${n} ascenseurs fonctionnent` : "L'ascenseur fonctionne", "Vous pouvez passer en fauteuil."];
+    case "ko": return [n > 1 ? `Aucun des ${n} ascenseurs ne marche` : "L'ascenseur est en panne", "Mieux vaut éviter cette station pour l'instant."];
+    case "warn": return [ko ? `${ko} ascenseur${ko > 1 ? "s" : ""} sur ${n} en panne` : `On ne sait pas pour ${unk} ascenseur${unk > 1 ? "s" : ""} sur ${n}`,
+      "Vérifiez que celui dont vous avez besoin marche."];
+    default: return ["On ne sait pas", "IDFM n'a pas d'information récente."];
   }
 }
 
@@ -145,6 +155,7 @@ function buildStations(fc) {
   }
   for (const st of S.stations.values()) {
     st.status = stationStatus(st.lifts);
+    st.ko = st.lifts.filter((l) => l.status === "notavailable").length;
     st.latest = st.lifts.map((l) => l.source_update).filter(Boolean).sort().pop();
     st.staleLifts = st.lifts.filter((l) => ageH(l.source_update) > STALE_H).length;
     st.key = norm(st.name);
@@ -163,6 +174,16 @@ const nearestStations = (coord, max = 5, radius = 2000) => [...S.stations.values
   .map((st) => ({ st, d: distM(coord, st.coord) })).filter((x) => x.d <= radius).sort((a, b) => a.d - b.d).slice(0, max);
 const worksNear = (coord, radius = 150) => S.worksCenters.filter((w) => distM(coord, w.c) <= radius);
 
+// Acceslibre places around a point (the API wants a bbox of at most 16 tiles of 0.01°).
+const placeCache = new Map();
+async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
+  const bbox = [coord[0] - dLon, coord[1] - dLat, coord[0] + dLon, coord[1] + dLat].map((v) => v.toFixed(4)).join(",");
+  if (!placeCache.has(bbox)) placeCache.set(bbox, getJSON(`/api/places?bbox=${bbox}`).catch((e) => { placeCache.delete(bbox); throw e; }));
+  const d = await placeCache.get(bbox);
+  S.meta.places = d.meta;
+  return d.features;
+}
+
 // ---------------------------------------------------------------------------
 // Map
 // ---------------------------------------------------------------------------
@@ -172,19 +193,19 @@ const map = new maplibregl.Map({
 });
 map.touchZoomRotate.disableRotation();
 
-// Status markers: the same strokes as the SVG icon set, drawn on canvas.
-const MARK_PATHS = { ok: "m5 12.5 4.5 4.5L19 7.5", ko: "M6 6l12 12M18 6 6 18", warn: "M12 5v9M12 19h.01", unk: "M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01" };
-function markImage(status, size = 44) {
+const MARK_PATHS = { ok: "m5 12.5 4.5 4.5L19 7.5", ko: "M6 6l12 12M18 6 6 18", warn: "M12 5v9M12 19h.01", unk: "M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01",
+  food: "M7 3v18M4 3v5a3 3 0 0 0 6 0V3M18 21V3c-2.5 1.5-4 4.5-4 8h4" };
+function markImage(color, glyph, { size = 44, square = false } = {}) {
   const r = Math.max(2, window.devicePixelRatio || 1), px = size * r, c = document.createElement("canvas");
   c.width = c.height = px;
-  const g = c.getContext("2d");
-  g.beginPath(); g.arc(px / 2, px / 2, px / 2 - 2.5 * r, 0, Math.PI * 2);
-  g.fillStyle = C[status]; g.fill(); g.lineWidth = 3 * r; g.strokeStyle = "#fff"; g.stroke();
+  const g = c.getContext("2d"), pad = 2.5 * r;
+  g.beginPath();
+  if (square) g.roundRect(pad, pad, px - 2 * pad, px - 2 * pad, 11 * r); else g.arc(px / 2, px / 2, px / 2 - pad, 0, Math.PI * 2);
+  g.fillStyle = color; g.fill(); g.lineWidth = 3 * r; g.strokeStyle = "#fff"; g.stroke();
   const s = (px * 0.56) / 24; g.translate(px / 2 - 12 * s, px / 2 - 12 * s); g.scale(s, s);
-  g.strokeStyle = "#fff"; g.lineWidth = 3.2; g.lineCap = "round"; g.lineJoin = "round"; g.stroke(new Path2D(MARK_PATHS[status]));
+  g.strokeStyle = "#fff"; g.lineWidth = glyph === "food" ? 2.4 : 3.2; g.lineCap = "round"; g.lineJoin = "round"; g.stroke(new Path2D(MARK_PATHS[glyph]));
   return { image: g.getImageData(0, 0, px, px), pixelRatio: r };
 }
-// Works: diagonal hatch, like a site barrier.
 function hatchImage() {
   const r = Math.max(2, window.devicePixelRatio || 1), px = 12 * r, c = document.createElement("canvas");
   c.width = c.height = px;
@@ -194,13 +215,15 @@ function hatchImage() {
   for (const o of [-px, 0, px]) { g.beginPath(); g.moveTo(o, px); g.lineTo(o + px, 0); g.stroke(); }
   return { image: g.getImageData(0, 0, px, px), pixelRatio: r };
 }
-
 const empty = () => ({ type: "FeatureCollection", features: [] });
 
 map.on("load", () => {
-  for (const k of ["ok", "warn", "ko", "unk"]) { const m = markImage(k); map.addImage(`st-${k}`, m.image, { pixelRatio: m.pixelRatio }); }
+  for (const k of ["ok", "warn", "ko", "unk"]) {
+    const m = markImage(C[k], k); map.addImage(`st-${k}`, m.image, { pixelRatio: m.pixelRatio });
+    const f = markImage(C[k], "food", { size: 36, square: true }); map.addImage(`pl-${k}`, f.image, { pixelRatio: f.pixelRatio });
+  }
   const h = hatchImage(); map.addImage("hatch", h.image, { pixelRatio: h.pixelRatio });
-  ["works", "quais", "bus", "trip", "stations", "pin"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
+  ["works", "quais", "bus", "places", "trip", "stations", "pin"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
 
   map.addLayer({ id: "works-fill", type: "fill", source: "works", paint: { "fill-pattern": "hatch" } });
   map.addLayer({ id: "works-line", type: "line", source: "works", paint: { "line-color": C.works, "line-width": 1.5 } });
@@ -209,6 +232,11 @@ map.on("load", () => {
     paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 16, 8], "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
   map.addLayer({ id: "bus", type: "circle", source: "bus", minzoom: 14.5, layout: { visibility: "none" },
     paint: { "circle-radius": 6, "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+  map.addLayer({ id: "places", type: "symbol", source: "places", layout: {
+    visibility: "none", "icon-image": ["concat", "pl-", ["get", "st"]], "icon-allow-overlap": true,
+    "symbol-sort-key": ["match", ["get", "st"], "ok", 3, "warn", 2, "ko", 1, 0],
+    "icon-size": ["interpolate", ["linear"], ["zoom"], 14, 0.45, 17, 0.8],
+  } });
   map.addLayer({ id: "trip", type: "line", source: "trip", layout: { "line-cap": "round", "line-join": "round" },
     paint: { "line-color": C.brand, "line-width": 6, "line-opacity": 0.9 } });
   map.addLayer({ id: "stations", type: "symbol", source: "stations",
@@ -223,15 +251,15 @@ map.on("load", () => {
     paint: { "circle-radius": 10, "circle-color": C.brand, "circle-stroke-color": "#fff", "circle-stroke-width": 4 } });
 
   map.on("click", "stations", (e) => openStation(e.features[0].properties.id));
+  map.on("click", "places", (e) => { const id = e.features[0].properties.id; const p = S.places.find((x) => x.properties.id === id); if (p) openAcceslibre(p); });
   map.on("click", "works-fill", (e) => openWorks(e.features[0].properties, e.lngLat));
   map.on("click", "quais", (e) => quickPopup(e, "Quai"));
   map.on("click", "bus", (e) => quickPopup(e, "Arrêt de bus"));
-  for (const id of ["stations", "works-fill", "quais", "bus"]) {
+  for (const id of ["stations", "places", "works-fill", "quais", "bus"]) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
   }
-  map.on("moveend", loadBus);
-  // Moving the map on a phone lowers a full sheet to give the map room.
+  map.on("moveend", () => { loadBus(); loadPlacesLayer(); });
   map.on("dragstart", () => { if (isPhone() && Sheet.get() === "full") Sheet.set("half"); });
 
   loadLifts().then(applyHash);
@@ -245,7 +273,7 @@ function quickPopup(e, kind) {
   const p = e.features[0].properties;
   new maplibregl.Popup({ maxWidth: "260px" }).setLngLat(e.lngLat)
     .setHTML(`<b>${esc(p.name)}</b><br>${esc(kind)}${p.type ? " · " + esc(TYPE_FR[p.type] || p.type) : ""}<br>` +
-      `<b>${esc(ACCESS_FR[p.accessibility] || p.accessibility)}</b><div style="color:#4a5058;font-size:.85em;margin-top:4px">IDFM, référentiel des arrêts</div>`)
+      `<b>${esc(ACCESS_FR[p.accessibility] || p.accessibility)}</b><div style="color:#5a524a;font-size:.85em;margin-top:4px">IDFM, référentiel des arrêts</div>`)
     .addTo(map);
 }
 
@@ -254,7 +282,11 @@ const flyTo = (coord, zoom = 15.5) => map.flyTo({ center: coord, zoom, padding: 
 function fitTo(coords) {
   const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
   coords.forEach((c) => b.extend(c));
-  map.fitBounds(b, { padding: Sheet.padding(), maxZoom: 15 });
+  map.fitBounds(b, { padding: Sheet.padding(), maxZoom: 15.5 });
+}
+function showPlacesOnMap(feats) {
+  S.places = feats;
+  map.getSource("places")?.setData({ type: "FeatureCollection", features: feats.map((f) => ({ ...f, properties: { id: f.properties.id, st: PLACE_ST[f.properties.wheelchair] } })) });
 }
 
 // ---------------------------------------------------------------------------
@@ -269,14 +301,13 @@ async function loadLifts() {
     renderToday();
     renderSources();
   } catch (e) {
-    $("#today").innerHTML = `<p class="err">Impossible de charger l'état des ascenseurs. ${esc(e.message)}</p>`;
+    $("#today").innerHTML = `<p class="err">Je n'arrive pas à charger l'état des ascenseurs. Réessayez dans un instant.</p>`;
   }
 }
 
 async function loadStatic() {
   const jobs = {
     quais: async () => { const d = await getJSON("/api/stations"); S.quais = d.features; S.meta.quais = d.meta; map.getSource("quais").setData(d); },
-    train: async () => { const d = await getJSON("/api/train-stations"); S.train = d.features; S.meta.train = d.meta; },
     works: async () => {
       const d = await getJSON("/api/works"); S.meta.works = d.meta; map.getSource("works").setData(d);
       S.worksCenters = d.features.map((f) => {
@@ -297,19 +328,25 @@ async function loadBus() {
   try { map.getSource("bus").setData(await getJSON(`/api/bus-stops?bbox=${bbox}`)); } catch (e) { console.warn("bus", e); }
 }
 
+async function loadPlacesLayer() {
+  if (!layerOn.places || map.getZoom() < 14) return;
+  const c = map.getCenter();
+  try { showPlacesOnMap((await placesAround([c.lng, c.lat])).filter((f) => f.properties.category === "food")); } catch (e) { console.warn("places", e); }
+}
+
 async function loadAlerts() {
   try {
     const d = await getJSON("/api/alerts");
     const ul = $("#alerts");
     if (!d.alerts.length) {
-      ul.innerHTML = `<li class="empty">Rien n'a changé depuis ${d.poller.last_poll ? hhmm(d.poller.last_poll) : "le démarrage"}. Nouvelle vérification toutes les 15 minutes.</li>`;
+      ul.innerHTML = `<li class="empty-li">Rien n'a bougé depuis ${d.poller.last_poll ? hhmm(d.poller.last_poll) : "tout à l'heure"}. Je revérifie toutes les 15 minutes.</li>`;
       return;
     }
-    ul.innerHTML = d.alerts.slice(0, 8).map((a) => {
+    ul.innerHTML = d.alerts.slice(0, 6).map((a) => {
       const st = a.to === "available" ? "ok" : a.to === "notavailable" ? "ko" : "unk";
-      const what = st === "ok" ? "Ascenseur réparé" : st === "ko" ? "Ascenseur en panne" : "État devenu inconnu";
+      const what = st === "ok" ? "Ascenseur réparé" : st === "ko" ? "Ascenseur tombé en panne" : "On ne sait plus";
       return `<li><button class="item" data-open="${esc(a.zdcid)}">${mark(st)}<span class="t"><b>${esc(a.station)}</b>` +
-        `<small>${what} · ${rel(a.detected_at)}</small></span>${icon("chev-r", "chev")}</button></li>`;
+        `<small>${what}, ${rel(a.detected_at)}</small></span>${icon("chev-r", "chev")}</button></li>`;
     }).join("");
     bindOpen(ul);
   } catch (e) { console.warn("alerts", e); }
@@ -322,24 +359,58 @@ function renderToday() {
   const m = S.meta.lifts, c = m.counts, total = (c.available || 0) + (c.notavailable || 0) + (c.unknown || 0);
   const latest = [...S.stations.values()].map((s) => s.latest).filter(Boolean).sort().pop();
   const pct = (n) => `${(100 * n / total).toFixed(2)}%`;
+  $("#tile-pannes").textContent = `${c.notavailable} ascenseurs en panne`;
   $("#today").innerHTML =
-    `<p class="headline"><em>${c.notavailable}</em> ascenseurs en panne en ce moment</p>` +
+    `<p class="headline">Aujourd'hui, <em>${c.notavailable}</em> ascenseurs sont en panne dans les gares d'Île-de-France.</p>` +
     `<div class="bar" aria-hidden="true"><span style="width:${pct(c.available)};background:${C.ok}"></span>` +
     `<span style="width:${pct(c.notavailable)};background:${C.ko}"></span><span style="width:${pct(c.unknown)};background:${C.unk}"></span></div>` +
-    `<ul class="legend"><li><span class="sw ok"></span><b>${c.available}</b> en service</li><li><span class="sw ko"></span><b>${c.notavailable}</b> en panne</li>` +
-    `<li><span class="sw unk"></span><b>${c.unknown}</b> inconnus</li></ul>` +
+    `<ul class="legend"><li><span class="sw ok"></span><b>${c.available}</b> marchent</li><li><span class="sw ko"></span><b>${c.notavailable}</b> en panne</li>` +
+    `<li><span class="sw unk"></span><b>${c.unknown}</b> on ne sait pas</li></ul>` +
     `<p class="fresh">${icon("clock")}${m.stale ? "Source IDFM injoignable, dernière version connue. " : ""}Info IDFM ${rel(latest)}, vérifiée à ${hhmm(m.fetched_at)}</p>`;
 }
 
 function renderSources() {
   const items = Object.values(S.meta).filter((m) => m && m.source).map((m) =>
-    `<li><a href="${esc(m.source.url)}" target="_blank" rel="noopener">${esc(m.source.name)}</a>, ${esc(m.source.license)}. ${m.count} éléments, récupérés à ${hhmm(m.fetched_at)}.</li>`);
+    `<li><a href="${esc(m.source.url)}" target="_blank" rel="noopener">${esc(m.source.name)}</a>, ${esc(m.source.license)}.${m.fetched_at ? ` Récupéré à ${hhmm(m.fetched_at)}.` : ""}</li>`);
   $("#sources-list").innerHTML = items.join("") + `<li>Recherche de lieux : IGN Géoplateforme.</li><li>Fond de carte © OpenStreetMap, OpenFreeMap.</li>`;
+}
+
+// Favourites (Maison, Travail) kept on this phone only.
+const FAVS = [{ key: "home", label: "Maison", ic: "home" }, { key: "work", label: "Travail", ic: "work" }];
+let pendingFav = null;
+function renderFavs() {
+  $("#favs").innerHTML = FAVS.map((f) => {
+    const v = store.json(`fav-${f.key}`);
+    return `<li><div class="item"><span class="fav-ic">${icon(f.ic)}</span>` +
+      `<button class="t linkish" style="text-align:left;color:inherit;font-weight:400;padding:0" data-fav="${f.key}"><b>${f.label}</b>` +
+      `<small>${v ? esc(v.label) : "Toucher pour ajouter l'adresse"}</small></button>` +
+      (v ? `<button class="linkish" data-fav-edit="${f.key}">Changer</button>` : "") + `</div></li>`;
+  }).join("");
+  document.querySelectorAll("[data-fav]").forEach((b) => b.addEventListener("click", () => {
+    const v = store.json(`fav-${b.dataset.fav}`);
+    if (v) openTrip(null, { ...v, kind: "fav" }); else askFav(b.dataset.fav);
+  }));
+  document.querySelectorAll("[data-fav-edit]").forEach((b) => b.addEventListener("click", () => askFav(b.dataset.favEdit)));
+}
+function askFav(key) {
+  pendingFav = key;
+  const s = $("#search");
+  s.placeholder = key === "home" ? "Tapez votre adresse (Maison)" : "Tapez l'adresse de votre travail";
+  s.value = ""; s.focus();
+  toast(key === "home" ? "Tapez votre adresse, puis choisissez-la dans la liste." : "Tapez l'adresse de votre travail, puis choisissez-la.");
+}
+function saveFav(it) {
+  store.set(`fav-${pendingFav}`, JSON.stringify({ label: it.label, lon: it.lon, lat: it.lat }));
+  toast(`${pendingFav === "home" ? "Maison" : "Travail"} enregistré. Touchez-le pour y aller.`);
+  pendingFav = null;
+  $("#search").placeholder = "Une station, un lieu, une adresse";
+  $("#search").value = "";
+  renderFavs();
 }
 
 function stationItem(st, d) {
   return `<li><button class="item" data-open="${esc(st.id)}">${mark(st.status)}<span class="t"><b>${esc(st.name)}</b>` +
-    `<small>${esc(verdictText(st)[0])}</small></span>${d != null ? `<span class="dist">${fmtDist(d)}</span>` : icon("chev-r", "chev")}</button></li>`;
+    `<small>${esc(verdictText(st)[0])}</small></span><span class="end">${d != null ? fmtDist(d) : ""}${icon("chev-r", "chev")}</span></button></li>`;
 }
 const stationList = (rows) => `<ul class="list">${rows.map((x) => stationItem(x.st, x.d)).join("")}</ul>`;
 function bindOpen(root) { root.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openStation(b.dataset.open))); }
@@ -349,18 +420,132 @@ function bindOpen(root) { root.querySelectorAll("[data-open]").forEach((b) => b.
 // ---------------------------------------------------------------------------
 function show(view, snap) {
   for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== `v-${view}`;
+  // Restaurant pins stay visible while a restaurant list or detail is open, even with the chip off.
+  const wantPlaces = layerOn.places || view === "list" || view === "detail";
+  if (map.getLayer("places")) map.setLayoutProperty("places", "visibility", wantPlaces ? "visible" : "none");
   Sheet.scrollTop();
   if (snap) Sheet.set(snap);
   const h = $(`#v-${view} .title`);
   if (h && view !== "home") { h.setAttribute("tabindex", "-1"); h.focus({ preventScroll: true }); }
 }
-document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", () => {
-  show("home", "peek"); setPin(null); map.getSource("trip")?.setData(empty()); history.replaceState(null, "", location.pathname);
+function goHome() {
+  show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty());
+  if (!layerOn.places) showPlacesOnMap([]);
+  history.replaceState(null, "", location.pathname);
+}
+document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", goHome));
+
+document.querySelectorAll("[data-go]").forEach((t) => t.addEventListener("click", () => {
+  ({ trip: () => openTrip(null, null), food: openFood, near: openNearby, pannes: openPannes })[t.dataset.go]();
 }));
 
+async function here() {
+  let pos = await locate();
+  if (!pos) { const c = map.getCenter(); pos = [c.lng, c.lat]; toast("Je ne trouve pas votre position. Je cherche autour du centre de la carte."); }
+  return pos;
+}
+
+function listView(title, sub) {
+  $("#l-title").textContent = title;
+  $("#l-sub").textContent = sub || "";
+  $("#l-filters").innerHTML = "";
+  $("#l-body").innerHTML = `<p class="muted">Je cherche…</p>`;
+  show("list", "half");
+}
+
+async function openNearby() {
+  listView("Autour de moi", "Les stations avec ascenseur les plus proches.");
+  const pos = await here();
+  setPin(pos); flyTo(pos, 14.5);
+  const near = nearestStations(pos, 8, 3000);
+  $("#l-body").innerHTML = near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 3 km.</p>`;
+  bindOpen($("#l-body"));
+}
+
+async function openPannes() {
+  listView("Ascenseurs en panne", "Les stations où au moins un ascenseur ne marche pas, de la plus proche à la plus loin.");
+  const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
+  const rows = [...S.stations.values()].filter((st) => st.ko > 0).map((st) => ({ st, d: distM(pos, st.coord) })).sort((a, b) => a.d - b.d).slice(0, 30);
+  $("#l-body").innerHTML = rows.length ? stationList(rows) : `<p class="muted">Aucune panne signalée en ce moment. Bonne nouvelle !</p>`;
+  bindOpen($("#l-body"));
+}
+
+// --- Restos ----------------------------------------------------------------
+const foodFilters = { ok: true, help: true, wc: false };
+let foodPos = null, foodAll = [];
+
+async function openFood() {
+  listView("Manger près d'ici", "Restaurants, cafés et bars décrits sur Acceslibre.");
+  renderFoodFilters();
+  foodPos = await here();
+  setPin(foodPos); flyTo(foodPos, 15.5);
+  try {
+    foodAll = (await placesAround(foodPos)).filter((f) => f.properties.category === "food")
+      .map((f) => ({ f, d: distM(foodPos, f.geometry.coordinates) })).sort((a, b) => a.d - b.d);
+    renderFood();
+  } catch (e) {
+    $("#l-body").innerHTML = `<p class="err">Je n'arrive pas à charger les restaurants. Réessayez dans un instant.</p>`;
+  }
+}
+function renderFoodFilters() {
+  const F = [["ok", "ok", "Sans marche"], ["help", "hand", "Avec un peu d'aide"], ["wc", "wc", "Toilettes adaptées"]];
+  $("#l-filters").innerHTML = F.map(([k, ic, label]) => `<button class="fchip" data-f="${k}" aria-pressed="${foodFilters[k]}">${icon(ic)}${label}</button>`).join("");
+  document.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click", () => {
+    foodFilters[b.dataset.f] = !foodFilters[b.dataset.f]; b.setAttribute("aria-pressed", String(foodFilters[b.dataset.f])); renderFood();
+  }));
+}
+function renderFood() {
+  const keep = foodAll.filter(({ f }) => {
+    const p = f.properties;
+    const okLevel = (foodFilters.ok && p.wheelchair === "true") || (foodFilters.help && p.wheelchair === "partial") || (!foodFilters.ok && !foodFilters.help);
+    return okLevel && (!foodFilters.wc || p.toilets === "true");
+  });
+  showPlacesOnMap(keep.map((x) => x.f));
+  const total = foodAll.length;
+  $("#l-sub").textContent = `${plural(keep.length, "adresse", "adresses")} sur ${total} autour de vous.`;
+  $("#l-body").innerHTML = keep.length
+    ? `<ul class="list">${keep.slice(0, 40).map(({ f, d }, i) => {
+        const p = f.properties, st = PLACE_ST[p.wheelchair];
+        return `<li><button class="item" data-place="${i}">${mark(st, "food")}<span class="t"><b>${esc(p.name || "Sans nom")}</b>` +
+          `<small>${esc(PLACE_FR[p.wheelchair][0])}${p.toilets === "true" ? " · toilettes adaptées" : ""}</small>` +
+          `<small>${esc(p.activity || "")}</small></span><span class="end">${fmtDist(d)}${icon("chev-r", "chev")}</span></button></li>`;
+      }).join("")}</ul>`
+    : `<p class="muted">Aucune adresse avec ces filtres. Essayez d'en enlever un.</p>`;
+  document.querySelectorAll("[data-place]").forEach((b) => b.addEventListener("click", () => openAcceslibre(keep[+b.dataset.place].f)));
+}
+
+function acceslibreBlock(p) {
+  const st = PLACE_ST[p.wheelchair], [title, sub] = PLACE_FR[p.wheelchair], wc = WC_FR[p.toilets] || WC_FR.unknown;
+  const reasonIcon = (r) => /marche/i.test(r) ? "steps" : /porte/i.test(r) ? "door" : /rampe|aide/i.test(r) ? "hand" : "ok";
+  return `<div class="verdict ${st}">${mark(st, "lg")}<span><strong>${esc(title)}</strong>${esc(sub)}</span></div>` +
+    `<ul class="facts">` + (p.reasons || []).map((r) => `<li>${icon(reasonIcon(r))}<span>${esc(r)}</span></li>`).join("") +
+    `<li>${icon("wc", wc[0])}<span>${esc(wc[1])}</span></li>` +
+    (p.parking ? `<li>${icon("parking", "ok")}<span>Place de parking handicapé</span></li>` : "") + `</ul>`;
+}
+
+function openAcceslibre(f) {
+  const p = f.properties, coord = f.geometry.coordinates;
+  setPin(coord);
+  show("detail", "half");
+  flyTo(coord, 17);
+  const near = nearestStations(coord, 3, 1500);
+  $("#detail").innerHTML =
+    `<h2 id="d-title" class="title">${esc(p.name || "Sans nom")}</h2><p class="sub">${esc(p.activity || "")}${p.address ? ` · ${esc(p.address)}` : ""}</p>` +
+    acceslibreBlock(p) +
+    `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">${icon("ext")}Plus d'infos</a></div>` +
+    `<h3 class="h2">Stations avec ascenseur à côté</h3>` +
+    (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`) +
+    `<p class="src">Accessibilité : Acceslibre (beta.gouv.fr), décrite par les lieux et les visiteurs. Licence Ouverte.</p>`;
+  bindOpen($("#detail"));
+  $("#go-to").addEventListener("click", () => openTrip(null, { label: p.name, lon: coord[0], lat: coord[1] }));
+}
+
+// ---------------------------------------------------------------------------
+// Detail views
+// ---------------------------------------------------------------------------
 function openStation(id) {
   const st = S.stations.get(String(id));
-  if (!st) { toast("Cette station n'apparaît pas dans les données ascenseurs."); return; }
+  if (!st) { toast("Je n'ai pas d'information d'ascenseur pour cette station."); return; }
   history.replaceState(null, "", `#station=${encodeURIComponent(st.id)}`);
   setPin(null);
   show("detail", "half");
@@ -379,56 +564,69 @@ function openStation(id) {
   $("#detail").innerHTML =
     `<h2 id="d-title" class="title">${esc(st.name)}</h2><p class="sub">${esc(MODE_FR[st.mode] || st.mode || "Station")}</p>` +
     `<div class="verdict ${st.status}">${mark(st.status, "lg")}<span><strong>${esc(title)}</strong>${esc(sub)}</span></div>` +
-    (st.staleLifts ? `<p class="note">${icon("clock")}<span><b>À confirmer.</b> Pour ${who}, la dernière info IDFM date ${rel(oldest).replace(/^le /, "du ").replace("il y a", "d'il y a")}. L'état réel a pu changer.</span></p>` : "") +
+    (st.staleLifts ? `<p class="note">${icon("clock")}<span><b>À confirmer.</b> Pour ${who}, la dernière info IDFM date ${rel(oldest).replace(/^le /, "du ").replace("il y a", "d'il y a")}. Ça a pu changer depuis.</span></p>` : "") +
     `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><button class="btn" id="go-from">Partir d'ici</button></div>` +
     ((quais.length || works.length) ? `<ul class="facts">` +
       (quais.length ? `<li>${icon("train")}<span><b>Quais :</b> ${qText}</span></li>` : "") +
-      (works.length ? `<li>${icon("cone")}<span><b>${works.length} chantier${works.length > 1 ? "s" : ""}</b> sur le trottoir à moins de 200 m</span></li>` : "") +
+      (works.length ? `<li>${icon("cone", "warn")}<span><b>${plural(works.length, "chantier", "chantiers")}</b> sur le trottoir à moins de 200 m</span></li>` : "") +
       `</ul>` : "") +
-    `<h3 class="h2">Ascenseurs (${lifts.length})</h3>` +
+    `<h3 class="h2">Les ascenseurs (${lifts.length})</h3><div class="card">` +
     lifts.map((l) => {
       const s = l.status === "available" ? "ok" : l.status === "notavailable" ? "ko" : "unk";
       const old = ageH(l.source_update) > STALE_H;
-      return `<div class="lift">${mark(s)}<div><div class="st">${esc(LIFT_FR[l.status] || l.status)}${l.reason === "liftFailure" ? ", panne" : ""}</div>` +
+      return `<div class="lift">${mark(s)}<div><div class="st">${esc(LIFT_FR[l.status] || l.status)}</div>` +
         `<div class="where">${esc(l.situation || "Emplacement non précisé")}</div>${l.direction ? `<small>${esc(l.direction)}</small>` : ""}` +
         `<small class="${old ? "old" : ""}">Info IDFM ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small></div></div>`;
-    }).join("") +
+    }).join("") + `</div>` +
     `<p class="src">Source : IDFM, état des ascenseurs (Licence Mobilité), zone ${esc(st.id)}. Vérifié à ${hhmm(S.meta.lifts.fetched_at)}.</p>`;
-  const here = { label: st.name, lon: st.coord[0], lat: st.coord[1] };
-  $("#go-to").addEventListener("click", () => openTrip(null, here));
-  $("#go-from").addEventListener("click", () => openTrip(here, null));
+  const spot = { label: st.name, lon: st.coord[0], lat: st.coord[1] };
+  $("#go-to").addEventListener("click", () => openTrip(null, spot));
+  $("#go-from").addEventListener("click", () => openTrip(spot, null));
 }
 
-function openPlace(item) {
+async function openPlace(item) {
   const coord = [item.lon, item.lat];
   setPin(coord);
   show("detail", "half");
-  flyTo(coord, 15.5);
-  const near = nearestStations(coord, 4, 1500);
+  flyTo(coord, 16);
+  const near = nearestStations(coord, 3, 1500);
   const works = worksNear(coord, 150);
   $("#detail").innerHTML =
     `<h2 id="d-title" class="title">${esc(item.label)}</h2><p class="sub">${esc(item.sub || "")}</p>` +
-    (works.length ? `<div class="verdict warn">${mark("warn", "lg")}<span><strong>${works.length} chantier${works.length > 1 ? "s" : ""} sur le trottoir à moins de 150 m</strong>` +
-      `${esc(works[0].p.summary || "Travaux")}, jusqu'au ${esc(works[0].p.end)}.</span></div>` : "") +
+    `<div id="place-access"><p class="muted">Je regarde si le lieu est accessible…</p></div>` +
+    (works.length ? `<p class="note">${icon("cone")}<span><b>${plural(works.length, "chantier", "chantiers")} sur le trottoir</b> à moins de 150 m. ${esc(works[0].p.summary || "Travaux")}, jusqu'au ${esc(works[0].p.end)}.</span></p>` : "") +
     `<div class="btn-row"><button class="btn primary" id="go-to">Y aller</button><button class="btn" id="go-from">Partir d'ici</button></div>` +
-    `<h3 class="h2">Stations avec ascenseur à proximité</h3>` +
+    `<h3 class="h2">Stations avec ascenseur à côté</h3>` +
     (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`) +
-    `<p class="muted">L'accessibilité du lieu lui-même (entrée, marches, toilettes) arrive bientôt, avec Acceslibre.</p>` +
     `<p class="src">Lieu : IGN Géoplateforme. Ascenseurs : IDFM. Chantiers : Ville de Paris.</p>`;
   bindOpen($("#detail"));
   $("#go-to").addEventListener("click", () => openTrip(null, item));
   $("#go-from").addEventListener("click", () => openTrip(item, null));
+  // Same place in Acceslibre? Match by name within 120 m.
+  try {
+    const key = norm(item.label);
+    const cands = (await placesAround(coord, 0.003, 0.002))
+      .map((f) => ({ f, d: distM(coord, f.geometry.coordinates), k: norm(f.properties.name) }))
+      .filter((x) => x.d < 120 && x.k && (x.k.includes(key) || key.includes(x.k))).sort((a, b) => a.d - b.d);
+    const box = $("#place-access");
+    if (!box) return;
+    box.innerHTML = cands.length
+      ? acceslibreBlock(cands[0].f.properties) + `<p class="src"><a href="${esc(cands[0].f.properties.url)}" target="_blank" rel="noopener">Voir la fiche Acceslibre</a></p>`
+      : `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Pas encore décrit</strong>Ce lieu n'a pas de fiche d'accessibilité sur Acceslibre.</span></div>`;
+  } catch {
+    const box = $("#place-access"); if (box) box.innerHTML = "";
+  }
 }
 
 function openWorks(p, lngLat) {
   setPin([lngLat.lng, lngLat.lat]);
   show("detail", "half");
   $("#detail").innerHTML =
-    `<h2 id="d-title" class="title">Chantier sur le trottoir</h2><p class="sub">${esc(p.postcode || "Paris")}</p>` +
+    `<h2 id="d-title" class="title">Travaux sur le trottoir</h2><p class="sub">${esc(p.postcode || "Paris")}</p>` +
     `<div class="verdict warn">${mark("warn", "lg")}<span><strong>${esc(p.summary || "Travaux")}</strong>Du ${esc(p.start)} au ${esc(p.end)}.</span></div>` +
-    `<ul class="facts"><li>${icon("cone")}<span><b>Emprise :</b> ${esc((p.where || "").replace(/EMPRISE_/g, "").toLowerCase().replace(/_/g, " "))}</span></li>` +
-    `<li>${icon("place")}<span><b>Maître d'ouvrage :</b> ${esc(p.owner || "non précisé")}</span></li></ul>` +
-    `<p class="muted">Le passage peut être réduit ou dévié. Prévoyez de traverser plus tôt.</p>` +
+    `<ul class="facts"><li>${icon("cone")}<span><b>Où :</b> ${esc((p.where || "").replace(/EMPRISE_/g, "").toLowerCase().replace(/_/g, " "))}</span></li>` +
+    `<li>${icon("place")}<span><b>Qui :</b> ${esc(p.owner || "non précisé")}</span></li></ul>` +
+    `<p class="muted">Le passage peut être plus étroit ou dévié. Prévoyez de traverser un peu avant.</p>` +
     `<p class="src">Source : Ville de Paris, chantiers à Paris (ODbL), emprise ${esc(p.id)}.</p>`;
 }
 
@@ -445,17 +643,18 @@ function openTrip(from, to) {
   $("#trip-to").value = trip.to ? trip.to.label : "";
   $("#trip-result").innerHTML = "";
   show("trip", "full");
-  if (!trip.from) $("#trip-from").focus(); else if (!trip.to) $("#trip-to").focus(); else runTrip();
+  if (!trip.from) locate().then(() => { if (!trip.from && S.myPos) { trip.from = myPosItem(); $("#trip-from").value = trip.from.label; if (trip.to) runTrip(); } });
+  if (trip.from && trip.to) runTrip(); else if (trip.from) $("#trip-to").focus();
 }
 
 async function runTrip() {
   const out = $("#trip-result");
-  if (!trip.from || !trip.to) { out.innerHTML = `<p class="err">Choisissez un départ et une arrivée dans la liste.</p>`; return; }
+  if (!trip.from || !trip.to) { out.innerHTML = `<p class="err">Choisissez le départ et l'arrivée dans la liste qui s'affiche.</p>`; return; }
   document.activeElement?.blur();
-  out.innerHTML = `<p class="muted">Recherche d'un itinéraire accessible…</p>`;
+  out.innerHTML = `<p class="muted">Je cherche un trajet accessible…</p>`;
   const q = (p) => `${p.lon},${p.lat}`;
   try { renderJourneys(await getJSON(`/api/journey?from=${q(trip.from)}&to=${q(trip.to)}`)); }
-  catch (e) { if (e.status === 503) renderTripFallback(); else out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  catch (e) { if (e.status === 503) renderTripFallback(); else out.innerHTML = `<p class="err">Je n'ai pas trouvé de trajet. ${esc(e.message)}</p>`; }
 }
 
 function renderTripFallback() {
@@ -465,15 +664,15 @@ function renderTripFallback() {
     return `<h3 class="h2">${label}</h3>` + (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`);
   };
   $("#trip-result").innerHTML =
-    `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Le calcul d'itinéraire arrive bientôt</strong>En attendant, voici l'état des stations proches du départ et de l'arrivée.</span></div>` +
-    block("Près du départ", a) + block("Près de l'arrivée", b);
+    `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Le calcul du trajet arrive bientôt</strong>En attendant, voici les stations avec ascenseur au départ et à l'arrivée.</span></div>` +
+    block("Au départ", a) + block("À l'arrivée", b);
   bindOpen($("#trip-result"));
   Sheet.set("half");
   fitTo([a, b]);
 }
 
 function renderJourneys(d) {
-  if (!d.journeys.length) { $("#trip-result").innerHTML = `<p>Aucun itinéraire accessible trouvé.</p>`; return; }
+  if (!d.journeys.length) { $("#trip-result").innerHTML = `<p>Je n'ai pas trouvé de trajet accessible.</p>`; return; }
   $("#trip-result").innerHTML = d.journeys.map((j, i) => {
     const bad = j.lifts_not_available, status = bad.length ? "warn" : "ok";
     const steps = j.sections.filter((s) => s.type === "public_transport" || (s.type === "street_network" && s.duration_s > 30)).map((s) =>
@@ -481,9 +680,9 @@ function renderJourneys(d) {
         : `<li>En fauteuil, ${Math.max(1, Math.round(s.duration_s / 60))} min</li>`).join("");
     return `<div class="journey ${i === 0 ? "sel" : ""}" data-i="${i}" tabindex="0" role="button">` +
       `<div class="verdict ${status}">${mark(status, "lg")}<span><strong>${Math.round(j.duration_s / 60)} min</strong>` +
-      `${bad.length ? `${bad.length} ascenseur${bad.length > 1 ? "s" : ""} hors service : ${esc([...new Set(bad.map((l) => l.station))].join(", "))}` : "Aucun ascenseur en panne sur le trajet"}</span></div>` +
+      `${bad.length ? `Attention : ${plural(bad.length, "ascenseur en panne", "ascenseurs en panne")} (${esc([...new Set(bad.map((l) => l.station))].join(", "))})` : "Aucun ascenseur en panne sur le trajet"}</span></div>` +
       `<ol>${steps}</ol></div>`;
-  }).join("") + `<p class="src">Itinéraire : ${esc(d.source)}. Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
+  }).join("") + `<p class="src">Trajet : ${esc(d.source)}. Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
   const showJ = (i) => {
     document.querySelectorAll(".journey").forEach((el) => el.classList.toggle("sel", +el.dataset.i === i));
     map.getSource("trip").setData({ type: "FeatureCollection", features: d.journeys[i].sections.filter((s) => s.geojson).map((s) => ({ type: "Feature", geometry: s.geojson, properties: {} })) });
@@ -510,13 +709,13 @@ function localStations(q, max = 4) {
     .map((st) => ({ kind: "station", id: st.id, label: st.name, sub: verdictText(st)[0], status: st.status, lon: st.coord[0], lat: st.coord[1] }));
 }
 
-function autocomplete(input, list, onPick, { withMe = false, onFocus } = {}) {
+function autocomplete(input, list, onPick, { withMe = false, onFocus, stations = true } = {}) {
   let items = [], sel = -1, timer = null, seq = 0;
   const render = () => {
     if (!items.length) { list.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); return; }
     list.innerHTML = items.map((it, i) => {
       const lead = it.kind === "station" ? mark(it.status)
-        : `<span class="mark neutral" aria-hidden="true">${icon(it.kind === "me" ? "locate" : it.kind === "place" ? "place" : "address")}</span>`;
+        : `<span class="mark neutral sq" aria-hidden="true">${icon(it.kind === "me" ? "locate" : it.kind === "place" ? "place" : it.kind === "fav" ? "home" : "address")}</span>`;
       return `<li role="option" id="${list.id}-${i}" aria-selected="${i === sel}" data-i="${i}">${lead}<span class="t"><b>${esc(it.label)}</b><small>${esc(it.sub || "")}</small></span></li>`;
     }).join("");
     list.hidden = false; input.setAttribute("aria-expanded", "true");
@@ -524,15 +723,19 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus } = {}) {
     list.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => pick(+li.dataset.i)));
   };
   const pick = (i) => { const it = items[i]; if (!it) return; items = []; render(); input.value = it.label; input.blur(); onPick(it); };
+  const favItems = () => FAVS.map((f) => { const v = store.json(`fav-${f.key}`); return v && { ...v, kind: "fav", sub: f.label }; }).filter(Boolean);
   const run = async () => {
     const q = input.value.trim(), my = ++seq;
-    const head = withMe && myPosItem() && (!q || norm("ma position").startsWith(norm(q))) ? [{ ...myPosItem(), sub: "Partir de votre position" }] : [];
+    const head = [];
+    if (withMe && myPosItem() && (!q || norm("ma position").startsWith(norm(q)))) head.push({ ...myPosItem(), sub: "Partir d'où vous êtes" });
+    if (withMe && !q) head.push(...favItems());
     if (q.length < 2) { items = head; sel = -1; render(); return; }
-    items = [...head, ...localStations(q)]; sel = -1; render();
+    const local = stations ? localStations(q) : [];
+    items = [...head, ...local]; sel = -1; render();
     try {
       const d = await getJSON(`/api/suggest?q=${encodeURIComponent(q)}`);
       if (my !== seq) return;
-      items = [...head, ...localStations(q), ...d.results.slice(0, 5)]; render();
+      items = [...head, ...local, ...d.results.slice(0, 5)]; render();
     } catch {}
   };
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 180); });
@@ -547,13 +750,16 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus } = {}) {
   return { run };
 }
 
-const pickMain = (it) => (it.kind === "station" ? openStation(it.id) : openPlace(it));
+const pickMain = (it) => {
+  if (pendingFav) return saveFav(it);
+  return it.kind === "station" ? openStation(it.id) : openPlace(it);
+};
 const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, { onFocus: () => isPhone() && Sheet.set("full") });
 autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) runTrip(); else $("#trip-to").focus(); }, { withMe: true });
-autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); });
+autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true });
 
 // ---------------------------------------------------------------------------
-// Geolocation & nearby
+// Geolocation
 // ---------------------------------------------------------------------------
 function locate() {
   return new Promise((resolve) => {
@@ -562,47 +768,39 @@ function locate() {
       () => resolve(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   });
 }
-
-$("#nearby").addEventListener("click", async () => {
-  const label = $("#nearby span"); label.textContent = "Localisation…";
-  let pos = await locate();
-  if (!pos) { const c = map.getCenter(); pos = [c.lng, c.lat]; toast("Position indisponible. Recherche autour du centre de la carte."); }
-  label.textContent = "Stations autour de moi";
-  const near = nearestStations(pos, 6, 3000);
-  $("#nearby-list").innerHTML = near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 3 km.</p>`;
-  bindOpen($("#nearby-list"));
-  Sheet.set("half");
-  setPin(pos); flyTo(pos, 14.5);
-});
-
 $("#locate").addEventListener("click", async () => {
   const pos = await locate();
-  if (!pos) return toast("Impossible d'obtenir votre position. Vérifiez l'autorisation de localisation.");
+  if (!pos) return toast("Je ne trouve pas votre position. Autorisez la localisation dans les réglages du téléphone.");
   setPin(pos); flyTo(pos, 15);
 });
 
 // ---------------------------------------------------------------------------
 // Chips, text size, voice, deep links
 // ---------------------------------------------------------------------------
-const layerOn = { lifts: true, works: true, quais: false, bus: false };
-const LAYER_IDS = { lifts: ["stations"], works: ["works-fill", "works-line"], quais: ["quais"], bus: ["bus"] };
+const layerOn = { lifts: true, works: true, quais: false, bus: false, places: false };
+const LAYER_IDS = { lifts: ["stations"], works: ["works-fill", "works-line"], quais: ["quais"], bus: ["bus"], places: ["places"] };
+function setLayer(k, on) {
+  layerOn[k] = on;
+  const chip = $(`.chip[data-layer="${k}"]`);
+  chip.classList.toggle("on", on); chip.setAttribute("aria-pressed", String(on));
+  for (const id of LAYER_IDS[k]) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+}
 document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => {
-  const k = chip.dataset.layer; layerOn[k] = !layerOn[k];
-  chip.classList.toggle("on", layerOn[k]); chip.setAttribute("aria-pressed", String(layerOn[k]));
-  for (const id of LAYER_IDS[k]) map.setLayoutProperty(id, "visibility", layerOn[k] ? "visible" : "none");
-  if (k === "bus" && layerOn.bus) {
-    if (map.getZoom() < 14.5) { toast("Les arrêts de bus s'affichent en zoomant."); map.easeTo({ zoom: 15, padding: Sheet.padding() }); } else loadBus();
-  }
+  const k = chip.dataset.layer; setLayer(k, !layerOn[k]);
+  if ((k === "bus" || k === "places") && layerOn[k] && map.getZoom() < 15) {
+    toast(k === "bus" ? "Les arrêts de bus s'affichent quand on zoome." : "Les restos s'affichent quand on zoome.");
+    map.easeTo({ zoom: 15.5, padding: Sheet.padding() });
+  } else if (k === "bus") loadBus(); else if (k === "places") loadPlacesLayer();
 }));
 
 const textBtn = $("#textsize");
 function setBig(on) {
   document.documentElement.classList.toggle("big", on);
   textBtn.setAttribute("aria-pressed", String(on));
-  textBtn.setAttribute("aria-label", on ? "Texte normal" : "Agrandir le texte");
+  textBtn.setAttribute("aria-label", on ? "Remettre le texte normal" : "Agrandir le texte");
 }
 setBig(store.get("big") === "1");
-textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); });
+textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); toast(on ? "Texte agrandi." : "Texte normal."); });
 
 (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -613,9 +811,9 @@ textBtn.addEventListener("click", () => { const on = !document.documentElement.c
     const text = e.results[0][0].transcript.replace(/^(je veux aller|aller|emmène-moi|je vais) (à|au|aux|a)\s+/i, "");
     $("#search").value = text; $("#search").focus(); mainSearch.run();
   };
-  rec.onerror = () => toast("Je n'ai pas entendu. Réessayez.");
-  rec.onend = () => { btn.classList.remove("listening"); btn.setAttribute("aria-label", "Dicter la destination"); };
-  btn.addEventListener("click", () => { btn.classList.add("listening"); btn.setAttribute("aria-label", "Écoute en cours"); try { rec.start(); } catch {} });
+  rec.onerror = () => toast("Je n'ai pas bien entendu. Réessayez en parlant près du téléphone.");
+  rec.onend = () => { btn.classList.remove("listening"); btn.setAttribute("aria-label", "Dire où vous allez"); };
+  btn.addEventListener("click", () => { btn.classList.add("listening"); btn.setAttribute("aria-label", "Je vous écoute"); toast("Je vous écoute. Dites par exemple : Gare de Lyon."); try { rec.start(); } catch {} });
 })();
 
 function applyHash() {
@@ -623,3 +821,4 @@ function applyHash() {
   if (m) openStation(decodeURIComponent(m[1]));
 }
 window.addEventListener("hashchange", applyHash);
+renderFavs();
