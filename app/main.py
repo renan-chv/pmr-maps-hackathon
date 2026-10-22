@@ -18,6 +18,7 @@ from . import db, poller, sources
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
 PRIM_API_KEY = os.getenv("PRIM_API_KEY")
+SERVERLESS = bool(os.getenv("VERCEL"))  # Vercel functions sleep between requests
 PRIM_JOURNEYS = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/journeys"
 
 app = FastAPI(title="PMR Maps")
@@ -29,6 +30,8 @@ async def startup() -> None:
         db.init_schema()
     except Exception:
         logging.exception("database init failed, continuing without history in PostgreSQL")
+    if SERVERLESS:
+        return  # no background tasks; layers load lazily and the poller runs on request
     asyncio.create_task(poller.run_forever())
     asyncio.get_running_loop().run_in_executor(None, sources.warm_up)
 
@@ -49,6 +52,8 @@ def point(lon, lat, props: dict) -> dict:
 
 @app.get("/api/lifts")
 def api_lifts():
+    if SERVERLESS:
+        poller.maybe_poll()
     data = sources.lifts()
     feats, counts = [], {"available": 0, "notavailable": 0, "unknown": 0}
     for r in data["rows"]:
@@ -139,6 +144,8 @@ def api_works():
 
 @app.get("/api/alerts")
 def api_alerts():
+    if SERVERLESS:
+        poller.maybe_poll()
     return {"alerts": list(poller.alerts), "poller": poller.state, "history_in_db": db.enabled()}
 
 
