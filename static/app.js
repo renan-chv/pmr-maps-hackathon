@@ -591,19 +591,32 @@ function show(view, snap) {
   if (view !== "home" && !history.state?.roulib) history.pushState({ roulib: true }, "", location.href);
 }
 function goHome() {
+  // Focus was in the closing sheet (or nowhere): give it back to what opened it, else the home heading
+  // (not the search bar: focusing it would expand the sheet and open its suggestions).
+  const lost = $("#sheet").contains(document.activeElement) || document.activeElement === document.body || !document.activeElement;
   show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty()); map.getSource("trip-ends")?.setData(empty());
   if (!layerOn.places) showPlacesOnMap([]);
   history.replaceState(null, "", location.pathname);
-  const back = show.opener && document.contains(show.opener) ? show.opener : $("#search");
-  if (document.activeElement === document.body || !document.activeElement) back?.focus({ preventScroll: true });
+  const o = show.opener;
+  if (!lost) return;
+  if (o && o !== document.body && o !== $("#search") && document.contains(o)) o.focus({ preventScroll: true });
+  else focusEl($("#h-home"));
 }
 window.addEventListener("popstate", () => {
+  if ($("#all-routes") && !$("#v-trip").hidden && lastTrip) return renderResults(lastTrip);  // detail -> list
   // A #station= link fires popstate before hashchange: open that station instead of going home (which clears the hash).
   if (/station=/.test(location.hash)) return applyHash();
-  if ($("#all-routes") && !$("#v-trip").hidden && lastTrip) return renderResults(lastTrip);  // detail -> list
   if ($("#v-home").hidden) goHome();
 });
 document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("click", goHome));
+// Escape closes the open sheet like its visible Back button (trip detail: back to the list).
+// Capture phase: an open suggestion list or time picker is seen before its own Escape closes it, and keeps priority.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || !$("#when-panel").hidden || document.querySelector(".suggest:not([hidden])")) return;
+  const view = document.querySelector(".view:not([hidden])");
+  const back = view && [...view.querySelectorAll("#all-routes, [data-back], [data-back-trip]")].find((b) => b.offsetParent);
+  if (back) { e.preventDefault(); back.click(); }
+}, true);
 
 document.querySelectorAll("[data-go]").forEach((t) => t.addEventListener("click", () => {
   ({ trip: () => openTrip(null, null), food: openFood, near: openNearby, pannes: openPannes })[t.dataset.go]();
@@ -751,9 +764,10 @@ function openStation(id) {
   $("#detail").dataset.kind = "station";
   const st = S.stations.get(String(id));
   if (!st) { toast("I have no elevator information for this station."); return; }
-  history.replaceState(null, "", `#station=${encodeURIComponent(st.id)}`);
   setPin(null);
   show("detail", "half");
+  // After show(): the entry below (home) keeps its clean URL, so Back never reopens this station.
+  history.replaceState(history.state, "", `#station=${encodeURIComponent(st.id)}`);
   flyTo(st.coord, 16);
   // Service lifts would drown the answer: the verdict, the summary and the groups only count passenger ones.
   const pub = st.lifts.filter((l) => !isServiceLift(l)), other = st.lifts.filter(isServiceLift);
@@ -996,8 +1010,20 @@ async function openReportFlow({ cat = null, place = null, target = null }) {
   setPin([place.lon, place.lat]);
 }
 
+// Custom radio groups: one tab stop (the checked option, else the first), arrows move and select like native radios.
+const radioTab = (key, picked, i) => ((picked ? key === picked : i === 0) ? "0" : "-1");
+function radioKeys(group) {
+  group.addEventListener("keydown", (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    const all = [...group.querySelectorAll('[role="radio"]')], i = all.indexOf(document.activeElement);
+    if (!step || i < 0) return;
+    e.preventDefault();
+    all[(i + step + all.length) % all.length].click();
+  });
+}
+radioKeys($("#r-cats"));
 function renderReportCats() {
-  $("#r-cats").innerHTML = R_CATS.map((c) => `<button class="r-cat" role="radio" aria-checked="${rep.cat === c.key}" data-cat="${c.key}">${icon(c.ic)}<span>${c.label}</span></button>`).join("");
+  $("#r-cats").innerHTML = R_CATS.map((c, i) => `<button class="r-cat" role="radio" aria-checked="${rep.cat === c.key}" tabindex="${radioTab(c.key, rep.cat, i)}" data-cat="${c.key}">${icon(c.ic)}<span>${c.label}</span></button>`).join("");
   document.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { rep.cat = b.dataset.cat; renderReportCats(); $(`[data-cat="${rep.cat}"]`)?.focus(); }));
   renderReportSummary();
 }
@@ -1178,6 +1204,8 @@ function openTrip(from, to) {
   $("#trip-from").value = trip.from ? trip.from.label : "";
   $("#trip-to").value = trip.to ? trip.to.label : "";
   $("#trip-result").innerHTML = "";
+  // A trip started from a station sheet: drop its #station= hash, or Back would reopen the station.
+  if (/station=/.test(location.hash)) history.replaceState(history.state, "", location.pathname + location.search);
   tripHint("");
   show("trip", "full");
   if (!trip.from) locate().then(() => {
@@ -1435,7 +1463,7 @@ function renderResults(d) {
   if (!its.length) { $("#trip-result").innerHTML = `<p class="err">I couldn't find a trip between these two places. Try a nearby station.</p>`; return; }
   const best = its[0];
   $("#trip-result").innerHTML =
-    `<p class="results-head">${best.verdict === "bloque" ? `No trip works${esc(forWho())} ${d.when ? "at that time" : "right now"}.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")}${esc(forWho())}`}</p>` +
+    `<h3 class="results-head">${best.verdict === "bloque" ? `No trip works${esc(forWho())} ${d.when ? "at that time" : "right now"}.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")}${esc(forWho())}`}</h3>` +
     (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
     // The chosen time, and plainly that lift statuses are today's, not a forecast.
     (d.when ? `<p class="when-line">${icon("clock")}<span><b>${esc(whenPhrase(d.arrive ? "arrive" : "depart", d.when))}</b>${d.time_note ? `<small>${esc(d.time_note)}</small>` : ""}</span></p>` : "") +
@@ -1481,7 +1509,7 @@ function renderItinerary(d, id, fromId = null) {
   $("#trip-result").innerHTML =
     `<button class="back" id="all-routes">${icon("chev-l")}All trips</button>` +
     (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
-    `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong>${esc(V.title(it))}</strong>${esc(sub)}</span></div>` +
+    `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong role="heading" aria-level="3">${esc(V.title(it))}</strong>${esc(sub)}</span></div>` +
     `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · leave ${yyyymmddToTime(it.departure)}, arrive ${yyyymmddToTime(it.arrival)}` : ""}</p>` +
     (rec ? `<p class="rec-line">${icon("clock")}Recorded example, not live</p>` : "") +
     (planB ? `<button class="btn primary block" id="planb">${icon("swap")}See Plan B (${planB.duration_min} min)</button>` : "") +
@@ -1717,13 +1745,18 @@ const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, {
     if (it) pickMain(it); else toast("No place found. Try a station, an address or a landmark.");
   },
 });
+// A new start or destination: the old results never stay under the new places.
+function tripChanged() {
+  $("#trip-result").innerHTML = "";
+  if (trip.from && trip.to) runTrip();
+}
 $("#trip-swap").addEventListener("click", () => {
   [trip.from, trip.to] = [trip.to, trip.from];
   [$("#trip-from").value, $("#trip-to").value] = [$("#trip-to").value, $("#trip-from").value];
-  if (trip.from && trip.to) runTrip();
+  tripChanged();
 });
 const tripAC = {
-  from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; tripHint(""); if (trip.to) $("#trip-go").focus(); else $("#trip-to").focus(); }, { withMe: true,
+  from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; tripHint(""); tripChanged(); if (!trip.to) $("#trip-to").focus(); }, { withMe: true,
     // Enter in "From" with no destination yet: settle the start, then go to "To" (as picking it does).
     onEnter: async () => {
       if ($("#trip-to").value.trim() || $("#trip-from").value.trim().length < 2) return runTrip();
@@ -1732,7 +1765,7 @@ const tripAC = {
       if (!it) return runTrip();
       trip.from = it; $("#trip-from").value = it.label; tripHint(""); $("#trip-to").focus();
     } }),
-  to: autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true, onEnter: () => runTrip() }),
+  to: autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; tripChanged(); }, { withMe: true, onEnter: () => runTrip() }),
 };
 
 // ---------------------------------------------------------------------------
@@ -1816,7 +1849,10 @@ textSeg.addEventListener("change", (e) => {
 
 function applyHash() {
   const m = location.hash.match(/station=([^&]+)/);
-  if (m) openStation(decodeURIComponent(m[1]));
+  if (!m) return;
+  // Shared link: the page below the sheet is home, without the hash (Back closes the station).
+  if (!history.state?.roulib) history.replaceState(null, "", location.pathname + location.search);
+  openStation(decodeURIComponent(m[1]));
 }
 window.addEventListener("hashchange", applyHash);
 
@@ -1830,10 +1866,11 @@ renderFavs();
 // First launch: choose a mobility profile (roadmap screen 1)
 // ---------------------------------------------------------------------------
 let chosen = Profile.get()?.key || null;
+radioKeys($("#ptiles"));
 function renderOnboard() {
-  $("#ptiles").innerHTML = PMR_PROFILES.map((p) =>
-    `<button class="ptile${p.sub ? " community" : ""}" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><span><b>${esc(p.label)}</b>${p.sub ? `<small>${esc(p.sub)}</small>` : ""}</span></button>`).join("");
-  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; $(`[data-p="${chosen}"]`)?.focus(); }));
+  $("#ptiles").innerHTML = PMR_PROFILES.map((p, i) =>
+    `<button class="ptile${p.sub ? " community" : ""}" role="radio" aria-checked="${p.key === chosen}" tabindex="${radioTab(p.key, chosen, i)}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><span><b>${esc(p.label)}</b>${p.sub ? `<small>${esc(p.sub)}</small>` : ""}</span></button>`).join("");
+  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#v-onboard").classList.add("picked"); $("#o-go").disabled = false; $(`[data-p="${chosen}"]`)?.focus(); }));
   $("#o-go").disabled = !chosen;
   $("#o-name").value = Profile.name();
 }
@@ -1843,7 +1880,7 @@ $("#o-go").addEventListener("click", () => {
   Profile.save(chosen, $("#o-name").value);
   renderMe();
   if (lastTrip && onboardFrom === "trip") { show("trip", "half"); runTrip(); }
-  else show("home", "half");
+  else { show("home", "half"); focusEl($("#h-home")); }
   // First launch: centre on the user, like any maps app (the browser asks for permission once).
   if (first) locate().then((pos) => pos && flyTo(pos, 15));
   toast(chosen === "valide" ? "Thanks for joining the community! Tap Report whenever you see a broken elevator or a blocked sidewalk." : `Got it: I'll check your trips for a ${Profile.get().short}.`, 5000);
@@ -1858,7 +1895,7 @@ function renderMe() {
   $("#me-chip").setAttribute("aria-label", `For: ${p ? p.short : "your profile"}. Change profile`);
 }
 let onboardFrom = null;
-$("#me-chip").addEventListener("click", () => { onboardFrom = [...document.querySelectorAll(".view")].find((v) => !v.hidden)?.id.slice(2); renderOnboard(); show("onboard", "full"); });
+$("#me-chip").addEventListener("click", () => { onboardFrom = [...document.querySelectorAll(".view")].find((v) => !v.hidden)?.id.slice(2); $("#v-onboard").classList.remove("picked"); renderOnboard(); show("onboard", "full"); });
 renderMe();
 if (!Profile.get() && !REPLAY) { renderOnboard(); show("onboard", "full"); }
 if (REPLAY) openTrip(null, null);

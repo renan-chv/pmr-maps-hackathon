@@ -331,7 +331,8 @@ body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden
 .trip-summary { display: none; }
 #v-trip.has-result .trip-summary { display: flex; }
 #v-trip.has-result .trip-fields { display: none; }
-#v-trip.has-result #t-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#v-trip.has-result #t-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }  /* the summary line replaces the question, the heading stays */
+#v-trip:has(#all-routes) > [data-back] { display: none; }  /* trip detail: "All trips" is the only Back */
 
 /* ---------- Station sheet extras & reports ---------- */
 .lift-body { min-width: 0; }
@@ -460,17 +461,19 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 
 /* ---------- Performance: everything that follows the sheet moves with transform ---------- */
 #sheet-body { padding-bottom: calc(var(--sheet-full, 80dvh) - var(--sheet-h) + 110px + var(--safe-b)); }
+/* The part of the body below the screen edge doesn't count when Tab scrolls a control into view. */
+#sheet-body { scroll-padding-bottom: calc(var(--sheet-full, 80dvh) - var(--sheet-h) + var(--safe-b) + 110px); }
 #map-tools, .snap { bottom: calc(var(--safe-b) + 12px); transform: translate3d(0, calc(-1 * var(--sheet-h)), 0); transition: transform .4s var(--ease), opacity .2s; will-change: transform; }
 #sheet.dragging ~ #map-tools, body:has(#sheet.dragging) #map-tools, body:has(#sheet.dragging) .snap { transition: none; }
 .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { transition: none; }
 @media (orientation: landscape) and (max-height: 540px) {
   #sheet { transform: none; height: auto; }
-  #sheet-body { padding-bottom: calc(24px + var(--safe-b)); }
+  #sheet-body { padding-bottom: calc(24px + var(--safe-b)); scroll-padding-bottom: 0; }
   #map-tools, .snap { transform: none; }
 }
 @media (min-width: 1024px) {
   #sheet { transform: none; height: auto; will-change: auto; }
-  #sheet-body { padding-bottom: var(--sp-5); }
+  #sheet-body { padding-bottom: var(--sp-5); scroll-padding-bottom: 0; }
   #map-tools, .snap { transform: none; will-change: auto; }
   #map-tools { bottom: 112px; } .snap { bottom: 24px; }
 }
@@ -508,9 +511,13 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
   border: 2px solid var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--ink); }
 .trip-swap .i { width: 20px; height: 20px; }
 .trip-row .field { padding-right: 56px; }
-#v-trip.has-result #t-title { display: none; }            /* the summary line replaces the question */
 body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }  /* filters belong to the map */
-#o-go { position: sticky; bottom: calc(var(--safe-b) + 12px); z-index: 2; box-shadow: var(--shadow-1); }
+#o-go { position: sticky; bottom: calc(var(--safe-b) + 12px); z-index: 2; box-shadow: var(--shadow-1), 0 0 0 var(--sp-3) var(--ground); }
+/* Sticky only once a tile is tapped: before that it stays in the flow instead of hiding the last tiles. Tab scrolls tiles above it. */
+#v-onboard:not(.picked) #o-go { position: static; }
+@media (max-width: 1023px) and (not ((orientation: landscape) and (max-height: 540px))) {
+  #sheet-body:has(> #v-onboard:not([hidden])) { scroll-padding-bottom: calc(var(--sheet-full, 80dvh) - var(--sheet-h) + var(--safe-b) + 200px); }
+}
 .brand-line { margin: 0 0 var(--sp-1); font-weight: 800; font-size: var(--t-meta); letter-spacing: .08em; text-transform: uppercase; color: var(--brand); }
 .r-where { display: flex; align-items: center; gap: var(--sp-2); }
 .r-where .linkish { margin-left: auto; min-height: 44px; }
