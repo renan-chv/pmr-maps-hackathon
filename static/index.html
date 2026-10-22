@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#fff9f1">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PMR Maps">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
   <title>PMR Maps – Se déplacer en fauteuil en Île-de-France</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,6 +26,8 @@
     <button class="chip on" data-layer="works" aria-pressed="true"><svg class="i"><use href="#i-cone"/></svg>Travaux</button>
   </div>
 
+  <button id="snap" class="snap" aria-label="Signaler un obstacle avec une photo"><svg class="i"><use href="#i-camera"/></svg><span>Signaler</span></button>
+
   <div id="map-tools">
     <button id="textsize" class="fab txt" aria-label="Agrandir le texte" aria-pressed="false">A+</button>
     <div class="zoom" role="group" aria-label="Zoom">
@@ -35,8 +41,27 @@
     <div id="grip" role="slider" tabindex="0" aria-label="Taille du panneau" aria-valuetext="moitié"><span></span></div>
     <div id="sheet-body">
 
+      <!-- FIRST LAUNCH: mobility profile -->
+      <section class="view" id="v-onboard" hidden aria-labelledby="o-title">
+        <h2 id="o-title" class="greet">Comment vous déplacez-vous&nbsp;?</h2>
+        <p class="sub">Je vérifie chaque trajet pour vous : ascenseurs, travaux, marches. Choisissez ce qui vous ressemble.</p>
+        <div class="ptiles" role="radiogroup" aria-labelledby="o-title" id="ptiles"></div>
+        <label for="o-name" class="field-label">Votre prénom <span class="muted">(facultatif)</span></label>
+        <input id="o-name" class="field" type="text" autocomplete="given-name" enterkeyhint="done" placeholder="Par exemple : Léa">
+        <button id="o-go" class="btn primary block" disabled>C'est parti</button>
+        <p class="src">Votre choix reste sur ce téléphone. Vous pourrez le changer à tout moment.</p>
+      </section>
+
+      <!-- COMPARISON (demo) -->
+      <section class="view" id="v-compare" hidden aria-labelledby="c-title">
+        <button class="back" data-back-trip><svg class="i"><use href="#i-chev-l"/></svg>Retour au trajet</button>
+        <h2 id="c-title" class="title">Ce qu'une appli classique ne voit pas</h2>
+        <div id="compare"></div>
+      </section>
+
       <!-- HOME -->
       <section class="view" id="v-home" aria-labelledby="h-home">
+        <button id="me-chip" class="me-chip" aria-label="Changer de profil"><span class="fav-ic" id="me-ic"></span><span class="t"><b id="me-name">Votre profil</b><small id="me-prof"></small></span><span class="linkish">Changer</span></button>
         <h1 id="h-home" class="greet">Bonjour&nbsp;! Où allez-vous&nbsp;?</h1>
         <div class="search" role="search">
           <svg class="i search-i" aria-hidden="true"><use href="#i-search"/></svg>
@@ -96,6 +121,7 @@
       <section class="view" id="v-trip" hidden aria-labelledby="t-title">
         <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
         <h2 id="t-title" class="title">Où voulez-vous aller&nbsp;?</h2>
+        <button id="trip-summary" class="me-chip trip-summary" aria-label="Modifier le départ ou l'arrivée"></button>
         <div class="trip-fields">
           <div class="trip-row"><span class="pin a" aria-hidden="true"></span>
             <label for="trip-from" class="sr">Je pars de</label>
@@ -141,6 +167,15 @@
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
       <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M3 11 21 3l-8 18-2-8z"/></symbol>
+      <symbol id="i-p-manuel" viewBox="0 0 24 24"><circle cx="11" cy="4" r="1.8"/><path d="M11 7v6h5l2 5h2M11 10h5"/><path d="M8.5 10.5a5.5 5.5 0 1 0 7.3 6.5"/></symbol>
+      <symbol id="i-p-electrique" viewBox="0 0 24 24"><circle cx="9" cy="4" r="1.8"/><path d="M9 7v6h5l2 5h2M9 10h4"/><path d="M6.5 10.5a5.5 5.5 0 1 0 7.3 6.5"/><path d="m20 3-2.5 4H20l-2.5 4"/></symbol>
+      <symbol id="i-p-poussette" viewBox="0 0 24 24"><path d="M5 5h2l2 8h9a5 5 0 0 0-5-5V4a9 9 0 0 1 0 0"/><path d="M9 13a4 4 0 0 0 9 0"/><circle cx="9" cy="19" r="2"/><circle cx="17" cy="19" r="2"/></symbol>
+      <symbol id="i-p-deambulateur" viewBox="0 0 24 24"><circle cx="10" cy="4" r="1.8"/><path d="m10 7-1 6 2 3 1 5M9 13l-3 8M10 9l4 2"/><path d="M16 9v12"/><path d="M14.5 9H17"/></symbol>
+      <symbol id="i-p-malvoyant" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6c2 0 3.7.6 5 1.4M22 12s-3.5 6-10 6c-2 0-3.7-.6-5-1.4"/><path d="M9.5 14.5A3 3 0 0 1 14.5 9.5"/><path d="M3 21 21 3"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.3"/><path d="M3 20a6 6 0 0 1 12 0M14 20a4.5 4.5 0 0 1 7-3.7"/></symbol>
+      <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4v16M7 4 4 7M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
       <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
       <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
       <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
@@ -153,6 +188,7 @@
   </svg>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/static/profiles.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
