@@ -49,3 +49,8 @@ footer { margin-top: 24px; font-size: .8rem; }
   #map { inset: 0 0 50% 0; }
   #panel { top: 50%; width: 100%; border-left: 0; border-top: 1px solid var(--line); padding: 12px 16px; }
 }
+.places-filters { margin-top: 10px; }
+.places-filters legend { font-weight: 600; font-size: .95rem; }
+select { width: 100%; padding: 8px 10px; font-size: 1rem; border: 2px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); min-height: 44px; }
+.maplibregl-popup-content ul { margin: 4px 0; padding-left: 18px; }
+.dot.food { border-color: #111827; }

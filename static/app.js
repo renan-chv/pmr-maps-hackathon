@@ -2,6 +2,7 @@
 const COLORS = { ok: "#15803d", partial: "#d97706", ko: "#b91c1c", unk: "#6b7280", works: "#7c3aed" };
 const STATUS_FR = { available: "en service", notavailable: "en panne", unknown: "état inconnu" };
 const ACCESS_FR = { true: "accessible", partial: "partiellement accessible", false: "non accessible", unknown: "inconnu" };
+const TOILETS_FR = { true: "adaptées", false: "non adaptées", none: "pas de toilettes", unknown: "non renseigné" };
 const TYPE_FR = { metro: "Métro", rail: "Train / RER", tram: "Tram", cableway: "Câble", bus: "Bus" };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -32,7 +33,9 @@ const LAYERS = {
   train: ["train"],
   bus: ["bus"],
   works: ["works-fill", "works-line"],
+  places: ["places"],
 };
+const PLACES_MINZOOM = 15;
 
 function popup(lngLat, html) {
   new maplibregl.Popup({ maxWidth: "320px" }).setLngLat(lngLat).setHTML(html).addTo(map);
@@ -74,6 +77,17 @@ map.on("load", async () => {
     },
   });
 
+  map.addSource("places", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "places", type: "circle", source: "places", minzoom: PLACES_MINZOOM,
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 15, 4, 18, 8],
+      "circle-color": ["match", ["get", "wheelchair"], "true", COLORS.ok, "partial", COLORS.partial, "false", COLORS.ko, COLORS.unk],
+      "circle-stroke-color": ["match", ["get", "category"], "food", "#111827", "#fff"],
+      "circle-stroke-width": 1.5,
+    },
+  });
+
   map.addSource("lifts", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({
     id: "lifts", type: "circle", source: "lifts",
@@ -92,6 +106,7 @@ map.on("load", async () => {
   loadLifts();
   loadStatic();
   loadAlerts();
+  loadPlaces();
   setInterval(loadLifts, 5 * 60 * 1000);
   setInterval(loadAlerts, 60 * 1000);
 });
@@ -133,6 +148,40 @@ async function loadBus() {
   catch (e) { console.warn("bus", e); }
 }
 map.on("moveend", loadBus);
+
+// --- Places (Acceslibre) ---------------------------------------------------
+let placesReq = 0;
+async function loadPlaces() {
+  const info = document.getElementById("places-info");
+  if (map.getLayoutProperty("places", "visibility") === "none") return;
+  if (map.getZoom() < PLACES_MINZOOM) { info.textContent = "Zoomer sur un quartier pour afficher les lieux."; return; }
+  const b = map.getBounds();
+  const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
+  const req = ++placesReq;
+  info.textContent = "Chargement des lieux…";
+  try {
+    const d = await getJSON(`/api/places?bbox=${bbox}`);
+    if (req !== placesReq) return; // a newer request superseded this one
+    map.getSource("places").setData(d);
+    const c = d.meta.counts;
+    info.textContent = (d.meta.stale ? "⚠ Source injoignable, dernière version connue. " : "") +
+      `${d.meta.count} lieux : ${c.true} accessibles, ${c.partial} partiels, ${c.false} non accessibles, ${c.unknown} non renseignés · ` +
+      `Acceslibre, récupéré à ${fmtTime(d.meta.fetched_at)}`;
+  } catch (e) {
+    if (req === placesReq) info.innerHTML = `<span class="err">Lieux indisponibles : ${esc(e.message)}</span>`;
+  }
+}
+map.on("moveend", loadPlaces);
+
+function applyPlaceFilters() {
+  const f = ["all"];
+  const cat = document.getElementById("place-cat").value;
+  if (cat !== "all") f.push(["==", ["get", "category"], cat]);
+  if (document.getElementById("place-ok").checked) f.push(["==", ["get", "wheelchair"], "true"]);
+  if (document.getElementById("place-wc").checked) f.push(["==", ["get", "toilets"], "true"]);
+  map.setFilter("places", f.length > 1 ? f : null);
+}
+for (const id of ["place-cat", "place-ok", "place-wc"]) document.getElementById(id).addEventListener("change", applyPlaceFilters);
 
 async function loadAlerts() {
   try {
@@ -177,7 +226,17 @@ function bindPopups() {
     popup(e.lngLat, `<h3>Chantier ${esc(p.id)}</h3>${esc(p.summary)}<br>${esc(p.owner)}<br>Du ${esc(p.start)} au ${esc(p.end)}` +
       `<br>Emprise : ${esc(p.where)}<div class="src">Ville de Paris – Chantiers à Paris (ODbL)</div>`);
   });
-  for (const id of ["lifts", "stations", "train", "bus", "works-fill"]) {
+  map.on("click", "places", (e) => {
+    const p = e.features[0].properties;
+    const reasons = JSON.parse(p.reasons || "[]"); // MapLibre serialises array properties
+    popup(e.lngLat, `<h3>${esc(p.name)}</h3>${esc(p.activity)}<br><small>${esc(p.address)}</small>` +
+      `<br>Fauteuil : <b>${esc(ACCESS_FR[p.wheelchair] || p.wheelchair)}</b>` +
+      `<ul>${reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` +
+      `Toilettes : <b>${esc(TOILETS_FR[p.toilets] || p.toilets)}</b>${p.parking ? "<br>Place de stationnement PMR" : ""}` +
+      `<div class="src">${p.url && p.url !== "null" ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">Fiche Acceslibre</a> · ` : ""}` +
+      `Acceslibre via data.gouv.fr (Etalab)</div>`);
+  });
+  for (const id of ["lifts", "stations", "train", "bus", "works-fill", "places"]) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
   }
@@ -190,6 +249,10 @@ function bindToggles() {
       if (cb.dataset.layer === "bus" && cb.checked) {
         if (map.getZoom() < 14) map.easeTo({ zoom: 14.5 });
         loadBus();
+      }
+      if (cb.dataset.layer === "places" && cb.checked) {
+        if (map.getZoom() < PLACES_MINZOOM) map.easeTo({ zoom: PLACES_MINZOOM + 0.5 });
+        loadPlaces();
       }
     });
   });

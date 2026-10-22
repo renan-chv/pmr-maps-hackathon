@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -23,6 +25,12 @@ IDF_REGION = "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets"
 IDFM = "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets"
 PARIS = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets"
 GEOCODER = "https://data.geopf.fr/geocodage/search"
+# Acceslibre nightly export on data.gouv.fr (acceslibre.csv), queried through the tabular API (no key).
+# The "with-web-url" resource is 3-4x slower to query; the /uuid/ permalink gives the same page.
+ACCESLIBRE = "https://tabular-api.data.gouv.fr/api/resources/5b0f44f2-e6ea-4a58-874d-6fe364b40342/data/"
+ACCESLIBRE_PAGE = "https://acceslibre.beta.gouv.fr/uuid/{id}/"
+# Optional "minLon,minLat,maxLon,maxLat" preloaded at startup, e.g. the neighbourhood shown in the demo.
+PLACES_WARM_BBOX = os.getenv("PLACES_WARM_BBOX", "")
 
 SOURCES = {
     "lifts": {
@@ -44,6 +52,11 @@ SOURCES = {
         "name": "Ville de Paris – Chantiers à Paris",
         "url": "https://opendata.paris.fr/explore/dataset/chantiers-a-paris/",
         "license": "ODbL",
+    },
+    "places": {
+        "name": "Acceslibre – Accessibilité des ERP (export data.gouv.fr)",
+        "url": "https://www.data.gouv.fr/fr/datasets/60a528e8b656ce01b4c0c0a6/",
+        "license": "Licence Ouverte v2.0 (Etalab)",
     },
 }
 
@@ -93,27 +106,32 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
         return value
 
 
+def _get_json(url: str, params: dict, label: str) -> Any:
+    for attempt in range(3):
+        try:
+            t0 = time.time()
+            r = _client.get(url, params=params)
+            r.raise_for_status()
+            body = r.json()
+            log.info("%s: %.1fs", label, time.time() - t0)
+            return body
+        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as e:
+            log.warning("%s: attempt %d failed: %r", label, attempt + 1, e)
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError("unreachable")
+
+
 def _export(base: str, dataset: str, where: Optional[str] = None, select: Optional[str] = None) -> List[dict]:
     params = {}
     if where:
         params["where"] = where
     if select:
         params["select"] = select
-    url = f"{base}/{dataset}/exports/json"
-    for attempt in range(3):
-        try:
-            t0 = time.time()
-            r = _client.get(url, params=params)
-            r.raise_for_status()
-            rows = r.json()
-            log.info("%s: %d rows in %.1fs", dataset, len(rows), time.time() - t0)
-            return rows
-        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as e:
-            log.warning("%s: attempt %d failed: %r", dataset, attempt + 1, e)
-            if attempt == 2:
-                raise
-            time.sleep(2 * (attempt + 1))
-    raise RuntimeError("unreachable")
+    rows = _get_json(f"{base}/{dataset}/exports/json", params, dataset)
+    log.info("%s: %d rows", dataset, len(rows))
+    return rows
 
 
 # --- Lifts (live, ~3 updates a day upstream) -------------------------------
@@ -183,6 +201,50 @@ def works() -> dict:
     return cached("works", 3600, load)
 
 
+# --- Places: restaurants, shops… (Acceslibre) -----------------------------
+
+PLACE_TILE = 0.01  # degrees, about 730 m x 1.1 km in Paris
+PLACE_COLUMNS = ",".join([
+    "id", "name", "activite", "numero", "voie", "postal_code", "commune", "longitude", "latitude",
+    "stationnement_pmr", "stationnement_ext_pmr",
+    "cheminement_ext_plain_pied", "cheminement_ext_rampe", "cheminement_ext_ascenseur",
+    "entree_plain_pied", "entree_marches", "entree_marches_rampe", "entree_ascenseur", "entree_ascenseur_pmr",
+    "entree_pmr", "entree_largeur_mini", "entree_aide_humaine", "entree_dispositif_appel",
+    "accueil_cheminement_plain_pied", "accueil_cheminement_rampe", "accueil_cheminement_ascenseur",
+    "sanitaires_presence", "sanitaires_adaptes",
+])
+_tile_pool = ThreadPoolExecutor(max_workers=6)
+
+
+def place_tiles(x1: float, y1: float, x2: float, y2: float) -> List[Tuple[int, int]]:
+    t = PLACE_TILE
+    return [(tx, ty) for tx in range(math.floor(x1 / t), math.floor(x2 / t) + 1)
+            for ty in range(math.floor(y1 / t), math.floor(y2 / t) + 1)]
+
+
+def places_tile(tx: int, ty: int) -> dict:
+    """Every Acceslibre place in one grid tile (tx, ty = floor(lon / PLACE_TILE), floor(lat / PLACE_TILE)).
+
+    The tabular API caps pages at 200 rows: read page 1 to get the total, then the other pages in parallel.
+    """
+    def load():
+        base = {
+            "columns": PLACE_COLUMNS, "page_size": 200,
+            "longitude__greater": f"{tx * PLACE_TILE:.4f}", "longitude__less": f"{(tx + 1) * PLACE_TILE:.4f}",
+            "latitude__greater": f"{ty * PLACE_TILE:.4f}", "latitude__less": f"{(ty + 1) * PLACE_TILE:.4f}",
+        }
+        label = f"acceslibre {tx},{ty}"
+        first = _get_json(ACCESLIBRE, {**base, "page": 1}, label)
+        rows = first["data"]
+        pages = min(-(-first["meta"]["total"] // 200), 15)  # at most 3000 places per tile
+        more = _tile_pool.map(lambda p: _get_json(ACCESLIBRE, {**base, "page": p}, label)["data"], range(2, pages + 1))
+        for chunk in more:
+            rows += chunk
+        return {"fetched_at": now_iso(), "rows": rows}
+
+    return cached(f"places_{tx}_{ty}", 86400, load)
+
+
 # --- Geocoding (IGN Géoplateforme, no key) ---------------------------------
 
 def geocode(q: str) -> Optional[dict]:
@@ -203,3 +265,10 @@ def warm_up() -> None:
             fn()
         except Exception:
             log.exception("warm-up failed for %s", fn.__name__)
+    if PLACES_WARM_BBOX:
+        try:
+            tiles = place_tiles(*[float(v) for v in PLACES_WARM_BBOX.split(",")])
+            list(_tile_pool.map(lambda xy: places_tile(*xy), tiles))
+            log.info("places warm-up: %d tiles", len(tiles))
+        except Exception:
+            log.exception("warm-up failed for places (%s)", PLACES_WARM_BBOX)

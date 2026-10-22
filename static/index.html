@@ -47,13 +47,27 @@
         <label><input type="checkbox" data-layer="train" checked> Gares SNCF / RER (niveau)</label>
         <label><input type="checkbox" data-layer="bus"> Arrêts de bus (zoomer)</label>
         <label><input type="checkbox" data-layer="works" checked> Travaux sur trottoir (Paris)</label>
+        <label><input type="checkbox" data-layer="places" checked> Restaurants, commerces (zoomer)</label>
       </fieldset>
+      <fieldset class="layers places-filters">
+        <legend>Filtrer les lieux</legend>
+        <label for="place-cat" class="sr">Type de lieu</label>
+        <select id="place-cat">
+          <option value="all">Tous les lieux</option>
+          <option value="food">Restaurants, cafés</option>
+          <option value="shop">Commerces et services</option>
+        </select>
+        <label><input type="checkbox" id="place-ok"> Entrée accessible en fauteuil uniquement</label>
+        <label><input type="checkbox" id="place-wc"> Toilettes adaptées</label>
+      </fieldset>
+      <p class="fresh" id="places-info" aria-live="polite">Zoomer sur un quartier pour afficher les lieux.</p>
       <ul class="legend">
         <li><span class="dot ok"></span> accessible / en service</li>
         <li><span class="dot partial"></span> partiel / sur réservation</li>
         <li><span class="dot ko"></span> non accessible / en panne</li>
         <li><span class="dot unk"></span> inconnu</li>
         <li><span class="sq works"></span> chantier occupant le trottoir</li>
+        <li><span class="dot unk food"></span> lieu : contour noir = restaurant / café</li>
       </ul>
     </section>
 
@@ -64,7 +78,7 @@
 
     <footer>
       Sources : IDFM (État des ascenseurs – Licence Mobilité ; Référentiel des arrêts, Accessibilité en gare – Etalab),
-      Ville de Paris (Chantiers – ODbL), IGN Géoplateforme, PRIM/Navitia. Fond © OpenStreetMap, OpenFreeMap.
+      Ville de Paris (Chantiers – ODbL), Acceslibre (data.gouv.fr – Etalab), IGN Géoplateforme, PRIM/Navitia. Fond © OpenStreetMap, OpenFreeMap.
     </footer>
   </aside>
 

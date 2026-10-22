@@ -12,6 +12,7 @@ Toutes les données affichées sont **réelles** (API publiques). Aucune donnée
 | Gares SNCF / RER, niveau d'accessibilité | `/api/train-stations` | IDFM – Accessibilité en gare (Etalab) | quotidien |
 | Arrêts de bus accessibles (par zone) | `/api/bus-stops?bbox=…` | IDFM – Référentiel des arrêts (Etalab) | quotidien |
 | Travaux actifs occupant le trottoir (Paris) | `/api/works` | Ville de Paris – Chantiers à Paris (ODbL) | horaire |
+| Restaurants, commerces : verdict fauteuil (entrée, porte, marches), toilettes adaptées | `/api/places?bbox=…` | Acceslibre, export data.gouv.fr via l'API tabulaire (Etalab) | quotidien, cache 24 h par tuile |
 | Changements d'état des ascenseurs | `/api/alerts` | calculé par le poller | 15 min |
 | Itinéraire accessible + ascenseurs en panne sur le trajet | `/api/journey?from=…&to=…` | PRIM / Navitia `wheelchair=true` | direct (**clé PRIM requise**) |
 | Géocodage d'adresse | `/api/geocode?q=…` | IGN Géoplateforme | direct |
@@ -28,6 +29,7 @@ Variables d'environnement (voir `.env.example`) :
 - `DATABASE_URL` : PostgreSQL Aiven. Si absente, l'app tourne sans base (historique en mémoire).
 - `PRIM_API_KEY` : clé gratuite sur https://prim.iledefrance-mobilites.fr, nécessaire pour l'itinéraire.
 - `POLL_SECONDS` : intervalle de relevé des ascenseurs (900 par défaut).
+- `PLACES_WARM_BBOX` : zone `minLon,minLat,maxLon,maxLat` dont les lieux Acceslibre sont préchargés au démarrage (la zone de la démo).
 
 ## Déploiement Aiven Runtime
 
@@ -47,7 +49,7 @@ static/          carte MapLibre (fond OpenFreeMap / OpenStreetMap)
 
 ## À faire
 
-- [ ] Lieux Acceslibre (clé API à demander, ou export CSV data.gouv)
+- [x] Lieux Acceslibre (export data.gouv via l'API tabulaire, sans clé)
 - [ ] Clé PRIM pour l'itinéraire
 - [ ] Cheminements piétons de Paris
 - [ ] Agent Claude (outils : find_stations, lift_status, find_places, user_memory, save_report)
