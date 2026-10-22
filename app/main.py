@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, photos, poller, profiles, reliability, search, sources, verify
+from . import db, photos, poller, profiles, reliability, search, sources, station_api, verify
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -27,6 +27,7 @@ PRIM_JOURNEYS = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/jo
 app = FastAPI(title="PMR Maps")
 app.include_router(photos.router)
 app.include_router(search.router)
+app.include_router(station_api.router)
 
 
 @app.on_event("startup")

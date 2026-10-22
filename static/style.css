@@ -313,3 +313,15 @@ body.sheet-full #map-tools { opacity: 0; pointer-events: none; }
 #v-trip.has-result .trip-summary { display: flex; }
 #v-trip.has-result .trip-fields { display: none; }
 #v-trip.has-result #t-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* ---------- Station sheet extras & reports ---------- */
+.lift-body { min-width: 0; }
+.lift small.rel { color: var(--ink-2); }
+.lift small.rel.bad { color: var(--ko); font-weight: 700; }
+.report-lift { padding: 6px 0; min-height: 40px; font-size: .9em; }
+.report-lift[disabled] { color: var(--ok); }
+.snap { position: fixed; z-index: var(--z-overlay); left: 12px; bottom: calc(var(--sheet-h) + var(--safe-b) + 12px); display: inline-flex; align-items: center; gap: 8px;
+  min-height: 52px; padding: 0 18px 0 14px; border: 0; border-radius: 99px; background: #b93a0a; color: #fff; font-weight: 800; box-shadow: var(--shadow-1); transition: bottom .4s var(--ease), opacity .2s; }
+body.sheet-full .snap { opacity: 0; pointer-events: none; }
+@media (orientation: landscape) and (max-height: 540px) { .snap { left: auto; right: 76px; bottom: 12px; } }
+@media (min-width: 1024px) { .snap { left: 452px; bottom: 24px; } }

@@ -235,7 +235,7 @@ map.on("load", () => {
     const f = markImage(C[k], "food", { size: 36, square: true }); map.addImage(`pl-${k}`, f.image, { pixelRatio: f.pixelRatio });
   }
   const h = hatchImage(); map.addImage("hatch", h.image, { pixelRatio: h.pixelRatio });
-  ["works", "quais", "bus", "places", "trip", "stations", "pin", "me"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
+  ["works", "quais", "bus", "places", "reports", "trip", "stations", "pin", "me"].forEach((id) => map.addSource(id, { type: "geojson", data: empty() }));
 
   // Works only from street level: city-wide they are noise.
   map.addLayer({ id: "works-fill", type: "fill", source: "works", minzoom: 14.5, paint: { "fill-pattern": "hatch" } });
@@ -250,6 +250,11 @@ map.on("load", () => {
     "symbol-sort-key": ["match", ["get", "st"], "ok", 3, "warn", 2, "ko", 1, 0],
     "icon-size": ["interpolate", ["linear"], ["zoom"], 14, 0.45, 17, 0.8],
   } });
+  { const r = markImage(C.warn, "warn", { size: 38, square: true }); map.addImage("rp-warn", r.image, { pixelRatio: r.pixelRatio });
+    const k = markImage(C.ko, "warn", { size: 38, square: true }); map.addImage("rp-ko", k.image, { pixelRatio: k.pixelRatio });
+    const u = markImage(C.unk, "warn", { size: 38, square: true }); map.addImage("rp-unk", u.image, { pixelRatio: u.pixelRatio }); }
+  map.addLayer({ id: "reports", type: "symbol", source: "reports", minzoom: 13, layout: {
+    "icon-image": ["concat", "rp-", ["get", "st"]], "icon-allow-overlap": true, "icon-size": ["interpolate", ["linear"], ["zoom"], 13, 0.55, 17, 0.9] } });
   map.addLayer({ id: "trip", type: "line", source: "trip", layout: { "line-cap": "round", "line-join": "round" },
     paint: { "line-color": ["coalesce", ["get", "c"], C.brand], "line-width": 7, "line-opacity": 0.9 } });
   map.addLayer({ id: "stations", type: "symbol", source: "stations",
@@ -271,13 +276,14 @@ map.on("load", () => {
   map.on("click", "stations", (e) => openStation(e.features[0].properties.id));
   map.on("click", "places", (e) => { const id = e.features[0].properties.id; const p = S.places.find((x) => x.properties.id === id); if (p) openAcceslibre(p); });
   map.on("click", "works-fill", (e) => openWorks(e.features[0].properties, e.lngLat));
+  map.on("click", "reports", (e) => { const f = reportsData[e.features[0].properties.i]; if (f) openReport(f); });
   map.on("click", "quais", (e) => quickPopup(e, "Quai"));
   map.on("click", "bus", (e) => quickPopup(e, "Arrêt de bus"));
-  for (const id of ["stations", "places", "works-fill", "quais", "bus"]) {
+  for (const id of ["stations", "places", "reports", "works-fill", "quais", "bus"]) {
     map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
     map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
   }
-  map.on("moveend", () => { loadBus(); loadPlacesLayer(); });
+  map.on("moveend", () => { loadBus(); loadPlacesLayer(); loadReports(); });
   map.on("dragstart", () => { if (isPhone() && Sheet.get() === "full") Sheet.set("half"); });
 
   loadLifts().then(applyHash);
@@ -649,9 +655,12 @@ function openStation(id) {
     lifts.map((l) => {
       const s = l.status === "available" ? "ok" : l.status === "notavailable" ? "ko" : "unk";
       const old = ageH(l.source_update) > STALE_H;
-      return `<div class="lift">${mark(s)}<div><div class="st">${esc(LIFT_FR[l.status] || l.status)}</div>` +
+      return `<div class="lift">${mark(s)}<div class="lift-body"><div class="st">${esc(LIFT_FR[l.status] || l.status)}</div>` +
         `<div class="where">${esc(l.situation || "Emplacement non précisé")}</div>${l.direction ? `<small>${esc(l.direction)}</small>` : ""}` +
-        `<small class="${old ? "old" : ""}">Info IDFM ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small></div></div>`;
+        `<small class="${old ? "old" : ""}">Info IDFM ${rel(l.source_update)} (${esc(dayTime(l.source_update))})</small>` +
+        `<small class="rel" data-rel="${esc(l.liftid)}"></small>` +
+        (l.status !== "notavailable" ? `<button class="linkish report-lift" data-lift="${esc(l.liftid)}">Signaler une panne</button>` : "") +
+        `</div></div>`;
     }).join("") + `</div>` +
     nearSlot() +
     `<p class="src">Source : IDFM, état des ascenseurs (Licence Mobilité), zone ${esc(st.id)}. Vérifié à ${hhmm(S.meta.lifts.fetched_at)}.</p>`;
@@ -659,6 +668,90 @@ function openStation(id) {
   $("#go-to").addEventListener("click", () => openTrip(null, spot));
   $("#go-from").addEventListener("click", () => openTrip(spot, null));
   fillPhoto(st.coord);
+  fillReliability(st);
+  document.querySelectorAll(".report-lift").forEach((b) => b.addEventListener("click", () => reportLift(st, st.lifts.find((l) => l.liftid === b.dataset.lift), b)));
+}
+
+// Lift reliability from the Dispotrains archive (roadmap screen 6). Honest about the window.
+async function fillReliability(st) {
+  try {
+    const d = await getJSON(`/api/stations/${encodeURIComponent(st.id)}/reliability`);
+    for (const [liftid, r] of Object.entries(d.lifts || {})) {
+      const el = document.querySelector(`[data-rel="${CSS.escape(liftid)}"]`);
+      if (!el) continue;
+      const down = 1 - r.availability;
+      el.textContent = down < 0.02
+        ? `Très fiable : presque jamais en panne (${Math.round(r.window_days)} derniers jours)`
+        : `En panne environ 1 jour sur ${Math.max(2, Math.round(1 / down))} (${Math.round(r.window_days)} derniers jours, ${plural(r.outages, "panne", "pannes")})`;
+      el.classList.toggle("bad", down >= 0.1);
+    }
+  } catch { /* the history is a bonus */ }
+}
+
+// ---------------------------------------------------------------------------
+// Community reports (chantier B owns the API and the photo screen; A shows them)
+// ---------------------------------------------------------------------------
+const REPORT_FR = {
+  escalier: "Escalier", marche: "Marche", travaux: "Travaux", trottoir_encombre: "Trottoir encombré",
+  trottoir_etroit: "Trottoir étroit", bordure_haute: "Bordure haute", pente: "Pente forte",
+  ascenseur_panne: "Ascenseur en panne", escalator_panne: "Escalator en panne", rampe: "Rampe", autre: "Obstacle",
+};
+const GRAV_ST = { bloquant: "ko", genant: "warn", info: "unk" };
+const userId = () => store.get("pmr_user_id");
+
+async function reportLift(st, lift, btn) {
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      categorie: "ascenseur_panne", temporaire: true, gravite: "bloquant", confiance: 1,
+      description: `Ascenseur en panne : ${lift.situation || st.name}`,
+      user_id: userId(), lat: st.coord[1], lon: st.coord[0], target_type: "lift", target_id: lift.liftid,
+    }) });
+    if (!r.ok) throw new Error(r.status);
+    btn.textContent = "Merci, c'est signalé";
+    toast("Merci ! Les autres utilisateurs verront votre signalement.");
+    loadReports();
+  } catch {
+    btn.disabled = false;
+    toast("Le signalement n'est pas encore disponible. Réessayez un peu plus tard.");
+  }
+}
+
+let reportsData = [];
+async function loadReports() {
+  if (map.getZoom() < 13) return;
+  const b = map.getBounds();
+  const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
+  try {
+    const d = await getJSON(`/api/reports?bbox=${bbox}`);
+    reportsData = d.features || [];
+    map.getSource("reports")?.setData({ type: "FeatureCollection", features: reportsData.map((f, i) => ({ ...f, properties: { i, st: GRAV_ST[f.properties.gravite] || "warn" } })) });
+  } catch { /* no reports API yet */ }
+}
+
+function openReport(f) {
+  const p = f.properties, coord = f.geometry.coordinates, st = GRAV_ST[p.gravite] || "warn";
+  setPin(coord);
+  show("detail", "half");
+  flyTo(coord, 17);
+  $("#detail").innerHTML =
+    (p.photo_thumb ? `<figure class="photo" id="photo"><img alt="Photo du signalement" src="${esc(p.photo_thumb)}"><figcaption>Photo prise par un utilisateur</figcaption></figure>` : "") +
+    `<h2 id="d-title" class="title">${esc(REPORT_FR[p.categorie] || "Obstacle signalé")}</h2>` +
+    `<p class="sub">Signalé par la communauté ${p.created_at ? rel(p.created_at) : ""}${p.is_demo ? " · signalement de démonstration" : ""}</p>` +
+    `<div class="verdict ${st}">${mark(st, "lg")}<span><strong>${p.gravite === "bloquant" ? "Bloquant en fauteuil" : p.gravite === "genant" ? "Gênant" : "Pour information"}</strong>${esc(p.description || "")}</span></div>` +
+    `<p class="trip-meta">${confPill(p.confidence || 2)} <span class="muted">${plural(p.confirmations || 1, "personne l'a vu", "personnes l'ont vu")}</span></p>` +
+    `<button class="btn primary block" id="still-there">${icon("ok")}C'est toujours là</button>` +
+    `<p class="src">Signalement communautaire, non vérifié par une source officielle. Il perd en confiance s'il n'est pas confirmé.</p>`;
+  $("#still-there").addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const r = await fetch(`/api/reports/${encodeURIComponent(p.id)}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId() }) });
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json().catch(() => ({}));
+      toast(`Merci ! ${d.confirmations ? plural(d.confirmations, "personne l'a confirmé", "personnes l'ont confirmé") : "Confirmation enregistrée"}.`);
+      loadReports();
+    } catch { e.currentTarget.disabled = false; toast("Je n'ai pas pu enregistrer. Réessayez dans un instant."); }
+  });
 }
 
 async function openPlace(item) {
@@ -947,6 +1040,17 @@ $("#locate").addEventListener("click", async () => {
   flyTo(pos, 15.5);
 });
 $("#zoom-in").addEventListener("click", () => map.zoomIn());
+// Chantier B ships static/report.js exposing window.PMRReport.open({ lat, lon, onDone }).
+fetch("/static/report.js", { method: "HEAD" }).then((r) => {
+  if (!r.ok) return;
+  const s = document.createElement("script"); s.src = "/static/report.js"; document.body.appendChild(s);
+}).catch(() => {});
+$("#snap").addEventListener("click", () => {
+  // Respond at once: last known position, else the map centre (B's screen refines it with GPS).
+  const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
+  if (window.PMRReport?.open) window.PMRReport.open({ lat: pos[1], lon: pos[0], onDone: loadReports });
+  else toast("Bientôt : prenez en photo un obstacle pour prévenir les autres.");
+});
 $("#zoom-out").addEventListener("click", () => map.zoomOut());
 
 // ---------------------------------------------------------------------------
