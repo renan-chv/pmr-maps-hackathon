@@ -736,10 +736,10 @@ const R_CATS = [
   { key: "marche", label: "Marche ou rampe impossible", ic: "steps", gravite: "bloquant", temporaire: false },
   { key: "autre", label: "Autre problème", ic: "unk", gravite: "info", temporaire: true },
 ];
-const rep = { cat: null, place: null, target: null, text: "", photo: null, ai: null };
+const rep = { cat: null, place: null, target: null, text: "", photo: null, thumb: null, ai: null };
 
 function openReportFlow({ cat = null, place = null, target = null }) {
-  Object.assign(rep, { cat, target, text: "", photo: null, ai: null });
+  Object.assign(rep, { cat, target, text: "", photo: null, thumb: null, ai: null });
   if (!place) {
     const pos = S.myPos || [map.getCenter().lng, map.getCenter().lat];
     const near = nearestStations(pos, 1, 250)[0];
@@ -798,6 +798,11 @@ $("#r-photo").addEventListener("change", async (e) => {
   const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
   cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
   rep.photo = cv.toDataURL("image/jpeg", 0.7);
+  // Small copy for the map and the database (the server refuses thumbnails over 300 KB)
+  const kt = Math.min(1, 320 / Math.max(bmp.width, bmp.height));
+  const tv = document.createElement("canvas"); tv.width = Math.round(bmp.width * kt); tv.height = Math.round(bmp.height * kt);
+  tv.getContext("2d").drawImage(bmp, 0, 0, tv.width, tv.height);
+  rep.thumb = tv.toDataURL("image/jpeg", 0.7);
   $("#r-thumb").src = rep.photo; $("#r-thumb").hidden = false;
   $("#r-summary").insertAdjacentHTML("afterbegin", `<p class="muted" id="r-analyzing">${icon("spark")}J'analyse la photo…</p>`);
   try {
@@ -822,7 +827,7 @@ $("#r-send").addEventListener("click", async () => {
       categorie: rep.ai?.categorie || c.key, temporaire: rep.ai?.temporaire ?? c.temporaire, gravite: rep.ai?.gravite || c.gravite,
       description: rep.text || rep.ai?.description || `${c.label} à ${rep.place.label}`, confiance: rep.ai?.confiance ?? 1,
       user_id: userId(), lat: rep.place.lat, lon: rep.place.lon, target_type: rep.target?.type || "place", target_id: rep.target?.id || null,
-      photo_thumb: rep.photo || null,
+      photo_thumb: rep.thumb || null,
     }) });
     if (!r.ok) throw new Error(r.status);
     toast("Merci ! C'est sur la carte. Les autres utilisateurs pourront confirmer.");
