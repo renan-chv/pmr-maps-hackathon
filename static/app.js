@@ -1581,8 +1581,7 @@ function recentSub(r) {
 // "Metro station · elevators OK": what the result is, and its passenger elevators counted like the station sheet.
 const STATION_KIND = { Metro: "Metro station", RapidTransit: "RER station", Tramway: "Tram stop", LocalTrain: "Train station" };
 function stationSub(st) {
-  const pub = st.lifts.filter((l) => !isServiceLift(l)), base = pub.length ? pub : st.lifts;
-  const n = base.length, status = stationStatus(base);
+  const { lifts: base, status } = stationLiftVerdict(st), n = base.length;
   const ko = base.filter((l) => l.status === "notavailable").length, unk = base.filter((l) => l.status === "unknown").length;
   const lifts = { ok: n > 1 ? "elevators OK" : "elevator OK", ko: n > 1 ? "no elevator working" : "elevator out of order",
     warn: ko ? `${ko} of ${n} elevators out of order` : `${unk} of ${n} elevators unknown`, unk: "elevator status unknown" }[status];
