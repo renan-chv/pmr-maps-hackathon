@@ -451,8 +451,7 @@ $("#o-go").addEventListener("click", () => {
 function renderMe() {
   const p = Profile.get();
   $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = p ? p.label : "Votre profil";
-  $("#me-prof").textContent = p ? "Je vérifie vos trajets pour ce profil" : "Pas encore choisi";
+  $("#me-name").textContent = p ? p.label.toLowerCase() : "votre profil";
   $("#h-home").innerHTML = Profile.name() ? `Où allez-vous, ${esc(Profile.name())}&nbsp;?` : "Bonjour&nbsp;! Où allez-vous&nbsp;?";
 }
 $("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
@@ -933,7 +932,7 @@ function renderResults(d) {
   const rec = d.replay === "demo";
   const prof = Profile.get()?.short || "profil";
   $("#v-trip").classList.add("has-result");
-  $("#trip-summary").innerHTML = `<span class="t"><b>${esc(d.from?.label || trip.from?.label || "")}</b><small>vers ${esc(d.to?.label || trip.to?.label || "")}</small></span><span class="linkish">Modifier</span>`;
+  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Modifier</span>`;
   if (!its.length) { $("#trip-result").innerHTML = `<p>Je n'ai pas trouvé de trajet.</p>` + demoButton(); bindDemo(); return; }
   const best = its[0];
   $("#trip-result").innerHTML =
@@ -968,7 +967,7 @@ function renderItinerary(d, id) {
   const planB = it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id);
   const rec = d.replay === "demo";
   $("#v-trip").classList.add("has-result");
-  $("#trip-summary").innerHTML = `<span class="t"><b>${esc(d.from?.label || trip.from?.label || "")}</b><small>vers ${esc(d.to?.label || trip.to?.label || "")}</small></span><span class="linkish">Modifier</span>`;
+  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Modifier</span>`;
   $("#trip-result").innerHTML =
     `<button class="back" id="all-routes">${icon("chev-l")}Tous les trajets</button>` +
     (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
@@ -1195,8 +1194,7 @@ $("#o-go").addEventListener("click", () => {
 function renderMe() {
   const p = Profile.get();
   $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
-  $("#me-name").textContent = p ? p.label : "Votre profil";
-  $("#me-prof").textContent = p ? "Je vérifie vos trajets pour ce profil" : "Pas encore choisi";
+  $("#me-name").textContent = p ? p.label.toLowerCase() : "votre profil";
   $("#h-home").innerHTML = Profile.name() ? `Où allez-vous, ${esc(Profile.name())}&nbsp;?` : "Bonjour&nbsp;! Où allez-vous&nbsp;?";
 }
 $("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
