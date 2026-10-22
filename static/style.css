@@ -273,6 +273,8 @@ body.sheet-full #map-tools { opacity: 0; pointer-events: none; }
 .ptile[aria-checked="true"] { border-color: var(--brand); background: var(--brand-soft); }
 .ptile[aria-checked="true"] .tile-ic { background: var(--brand); color: #fff; }
 .ptile:last-child:nth-child(odd) { grid-column: span 2; min-height: 84px; flex-direction: row; align-items: center; }
+.ptile.community { grid-column: span 2; flex-direction: row; align-items: center; border: 3px dashed var(--brand); }
+.ptile.community small { display: block; margin-top: 4px; font-weight: 500; line-height: 1.35; color: var(--ink-2, inherit); }
 .field-label { display: block; margin: var(--sp-4) 0 var(--sp-2); font-weight: 700; }
 .btn[disabled] { opacity: .45; cursor: not-allowed; }
 .me-chip { display: flex; align-items: center; gap: var(--sp-3); width: 100%; margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); border: 0; border-radius: var(--r-m); background: var(--surface); box-shadow: var(--shadow-1); text-align: left; }

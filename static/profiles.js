@@ -9,7 +9,8 @@ const PMR_PROFILES = [
   { key: "deambulateur", label: "Walker or cane", short: "walker", ic: "p-deambulateur" },
   { key: "malvoyant", label: "Visually impaired", short: "visually impaired traveler", ic: "p-malvoyant" },
   // Walks without difficulty: sees the same map and reports obstacles for everyone else.
-  { key: "valide", label: "No difficulty, I report for others", short: "pedestrian", ic: "p-valide" },
+  { key: "valide", label: "Able-bodied: I help the community", short: "community helper", ic: "p-valide",
+    sub: "Report broken elevators and blocked sidewalks so wheelchair users know before they go." },
 ];
 
 const Profile = (() => {

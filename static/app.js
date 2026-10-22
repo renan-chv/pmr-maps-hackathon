@@ -1328,7 +1328,7 @@ renderFavs();
 let chosen = Profile.get()?.key || null;
 function renderOnboard() {
   $("#ptiles").innerHTML = PMR_PROFILES.map((p) =>
-    `<button class="ptile" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><b>${esc(p.label)}</b></button>`).join("");
+    `<button class="ptile${p.sub ? " community" : ""}" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><span><b>${esc(p.label)}</b>${p.sub ? `<small>${esc(p.sub)}</small>` : ""}</span></button>`).join("");
   document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; }));
   $("#o-go").disabled = !chosen;
   $("#o-name").value = Profile.name();
@@ -1338,7 +1338,7 @@ $("#o-go").addEventListener("click", () => {
   Profile.save(chosen, $("#o-name").value);
   renderMe();
   show("home", "half");
-  toast(`Got it: I'll check your trips for a ${Profile.get().short}.`);
+  toast(chosen === "valide" ? "Thanks for joining the community! Tap Report whenever you see a broken elevator or a blocked sidewalk." : `Got it: I'll check your trips for a ${Profile.get().short}.`, 5000);
 });
 function renderMe() {
   const p = Profile.get();
