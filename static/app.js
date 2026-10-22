@@ -1,7 +1,7 @@
 // Roulib – front-end (mobile first, friendly). Big tiles, plain words, freshness always visible.
 "use strict";
 
-const C = { ok: "#157a3c", warn: "#9a5800", ko: "#b42318", unk: "#5f6670", works: "#c2410c", brand: "#3d3bd6", ink: "#1e1a16" };
+const C = { ok: "#30d158", warn: "#ffd60a", ko: "#ff5a4f", unk: "#98a2b3", works: "#ff9f0a", brand: "#7fb0ff", ink: "#f5f7fa", night: "#0b0f17" };
 const LIFT_FR = { available: "Fonctionne", notavailable: "En panne", unknown: "État inconnu" };
 const ACCESS_FR = { true: "accessible", partial: "partiellement accessible", false: "non accessible", unknown: "sans information" };
 const TYPE_FR = { metro: "Métro", rail: "Train / RER", tram: "Tram", cableway: "Câble", bus: "Bus" };
@@ -195,7 +195,7 @@ async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
 // Map
 // ---------------------------------------------------------------------------
 const map = new maplibregl.Map({
-  container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
+  container: "map", style: "https://tiles.openfreemap.org/styles/dark",
   center: [2.3488, 48.8566], zoom: 12.4, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
 });
 map.touchZoomRotate.disableRotation();
@@ -208,17 +208,17 @@ function markImage(color, glyph, { size = 44, square = false } = {}) {
   const g = c.getContext("2d"), pad = 2.5 * r;
   g.beginPath();
   if (square) g.roundRect(pad, pad, px - 2 * pad, px - 2 * pad, 11 * r); else g.arc(px / 2, px / 2, px / 2 - pad, 0, Math.PI * 2);
-  g.fillStyle = color; g.fill(); g.lineWidth = 3 * r; g.strokeStyle = "#fff"; g.stroke();
+  g.fillStyle = color; g.fill(); g.lineWidth = 3 * r; g.strokeStyle = C.night; g.stroke();
   const s = (px * 0.56) / 24; g.translate(px / 2 - 12 * s, px / 2 - 12 * s); g.scale(s, s);
-  g.strokeStyle = "#fff"; g.lineWidth = glyph === "food" ? 2.4 : 3.2; g.lineCap = "round"; g.lineJoin = "round"; g.stroke(new Path2D(MARK_PATHS[glyph]));
+  g.strokeStyle = C.night; g.lineWidth = glyph === "food" ? 2.4 : 3.2; g.lineCap = "round"; g.lineJoin = "round"; g.stroke(new Path2D(MARK_PATHS[glyph]));
   return { image: g.getImageData(0, 0, px, px), pixelRatio: r };
 }
 function hatchImage() {
   const r = Math.max(2, window.devicePixelRatio || 1), px = 12 * r, c = document.createElement("canvas");
   c.width = c.height = px;
   const g = c.getContext("2d");
-  g.fillStyle = "rgba(194,65,12,.16)"; g.fillRect(0, 0, px, px);
-  g.strokeStyle = "rgba(194,65,12,.85)"; g.lineWidth = 2.2 * r;
+  g.fillStyle = "rgba(255,159,10,.12)"; g.fillRect(0, 0, px, px);
+  g.strokeStyle = "rgba(255,159,10,.8)"; g.lineWidth = 2.2 * r;
   for (const o of [-px, 0, px]) { g.beginPath(); g.moveTo(o, px); g.lineTo(o + px, 0); g.stroke(); }
   return { image: g.getImageData(0, 0, px, px), pixelRatio: r };
 }
@@ -228,22 +228,24 @@ const empty = () => ({ type: "FeatureCollection", features: [] });
 const BASE_CLUTTER = /^(poi_|highway-shield|road_shield)/;
 
 map.on("load", () => {
+  // Night base in Flighty's register: navy ground, deep-blue water, legible streets, French names.
+  const NIGHT = {
+    background: ["background-color", "#0b0f17"], water: ["fill-color", "#0f2340"], waterway: ["line-color", "#0f2340"],
+    landuse_park: ["fill-color", "#0f2118"], landcover_wood: ["fill-color", "#0f2118"], landuse_residential: ["fill-color", "#0d121c"],
+    building: ["fill-color", "#141b27"], highway_path: ["line-color", "#1c2533"], highway_minor: ["line-color", "#222c3c"],
+    highway_major_casing: ["line-color", "#33405a"], highway_major_inner: ["line-color", "#2a3548"], highway_major_subtle: ["line-color", "#2a3548"],
+    highway_motorway_casing: ["line-color", "#3b4a66"], highway_motorway_inner: ["line-color", "#334060"], highway_motorway_subtle: ["line-color", "#2a3548"],
+    railway_transit: ["line-color", "#2a3446"], railway: ["line-color", "#2a3446"], railway_minor: ["line-color", "#2a3446"],
+  };
   for (const l of map.getStyle().layers) {
     if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
-    // Place names in French (the base style prefers English for districts).
-    if (l.type === "symbol" && l.layout && l.layout["text-field"]) map.setLayoutProperty(l.id, "text-field", ["coalesce", ["get", "name:fr"], ["get", "name"]]);
-    // Calm, warm base: white streets on cream, so our markers are what stands out.
-    if (l.type === "line" && /^(road|bridge|tunnel)_/.test(l.id) && !/rail|pattern/.test(l.id)) {
-      const casing = /casing/.test(l.id);
-      map.setPaintProperty(l.id, "line-color", casing ? (/motorway|trunk|primary|secondary|link/.test(l.id) ? "#e2d6c2" : "#e9e1d3") : (/motorway/.test(l.id) ? "#fde9c8" : "#ffffff"));
-    }
-  }
-  map.setPaintProperty("background", "background-color", "#f6f0e6");
-  // Quieter ground so our markers carry the screen: flat pale buildings, softer residential areas.
-  for (const l of map.getStyle().layers) {
+    if (NIGHT[l.id]) map.setPaintProperty(l.id, ...NIGHT[l.id]);
     if (l.type === "fill-extrusion") map.setLayoutProperty(l.id, "visibility", "none");
-    else if (l.type === "fill" && /^building/.test(l.id)) { map.setPaintProperty(l.id, "fill-color", "#ebe4d8"); map.setPaintProperty(l.id, "fill-opacity", 0.6); }
-    else if (l.id === "landuse_residential") map.setPaintProperty(l.id, "fill-opacity", 0.25);
+    if (l.type === "symbol" && l.layout && l.layout["text-field"]) {
+      map.setLayoutProperty(l.id, "text-field", ["coalesce", ["get", "name:fr"], ["get", "name"]]);
+      map.setPaintProperty(l.id, "text-color", /place_(city|town|suburb)/.test(l.id) ? "#c3cbd8" : "#8b96a8");
+      map.setPaintProperty(l.id, "text-halo-color", "#0b0f17");
+    }
   }
   for (const k of ["ok", "warn", "ko", "unk"]) {
     const m = markImage(C[k], k); map.addImage(`st-${k}`, m.image, { pixelRatio: m.pixelRatio });
@@ -257,9 +259,9 @@ map.on("load", () => {
   map.addLayer({ id: "works-line", type: "line", source: "works", minzoom: 14.5, paint: { "line-color": C.works, "line-width": 1.5 } });
   const accColor = ["match", ["get", "accessibility"], "true", C.ok, "partial", C.warn, "false", C.ko, C.unk];
   map.addLayer({ id: "quais", type: "circle", source: "quais", layout: { visibility: "none" },
-    paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 16, 8], "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+    paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 16, 8], "circle-color": accColor, "circle-stroke-color": C.night, "circle-stroke-width": 1.5 } });
   map.addLayer({ id: "bus", type: "circle", source: "bus", minzoom: 14.5, layout: { visibility: "none" },
-    paint: { "circle-radius": 6, "circle-color": accColor, "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+    paint: { "circle-radius": 6, "circle-color": accColor, "circle-stroke-color": C.night, "circle-stroke-width": 2 } });
   map.addLayer({ id: "places", type: "symbol", source: "places", minzoom: 15, layout: {
     visibility: "none", "icon-image": ["concat", "pl-", ["get", "st"]], "icon-allow-overlap": false, "icon-padding": 3,
     "symbol-sort-key": ["match", ["get", "st"], "ok", 3, "warn", 2, "ko", 1, 0],
@@ -277,7 +279,7 @@ map.on("load", () => {
     paint: {
       "circle-color": ["match", ["get", "status"], "ok", C.ok, "warn", C.warn, "ko", C.ko, C.unk],
       "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, ["match", ["get", "status"], "ko", 3.5, "warn", 3, 2.5], 12, ["match", ["get", "status"], "ko", 6.5, "warn", 5.5, 4.5], 13.5, ["match", ["get", "status"], "ko", 8.5, "warn", 7.5, 6.5]],
-      "circle-stroke-color": "#fff", "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 13, 2],
+      "circle-stroke-color": C.night, "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 13, 2],
     } });
   map.addLayer({ id: "stations", type: "symbol", source: "stations", minzoom: 13.5,
     layout: {
@@ -286,14 +288,14 @@ map.on("load", () => {
       "text-field": ["step", ["zoom"], "", 13.5, ["get", "name"]], "text-font": ["Noto Sans Bold"],
       "text-size": 14, "text-offset": [0, 1.8], "text-anchor": "top", "text-optional": true,
     },
-    paint: { "text-color": C.ink, "text-halo-color": "#fff", "text-halo-width": 2 } });
+    paint: { "text-color": C.ink, "text-halo-color": C.night, "text-halo-width": 2 } });
   map.addLayer({ id: "pin", type: "circle", source: "pin",
-    paint: { "circle-radius": 10, "circle-color": C.brand, "circle-stroke-color": "#fff", "circle-stroke-width": 4 } });
+    paint: { "circle-radius": 10, "circle-color": "#ffffff", "circle-stroke-color": C.night, "circle-stroke-width": 4 } });
   map.addLayer({ id: "me-halo", type: "circle", source: "me", paint: { "circle-radius": 22, "circle-color": "#1a73e8", "circle-opacity": 0.15 } });
   map.addLayer({ id: "me", type: "symbol", source: "me", layout: {
     "text-field": "Vous êtes ici", "text-font": ["Noto Sans Bold"], "text-size": 14, "text-offset": [0, 1.6], "text-anchor": "top", "text-allow-overlap": true,
-  }, paint: { "text-color": "#1a4fb5", "text-halo-color": "#fff", "text-halo-width": 2 } });
-  map.addLayer({ id: "me-dot", type: "circle", source: "me", paint: { "circle-radius": 9, "circle-color": "#1a73e8", "circle-stroke-color": "#fff", "circle-stroke-width": 3 } });
+  }, paint: { "text-color": "#7fb0ff", "text-halo-color": C.night, "text-halo-width": 2 } });
+  map.addLayer({ id: "me-dot", type: "circle", source: "me", paint: { "circle-radius": 9, "circle-color": "#1a73e8", "circle-stroke-color": C.night, "circle-stroke-width": 3 } });
 
   map.on("click", "stations", (e) => openStation(e.features[0].properties.id));
   map.on("click", "stations-dot", (e) => openStation(e.features[0].properties.id));
@@ -1078,10 +1080,16 @@ function renderResults(d) {
       const why = it.verdict === "bloque" ? V.title(it)
         : it.verdict === "risque" ? `À surveiller : ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label.toLowerCase())))].slice(0, 2).join(", ") || "voir les étapes"}`
         : "Rien ne bloque sur ce trajet";
-      return `<li><button class="route ${V.st}" data-it="${esc(it.id)}">` +
-        `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Le mieux pour vous</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
-        `<span class="mins"><b>${it.duration_min}</b><small>min</small></span></span>` +
-        `<span class="route-why">${mark(V.st)}<span>${esc(why)}${it.departure ? `<small>Départ ${yyyymmddToTime(it.departure)} · arrivée ${yyyymmddToTime(it.arrival)}</small>` : ""}</span></span>` +
+      const STATUS = { passe: "Ça passe", risque: "À surveiller", bloque: "Bloqué" }[it.verdict] || "À vérifier";
+      const first = it.steps[0], last = it.steps[it.steps.length - 1];
+      return `<li><button class="route ${V.st}" data-it="${esc(it.id)}" aria-label="${esc(STATUS)}, ${it.duration_min} minutes. ${esc(why)}">` +
+        `<span class="bp-head"><span class="bp-status">${esc(STATUS)}</span>${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Le mieux pour vous</span>` : ""}</span>` +
+        `<span class="bp-times"><span class="bp-time">${yyyymmddToTime(it.departure).replace("h", ":") || "—"}</span>` +
+        `<span class="bp-line"><span class="bp-dur">${it.duration_min} min</span></span>` +
+        `<span class="bp-time">${yyyymmddToTime(it.arrival).replace("h", ":") || "—"}</span></span>` +
+        `<span class="bp-places"><span>${esc(first?.from || "")}</span><span>${esc(last?.to || "")}</span></span>` +
+        `<span class="bp-chips">${chipsRow(it)}</span>` +
+        `<span class="route-why">${mark(V.st)}<span>${esc(why)}</span></span>` +
         `</button></li>`;
     }).join("") + `</ul>` +
     (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Ce qu'une appli classique vous aurait dit</button>` : "") +

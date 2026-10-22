@@ -463,3 +463,86 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; }
   #map-tools, .snap { transform: none; will-change: auto; }
   #map-tools { bottom: 112px; } .snap { bottom: 24px; }
 }
+
+/* =====================================================================
+   Roulib × Flighty: night ground, graphite cards, vivid status, system type.
+   ===================================================================== */
+:root {
+  --ground: #0b0f17; --surface: #151b26; --raised: #1e2633;
+  --ink: #f5f7fa; --ink-2: #a3adbb; --line: #263041; --line-2: #33405a;
+  --brand: #7fb0ff; --brand-ink: #0b0f17; --brand-soft: #1b2a45;
+  --ok: #30d158; --ok-soft: #10291a; --warn: #ffd60a; --warn-soft: #2e2808; --ko: #ff5a4f; --ko-soft: #33130f;
+  --unk: #98a2b3; --unk-soft: #1e2633; --works: #ff9f0a;
+  --t-trip: #0a84ff; --t-trip-soft: #151b26; --t-food: #ff9f0a; --t-food-soft: #151b26;
+  --t-near: #64d2ff; --t-near-soft: #151b26; --t-lift: #bf5af2; --t-lift-soft: #151b26;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --shadow-1: none; --shadow-2: 0 -1px 0 var(--line), 0 -16px 40px rgba(0, 0, 0, .5);
+}
+html { color-scheme: dark; }
+body { -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
+::selection { background: #2b4a80; color: #fff; }
+.greet, .title, .results-head, .verdict strong, .mins b, .bp-time { font-family: var(--font-display); letter-spacing: -.025em; }
+
+/* Surfaces: hairline borders instead of shadows */
+#sheet { background: var(--ground); }
+.search, .suggest, .list, .today, .facts, .card, .route, .fav-go, .r-where, .r-cat, .r-summary:not(:empty), .cmp-col, .ptile, .tile, .photo { border: 1px solid var(--line); box-shadow: none; }
+.search { background: var(--surface); }
+.search:focus-within { border-color: var(--brand); }
+.tile { background: var(--surface); }
+.tile-ic, .mark { color: #0b0f17; }
+.mark.neutral { background: var(--raised); color: var(--ink-2); }
+.fav-ic, .ptile .tile-ic, .r-where .fav-ic { background: var(--raised); color: var(--ink); }
+.ptile[aria-checked="true"], .r-cat[aria-checked="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.ptile[aria-checked="true"] .tile-ic { background: var(--brand); color: #0b0f17; }
+
+/* Buttons: white primary, like Apple's own */
+.btn { background: var(--surface); border-color: var(--line-2); color: var(--ink); }
+.btn.primary { background: #ffffff; border-color: #ffffff; color: #0b0f17; }
+.mic { background: #ffffff; color: #0b0f17; }
+.snap { background: var(--works); color: #0b0f17; }
+.chip { background: rgba(21, 27, 38, .92); color: var(--ink); border: 1px solid var(--line-2); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.chip.on { background: #ffffff; color: #0b0f17; border-color: #ffffff; }
+.chip:not(.on) { background: rgba(21, 27, 38, .92); color: var(--ink); }
+.fab { background: rgba(21, 27, 38, .92); color: var(--ink); border: 1px solid var(--line-2); }
+.zoom { border: 1px solid var(--line-2); } .zoom .fab { border: 0; } .zoom .fab + .fab { border-top: 1px solid var(--line-2); }
+.text-toggle .switch { background: var(--line-2); } .text-toggle[aria-pressed="true"] .switch { background: var(--ok); }
+
+/* Status reads as Flighty does: the word itself in its colour */
+.verdict { background: var(--surface); border: 1px solid var(--line); }
+.verdict.ok strong { color: var(--ok); } .verdict.warn strong { color: var(--warn); } .verdict.ko strong { color: var(--ko); } .verdict.unk strong { color: var(--ink); }
+.note, .rec-line { background: var(--warn-soft); color: var(--warn); }
+.note span, .note b { color: var(--ink); } .note .i { color: var(--warn); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.ko { background: var(--ko-soft); color: var(--ko); } .pill.unk { background: var(--raised); color: var(--ink-2); }
+.today .headline em { color: var(--ko); }
+.route.ko { background: var(--surface); }
+.wchip { background: var(--raised); color: var(--ink); }
+.chip-flag { border-color: var(--surface); color: #0b0f17; }
+.lift small.old, .lift small.rel.bad { color: var(--warn); }
+.tl-dot { background: var(--ground); border-color: var(--ink); }
+.hatch { border-color: var(--works); background: repeating-linear-gradient(-45deg, rgba(255,159,10,.85) 0 2.5px, rgba(255,159,10,.12) 2.5px 8px); }
+.badge-b { background: #ffffff; color: #0b0f17; }
+#toast { background: #ffffff; color: #0b0f17; }
+.maplibregl-ctrl-attrib { background: rgba(11, 15, 23, .7) !important; color: var(--ink-2); }
+.maplibregl-ctrl-attrib a { color: var(--ink-2) !important; }
+.maplibregl-popup-content { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.maplibregl-popup-tip { border-top-color: var(--surface) !important; border-bottom-color: var(--surface) !important; }
+
+/* ---------- Signature: every route is a boarding pass ---------- */
+.route { padding: var(--sp-4); }
+.bp-head { display: flex; align-items: center; gap: var(--sp-2); }
+.bp-status { font-size: var(--t-meta); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.route.ok .bp-status { color: var(--ok); } .route.warn .bp-status { color: var(--warn); } .route.ko .bp-status { color: var(--ko); }
+.bp-head .tag { flex-basis: auto; margin-left: auto; color: var(--ink-2); font-weight: 700; }
+.bp-times { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--sp-3); margin: var(--sp-3) 0 var(--sp-1); }
+.bp-time { font-size: 2em; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.bp-line { position: relative; height: 2px; background: var(--line-2); }
+.bp-line::before, .bp-line::after { content: ""; position: absolute; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-2); }
+.bp-line::before { left: 0; } .bp-line::after { right: 0; }
+.route.ok .bp-line { background: var(--ok); } .route.warn .bp-line { background: var(--warn); } .route.ko .bp-line { background: linear-gradient(90deg, var(--ink-2) 55%, var(--ko) 55%); }
+.bp-dur { position: absolute; left: 50%; top: -1.6em; transform: translateX(-50%); padding: 0 8px; background: var(--surface); font-size: var(--t-meta); font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+.bp-places { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: var(--t-meta); color: var(--ink-2); }
+.bp-places span:last-child { text-align: right; }
+.bp-chips { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--line-2); }
+.route .route-why { margin-top: var(--sp-3); }
