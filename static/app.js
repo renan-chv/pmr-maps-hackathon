@@ -251,7 +251,7 @@ map.on("load", () => {
     "icon-size": ["interpolate", ["linear"], ["zoom"], 14, 0.45, 17, 0.8],
   } });
   map.addLayer({ id: "trip", type: "line", source: "trip", layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": C.brand, "line-width": 6, "line-opacity": 0.9 } });
+    paint: { "line-color": ["coalesce", ["get", "c"], C.brand], "line-width": 7, "line-opacity": 0.9 } });
   map.addLayer({ id: "stations", type: "symbol", source: "stations",
     layout: {
       "icon-image": ["concat", "st-", ["get", "status"]], "icon-allow-overlap": true, "symbol-sort-key": ["get", "sort"],
@@ -424,6 +424,35 @@ function saveFav(it) {
   $("#search").placeholder = "Une station, un lieu, une adresse";
   $("#search").value = "";
   renderFavs();
+
+// ---------------------------------------------------------------------------
+// First launch: choose a mobility profile (roadmap screen 1)
+// ---------------------------------------------------------------------------
+let chosen = Profile.get()?.key || null;
+function renderOnboard() {
+  $("#ptiles").innerHTML = PMR_PROFILES.map((p) =>
+    `<button class="ptile" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><b>${esc(p.label)}</b></button>`).join("");
+  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; }));
+  $("#o-go").disabled = !chosen;
+  $("#o-name").value = Profile.name();
+}
+$("#o-go").addEventListener("click", () => {
+  if (!chosen) return;
+  Profile.save(chosen, $("#o-name").value);
+  renderMe();
+  show("home", "half");
+  toast(`C'est noté : je vérifierai vos trajets pour un ${Profile.get().short}.`);
+});
+function renderMe() {
+  const p = Profile.get();
+  $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
+  $("#me-name").textContent = Profile.name() ? `Bonjour ${Profile.name()}` : "Votre profil";
+  $("#me-prof").textContent = p ? p.label : "Pas encore choisi";
+}
+$("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
+renderMe();
+if (!Profile.get() && !REPLAY) { renderOnboard(); show("onboard", "full"); }
+if (REPLAY) openTrip(null, null);
 }
 
 function stationItem(st, d) {
@@ -686,7 +715,9 @@ function openWorks(p, lngLat) {
 const trip = { from: null, to: null };
 const myPosItem = () => (S.myPos ? { label: "Ma position", lon: S.myPos[0], lat: S.myPos[1], kind: "me" } : null);
 
+$("#trip-summary").addEventListener("click", () => { $("#v-trip").classList.remove("has-result"); $("#trip-to").focus(); });
 function openTrip(from, to) {
+  $("#v-trip").classList.remove("has-result");
   trip.from = from || trip.from || myPosItem();
   trip.to = to || trip.to;
   $("#trip-from").value = trip.from ? trip.from.label : "";
@@ -694,18 +725,54 @@ function openTrip(from, to) {
   $("#trip-result").innerHTML = "";
   show("trip", "full");
   if (!trip.from) locate().then(() => { if (!trip.from && S.myPos) { trip.from = myPosItem(); $("#trip-from").value = trip.from.label; if (trip.to) runTrip(); } });
-  if (trip.from && trip.to) runTrip(); else if (trip.from) $("#trip-to").focus();
+  if (REPLAY || (trip.from && trip.to)) runTrip(); else if (trip.from) $("#trip-to").focus();
+  else $("#trip-result").innerHTML = demoButton(), bindDemo();
 }
 
-async function runTrip() {
+const REPLAY = new URLSearchParams(location.search).get("replay") === "demo";
+const VERDICT = {
+  passe: { st: "ok", title: () => "Ce trajet passe", sub: (p) => `Rien ne bloque pour un ${p}.` },
+  risque: { st: "warn", title: () => "Possible, avec des risques", sub: () => "Regardez les étapes en orange avant de partir." },
+  bloque: { st: "ko", title: (it) => `Bloqué${it.blocked_at ? ` à ${it.blocked_at}` : ""}`, sub: () => "Ne partez pas sur ce trajet. Voyez le plan B." },
+};
+// Confidence levels (roadmap 4.3): colour + icon + words, never colour alone.
+const CONF = {
+  5: ["ok", "shield", "Officiel, en direct"], 4: ["ok", "people", "Confirmé par la communauté"],
+  3: ["unk", "shield", "Officiel, information fixe"], 2: ["warn", "people", "Un seul signalement"], 1: ["unk", "unk", "Inconnu"],
+};
+const checkState = (c) => c.status === "ok" ? "ok" : c.status === "en_panne" || c.effect === "bloquant" ? "ko" : c.status === "inconnu" ? "unk" : "warn";
+// In replay mode a level-5 source is official but recorded, not live: say so.
+const confPill = (n, recorded) => {
+  let [st, ic, label] = CONF[n] || CONF[1];
+  if (recorded && n === 5) label = "Officiel, enregistré";
+  return `<span class="pill ${st}">${icon(ic)}${label}</span>`;
+};
+const whenMap = (fn) => (map.isStyleLoaded() && map.getSource("trip") ? fn() : map.once("idle", fn));
+const yyyymmddToTime = (s) => (s && s.length >= 13 ? `${s.slice(9, 11)}h${s.slice(11, 13)}` : "");
+let lastTrip = null;
+
+async function runTrip(opts = {}) {
   const out = $("#trip-result");
-  if (!trip.from || !trip.to) { out.innerHTML = `<p class="err">Choisissez le départ et l'arrivée dans la liste qui s'affiche.</p>`; return; }
+  const demo = opts.demo || REPLAY;
+  if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Choisissez le départ et l'arrivée dans la liste qui s'affiche.</p>`; return; }
   document.activeElement?.blur();
-  out.innerHTML = `<p class="muted">Je cherche un trajet accessible…</p>`;
-  const q = (p) => `${p.lon},${p.lat}`;
-  try { renderJourneys(await getJSON(`/api/journey?from=${q(trip.from)}&to=${q(trip.to)}`)); }
-  catch (e) { if (e.status === 503) renderTripFallback(); else out.innerHTML = `<p class="err">Je n'ai pas trouvé de trajet. ${esc(e.message)}</p>`; }
+  out.innerHTML = `<p class="muted">Je vérifie chaque étape pour votre ${esc(Profile.get()?.short || "profil")}…</p>`;
+  const q = new URLSearchParams({ profile: Profile.key() });
+  if (demo) { q.set("replay", "demo"); q.set("from", "demo"); q.set("to", "demo"); }
+  else { q.set("from", `${trip.from.lon},${trip.from.lat}`); q.set("to", `${trip.to.lon},${trip.to.lat}`); }
+  try {
+    const d = await getJSON(`/api/journey?${q}`);
+    if (demo) { trip.from = d.from; trip.to = d.to; $("#trip-from").value = d.from.label; $("#trip-to").value = d.to.label; }
+    lastTrip = d;
+    renderItinerary(d, d.itineraries[0]?.id);
+  } catch (e) {
+    if (e.status === 503) renderTripFallback();
+    else out.innerHTML = `<p class="err">Je n'ai pas trouvé de trajet. ${esc(e.message)}</p>` + demoButton();
+    bindDemo();
+  }
 }
+const demoButton = () => `<button class="btn block" id="trip-demo">${icon("route")}Voir un trajet d'exemple (enregistré)</button>`;
+const bindDemo = () => $("#trip-demo")?.addEventListener("click", () => runTrip({ demo: true }));
 
 function renderTripFallback() {
   const a = [trip.from.lon, trip.from.lat], b = [trip.to.lon, trip.to.lat];
@@ -714,38 +781,86 @@ function renderTripFallback() {
     return `<h3 class="h2">${label}</h3>` + (near.length ? stationList(near) : `<p class="muted">Aucune station avec ascenseur à moins de 1,5 km.</p>`);
   };
   $("#trip-result").innerHTML =
-    `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Le calcul du trajet arrive bientôt</strong>En attendant, voici les stations avec ascenseur au départ et à l'arrivée.</span></div>` +
-    block("Au départ", a) + block("À l'arrivée", b);
+    `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Le calcul du trajet n'est pas encore branché</strong>En attendant, voici les stations avec ascenseur au départ et à l'arrivée.</span></div>` +
+    demoButton() + block("Au départ", a) + block("À l'arrivée", b);
   bindOpen($("#trip-result"));
   Sheet.set("half");
   fitTo([a, b]);
 }
 
-function renderJourneys(d) {
-  if (!d.journeys.length) { $("#trip-result").innerHTML = `<p>Je n'ai pas trouvé de trajet accessible.</p>`; return; }
-  $("#trip-result").innerHTML = d.journeys.map((j, i) => {
-    const bad = j.lifts_not_available, status = bad.length ? "warn" : "ok";
-    const steps = j.sections.filter((s) => s.type === "public_transport" || (s.type === "street_network" && s.duration_s > 30)).map((s) =>
-      s.type === "public_transport" ? `<li><b>${esc(s.mode)} ${esc(s.line)}</b>, de ${esc(s.from)} à ${esc(s.to)}</li>`
-        : `<li>En fauteuil, ${Math.max(1, Math.round(s.duration_s / 60))} min</li>`).join("");
-    return `<div class="journey ${i === 0 ? "sel" : ""}" data-i="${i}" tabindex="0" role="button">` +
-      `<div class="verdict ${status}">${mark(status, "lg")}<span><strong>${Math.round(j.duration_s / 60)} min</strong>` +
-      `${bad.length ? `Attention : ${plural(bad.length, "ascenseur en panne", "ascenseurs en panne")} (${esc([...new Set(bad.map((l) => l.station))].join(", "))})` : "Aucun ascenseur en panne sur le trajet"}</span></div>` +
-      `<ol>${steps}</ol></div>`;
-  }).join("") + `<p class="src">Trajet : ${esc(d.source)}. Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
-  const showJ = (i) => {
-    document.querySelectorAll(".journey").forEach((el) => el.classList.toggle("sel", +el.dataset.i === i));
-    map.getSource("trip").setData({ type: "FeatureCollection", features: d.journeys[i].sections.filter((s) => s.geojson).map((s) => ({ type: "Feature", geometry: s.geojson, properties: {} })) });
-  };
-  document.querySelectorAll(".journey").forEach((el) => {
-    el.addEventListener("click", () => showJ(+el.dataset.i));
-    el.addEventListener("keydown", (e) => e.key === "Enter" && showJ(+el.dataset.i));
-  });
-  showJ(0);
-  Sheet.set("half");
-  fitTo([[d.from.lon, d.from.lat], [d.to.lon, d.to.lat]]);
+function stepTitle(s) {
+  if (s.type === "transit") return `${esc(s.mode || "Transport")} ${esc(s.line || "")}`.trim();
+  if (s.type === "transfer") return "Correspondance";
+  return "En fauteuil, à pied";
 }
-$("#trip-go").addEventListener("click", runTrip);
+function checkLine(c, recorded) {
+  const st = checkState(c);
+  const rel = c.reliability != null
+    ? `<small>Historique : en panne environ 1 jour sur ${Math.max(2, Math.round(1 / Math.max(0.01, 1 - c.reliability)))} (${Math.round(c.reliability_window_days || 0)} derniers jours, ${esc(c.reliability_source || "")})</small>` : "";
+  return `<li class="check">${mark(st)}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}` +
+    `<div class="meta">${confPill(c.confidence, recorded)}${c.fetched_at ? `<span class="muted">${esc(c.source || "")} · vérifié à ${hhmm(c.fetched_at)}</span>` : `<span class="muted">${esc(c.source || "")}</span>`}</div></div></li>`;
+}
+
+function renderItinerary(d, id) {
+  const it = d.itineraries.find((x) => x.id === id) || d.itineraries[0];
+  if (!it) { $("#trip-result").innerHTML = `<p>Je n'ai pas trouvé de trajet.</p>` + demoButton(); bindDemo(); return; }
+  const prof = Profile.get()?.short || "profil";
+  const V = VERDICT[it.verdict] || VERDICT.risque;
+  const isPlanB = d.itineraries[0] && it.id !== d.itineraries[0].id;
+  const planB = it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id);
+  const rec = d.replay === "demo";
+  $("#v-trip").classList.add("has-result");
+  $("#trip-summary").innerHTML = `<span class="t"><b>${esc(d.from?.label || trip.from?.label || "")}</b><small>vers ${esc(d.to?.label || trip.to?.label || "")}</small></span><span class="linkish">Modifier</span>`;
+  $("#trip-result").innerHTML =
+    (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
+    `<div class="verdict big ${V.st}">${mark(V.st, "lg")}<span><strong>${esc(V.title(it))}</strong>${esc(V.sub(prof))}</span></div>` +
+    `<p class="trip-meta">${it.duration_min} min${it.departure ? ` · départ ${yyyymmddToTime(it.departure)}, arrivée ${yyyymmddToTime(it.arrival)}` : ""} ${confPill(it.confidence, rec)}</p>` +
+    (rec ? `<p class="note">${icon("clock")}<span><b>Exemple enregistré.</b> Relevé des ascenseurs du 22/10 au matin, rejoué pour la démo. Ce n'est pas l'état en direct.</span></p>` : "") +
+    (planB ? `<button class="btn primary block" id="planb">${icon("swap")}Voir le plan B (${planB.duration_min} min)</button>` : "") +
+    (isPlanB ? `<button class="btn block" id="plana">Revenir au premier trajet</button>` : "") +
+    `<ol class="steps">` + it.steps.map((s) => {
+      const st = { passe: "ok", risque: "warn", bloque: "ko" }[s.verdict] || "unk";
+      return `<li class="step ${st}"><div class="step-head">${mark(st)}<div><b>${stepTitle(s)}</b><small>${esc(s.from)} → ${esc(s.to)}${s.duration_min ? ` · ${s.duration_min} min` : ""}</small></div></div>` +
+        (s.checks?.length ? `<ul class="checks">${s.checks.map((c) => checkLine(c, rec)).join("")}</ul>` : `<p class="muted small">Rien de particulier signalé.</p>`) + `</li>`;
+    }).join("") + `</ol>` +
+    (d.baseline?.length ? `<button class="btn block" id="compare-btn">${icon("swap")}Comparer avec une appli classique</button>` : "") +
+    `<p class="src">Trajets : ${esc(d.source || "Navitia")}. Vérification PMR Maps pour le profil « ${esc(prof)} ». Ascenseurs vérifiés à ${hhmm(d.lifts_fetched_at)}.</p>`;
+  $("#planb")?.addEventListener("click", () => { renderItinerary(d, it.plan_b_id); Sheet.scrollTop(); });
+  $("#plana")?.addEventListener("click", () => { renderItinerary(d, d.itineraries[0].id); Sheet.scrollTop(); });
+  $("#compare-btn")?.addEventListener("click", () => openCompare(d));
+  whenMap(() => drawItinerary(it));
+  Sheet.set("half");
+  Sheet.scrollTop();
+}
+
+function drawItinerary(it) {
+  const color = { passe: C.ok, risque: C.warn, bloque: C.ko };
+  map.getSource("trip")?.setData({ type: "FeatureCollection", features: it.steps.filter((s) => s.geojson).map((s) => ({
+    type: "Feature", geometry: s.geojson, properties: { c: color[s.verdict] || C.brand } })) });
+  const pts = it.steps.flatMap((s) => (s.geojson?.coordinates || []));
+  if (pts.length) fitTo(pts.filter((_, i) => i % Math.ceil(pts.length / 40) === 0).concat([pts[pts.length - 1]]));
+}
+
+// Same Navitia route on both sides: what it says vs what our checks find.
+function openCompare(d) {
+  const base = d.baseline[0];
+  const ours = d.itineraries[0];
+  const planB = ours.plan_b_id && d.itineraries.find((x) => x.id === ours.plan_b_id);
+  const blockers = ours.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) !== "ok"));
+  $("#compare").innerHTML =
+    `<div class="cmp">` +
+    `<div class="cmp-col"><h3>Appli classique</h3><div class="verdict ok">${mark("ok")}<span><strong>« Accessible »</strong>${base.duration_min} min</span></div>` +
+    `<ul class="cmp-list">${base.steps.map((s) => `<li>${s.type === "public_transport" ? `${esc(s.mode)} ${esc(s.line)}` : "À pied"}<small>${esc(s.from)} → ${esc(s.to)}</small></li>`).join("")}</ul></div>` +
+    `<div class="cmp-col ours"><h3>PMR Maps</h3><div class="verdict ${VERDICT[ours.verdict].st}">${mark(VERDICT[ours.verdict].st)}<span><strong>${esc(VERDICT[ours.verdict].title(ours))}</strong>${ours.duration_min} min</span></div>` +
+    `<ul class="cmp-list">${blockers.map((c) => `<li class="hit">${mark(checkState(c))}<span>${esc(c.label)}<small>${esc(c.message || "")}</small></span></li>`).join("") || "<li>Rien à signaler</li>"}</ul></div>` +
+    `</div>` + (planB ? `<button class="btn primary block" id="cmp-planb">${icon("swap")}PMR Maps propose un plan B (${planB.duration_min} min)</button>` : "") +
+    `<p class="src">À gauche : la réponse de Navitia seule (option fauteuil). À droite : le même trajet vérifié étape par étape avec les données ${d.replay === "demo" ? "enregistrées le 22/10 au matin" : "en direct"}.</p>`;
+  $("#cmp-planb")?.addEventListener("click", () => { show("trip", "half"); renderItinerary(d, planB.id); });
+  show("compare", "full");
+}
+document.querySelector("[data-back-trip]")?.addEventListener("click", () => show("trip", "half"));
+
+$("#trip-go").addEventListener("click", () => runTrip());
 
 // ---------------------------------------------------------------------------
 // Search: stations from our data + places / addresses from IGN
@@ -883,3 +998,32 @@ function applyHash() {
 }
 window.addEventListener("hashchange", applyHash);
 renderFavs();
+
+// ---------------------------------------------------------------------------
+// First launch: choose a mobility profile (roadmap screen 1)
+// ---------------------------------------------------------------------------
+let chosen = Profile.get()?.key || null;
+function renderOnboard() {
+  $("#ptiles").innerHTML = PMR_PROFILES.map((p) =>
+    `<button class="ptile" role="radio" aria-checked="${p.key === chosen}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><b>${esc(p.label)}</b></button>`).join("");
+  document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#o-go").disabled = false; }));
+  $("#o-go").disabled = !chosen;
+  $("#o-name").value = Profile.name();
+}
+$("#o-go").addEventListener("click", () => {
+  if (!chosen) return;
+  Profile.save(chosen, $("#o-name").value);
+  renderMe();
+  show("home", "half");
+  toast(`C'est noté : je vérifierai vos trajets pour un ${Profile.get().short}.`);
+});
+function renderMe() {
+  const p = Profile.get();
+  $("#me-ic").innerHTML = icon(p ? p.ic : "p-manuel");
+  $("#me-name").textContent = Profile.name() ? `Bonjour ${Profile.name()}` : "Votre profil";
+  $("#me-prof").textContent = p ? p.label : "Pas encore choisi";
+}
+$("#me-chip").addEventListener("click", () => { renderOnboard(); show("onboard", "full"); });
+renderMe();
+if (!Profile.get() && !REPLAY) { renderOnboard(); show("onboard", "full"); }
+if (REPLAY) openTrip(null, null);
