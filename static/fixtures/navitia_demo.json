@@ -1,0 +1,339 @@
+{
+ "note": "Trajets au format Navitia reconstitués pour la démo : arrêts, zones d'arrêt et état des ascenseurs réels (relevé IDFM du 22/10 vers 11h), horaires et tracés approximatifs.",
+ "from": {
+  "label": "Rue de Rivoli, Paris 1er",
+  "lon": 2.3455,
+  "lat": 48.8597
+ },
+ "to": {
+  "label": "Esplanade du Général de Gaulle, Puteaux",
+  "lon": 2.2478,
+  "lat": 48.8889
+ },
+ "journeys": [
+  {
+   "duration": 1680,
+   "departure_date_time": "20261022T143000",
+   "arrival_date_time": "20261022T145800",
+   "sections": [
+    {
+     "type": "street_network",
+     "mode": "walking",
+     "duration": 300,
+     "from": {
+      "name": "Rue de Rivoli, Paris 1er",
+      "embedded_type": "address",
+      "address": {
+       "coord": {
+        "lon": "2.3455",
+        "lat": "48.8597"
+       }
+      }
+     },
+     "to": {
+      "name": "Châtelet - Les Halles",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.3469698",
+        "lat": "48.8617405"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:474151"
+       }
+      }
+     },
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3455,
+        48.8597
+       ],
+       [
+        2.3462,
+        48.8606
+       ],
+       [
+        2.3469698,
+        48.8617405
+       ]
+      ]
+     }
+    },
+    {
+     "type": "waiting",
+     "duration": 120
+    },
+    {
+     "type": "public_transport",
+     "duration": 1080,
+     "from": {
+      "name": "Châtelet - Les Halles",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.3469698",
+        "lat": "48.8617405"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:474151"
+       }
+      }
+     },
+     "to": {
+      "name": "Esplanade de la Défense",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.2504078",
+        "lat": "48.8874445"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:71485"
+       }
+      }
+     },
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3469698,
+        48.8617405
+       ],
+       [
+        2.3212,
+        48.8656
+       ],
+       [
+        2.295586,
+        48.8735453
+       ],
+       [
+        2.2504078,
+        48.8874445
+       ]
+      ]
+     },
+     "display_informations": {
+      "commercial_mode": "Métro",
+      "code": "1",
+      "network": "RATP",
+      "direction": "La Défense (Grande Arche) (Puteaux)"
+     }
+    },
+    {
+     "type": "street_network",
+     "mode": "walking",
+     "duration": 180,
+     "from": {
+      "name": "Esplanade de la Défense",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.2504078",
+        "lat": "48.8874445"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:71485"
+       }
+      }
+     },
+     "to": {
+      "name": "Esplanade du Général de Gaulle, Puteaux",
+      "embedded_type": "address",
+      "address": {
+       "coord": {
+        "lon": "2.2478",
+        "lat": "48.8889"
+       }
+      }
+     },
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.2504078,
+        48.8874445
+       ],
+       [
+        2.249,
+        48.8882
+       ],
+       [
+        2.2478,
+        48.8889
+       ]
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "duration": 2160,
+   "departure_date_time": "20261022T143000",
+   "arrival_date_time": "20261022T150600",
+   "sections": [
+    {
+     "type": "street_network",
+     "mode": "walking",
+     "duration": 300,
+     "from": {
+      "name": "Rue de Rivoli, Paris 1er",
+      "embedded_type": "address",
+      "address": {
+       "coord": {
+        "lon": "2.3455",
+        "lat": "48.8597"
+       }
+      }
+     },
+     "to": {
+      "name": "Châtelet - Les Halles",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.3469698",
+        "lat": "48.8617405"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:474151"
+       }
+      }
+     },
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3455,
+        48.8597
+       ],
+       [
+        2.3462,
+        48.8606
+       ],
+       [
+        2.3469698,
+        48.8617405
+       ]
+      ]
+     }
+    },
+    {
+     "type": "waiting",
+     "duration": 120
+    },
+    {
+     "type": "public_transport",
+     "duration": 1200,
+     "from": {
+      "name": "Châtelet - Les Halles",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.3469698",
+        "lat": "48.8617405"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:474151"
+       }
+      }
+     },
+     "to": {
+      "name": "La Défense",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.2396006",
+        "lat": "48.8916123"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:71517"
+       }
+      }
+     },
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3469698,
+        48.8617405
+       ],
+       [
+        2.3212,
+        48.8656
+       ],
+       [
+        2.295586,
+        48.8735453
+       ],
+       [
+        2.2504078,
+        48.8874445
+       ],
+       [
+        2.2396006,
+        48.8916123
+       ]
+      ]
+     },
+     "display_informations": {
+      "commercial_mode": "Métro",
+      "code": "1",
+      "network": "RATP",
+      "direction": "La Défense (Grande Arche) (Puteaux)"
+     }
+    },
+    {
+     "type": "street_network",
+     "mode": "walking",
+     "duration": 540,
+     "from": {
+      "name": "La Défense",
+      "embedded_type": "stop_point",
+      "stop_point": {
+       "coord": {
+        "lon": "2.2396006",
+        "lat": "48.8916123"
+       },
+       "stop_area": {
+        "id": "stop_area:IDFM:71517"
+       }
+      }
+     },
+     "to": {
+      "name": "Esplanade du Général de Gaulle, Puteaux",
+      "embedded_type": "address",
+      "address": {
+       "coord": {
+        "lon": "2.2478",
+        "lat": "48.8889"
+       }
+      }
+     },
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.2396006,
+        48.8916123
+       ],
+       [
+        2.2425,
+        48.8908
+       ],
+       [
+        2.2455,
+        48.8898
+       ],
+       [
+        2.2478,
+        48.8889
+       ]
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}
