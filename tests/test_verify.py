@@ -162,3 +162,65 @@ def test_zero_length_hop_inside_a_station_is_dropped():
     j = {"duration": 600, "sections": [sec(a="Châtelet", b="Châtelet", d=-60), sec(a="Châtelet", b="Bercy", d=540)]}
     it = verify.verify_journey(j, "manuel", [], None)
     assert [(s["from"], s["to"]) for s in it["steps"]] == [("Châtelet", "Bercy")]
+
+
+def test_several_worksites_on_one_walk_give_one_calm_line():
+    line = [[2.3500, 48.8500], [2.3530, 48.8500]]
+    works = [{"geometry": square(x, 48.8500), "properties": {"summary": "Gas works", "end": "2026-11-03"}}
+             for x in (2.3505, 2.3512, 2.3520)]
+    checks = verify.walk_checks(line, "manuel", works=works)
+    assert len(checks) == 1
+    c = checks[0]
+    assert c["kind"] == "works" and c["count"] == 3 and c["effect"] == "sans_effet" and c["status"] == "info"
+    assert c["message"].startswith("3 roadworks on the sidewalk along this walk; usually passable")
+
+
+def test_roadworks_alone_do_not_make_a_trip_risky():
+    walk = {"type": "street_network", "duration": 120, "from": {"name": "A"}, "to": {"name": "B"},
+            "geojson": {"type": "LineString", "coordinates": [[2.3500, 48.85], [2.3530, 48.85]]}}
+    works = [{"geometry": square(2.3505, 48.8500), "properties": {"summary": "Works"}}]
+    it = verify.verify_journey({"duration": 120, "sections": [walk]}, "manuel", [], works=works)
+    assert it["verdict"] == "passe" and it["steps"][0]["checks"][0]["kind"] == "works"
+
+
+def test_roadworks_not_shown_to_the_helper_profile():
+    line = [[2.3500, 48.8500], [2.3530, 48.8500]]
+    assert verify.walk_checks(line, "valide", works=[{"geometry": square(2.3505, 48.8500)}]) == []
+
+
+def _walk_of(m):
+    # west-east line of about m metres at Paris latitude
+    return [[2.35, 48.85], [2.35 + m / (111320 * 0.6578), 48.85]]
+
+
+def test_long_walk_follows_the_profile_thresholds():
+    assert verify.walk_checks(_walk_of(479), "manuel") == []  # was "479 m on foot" for everyone
+    c = verify.walk_checks(_walk_of(863), "deambulateur")[0]
+    assert c["effect"] == "genant" and " m to walk: plan a rest" in c["message"] and c["confidence"] is None
+    c = verify.walk_checks(_walk_of(900), "manuel")[0]
+    assert c["effect"] == "genant" and " m to roll" in c["message"]
+    c = verify.walk_checks(_walk_of(1200), "deambulateur")[0]
+    assert c["effect"] == "bloquant" and abs(c["length_m"] - 1200) < 10 and "too far" in c["message"]
+    assert verify.walk_checks(_walk_of(3000), "malvoyant") == []
+
+
+def _blocked(it_id, checks, minutes=30):
+    return {"id": it_id, "verdict": "bloque", "duration_min": minutes, "blocked_reason": checks[0]["label"],
+            "steps": [{"checks": checks}]}
+
+
+def test_way_out_points_to_the_least_blocked_option():
+    lift_down = {"kind": "lift", "effect": "bloquant", "label": "Line 1 elevator"}
+    walk = {"kind": "walk", "effect": "bloquant", "label": "Long walk", "length_m": 1100}
+    longer = {**walk, "length_m": 1600}
+    its = [_blocked("it1", [lift_down]), _blocked("it2", [longer]), _blocked("it3", [walk], minutes=50)]
+    w = verify.way_out(its, "deambulateur")
+    assert w["least_blocked_id"] == "it3" and w["try_other_time"] and w["pam"] is True
+    assert verify.way_out(its, "poussette")["pam"] is False  # PAM is not for strollers
+
+
+def test_no_way_out_needed_when_one_option_works():
+    ok = {"id": "it2", "verdict": "risque", "duration_min": 40, "steps": []}
+    lift_down = {"kind": "lift", "effect": "bloquant", "label": "Line 1 elevator"}
+    assert verify.way_out([_blocked("it1", [lift_down]), ok], "manuel") is None
+    assert verify.way_out([], "manuel") is None
