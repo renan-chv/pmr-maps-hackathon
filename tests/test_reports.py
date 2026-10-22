@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, main, reports
+from app import db, limits, main, reports
 
 client = TestClient(main.app)  # no `with`: startup (poller, warm-up) is not needed here
 SQUARE = (2.2504, 48.8874)  # Esplanade de La Défense
@@ -156,8 +156,8 @@ JPEG = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64).decode()
 
 
 @pytest.fixture(autouse=False)
-def fresh_limit(monkeypatch):
-    monkeypatch.setattr(reports, "_recent_calls", reports.defaultdict(reports.deque))
+def fresh_limit():
+    limits.reset()
 
 
 def test_analyze_returns_claude_card(monkeypatch, fresh_limit):
@@ -209,7 +209,7 @@ def test_analyze_bad_input_is_400(body, fresh_limit):
 
 def test_analyze_is_rate_limited(monkeypatch, fresh_limit):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(reports, "ANALYZE_PER_10_MIN", 2)
+    monkeypatch.setitem(limits.RULES, "analyze", (2, 600))
     codes = [client.post("/api/reports/analyze", json={"image_base64": JPEG}).status_code for _ in range(3)]
     assert codes == [200, 200, 429]
 

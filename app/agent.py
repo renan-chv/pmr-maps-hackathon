@@ -20,10 +20,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import db, profiles
+from . import db, limits, profiles
 
 log = logging.getLogger("agent")
 router = APIRouter()
@@ -399,5 +399,7 @@ def run_agent(body: AgentIn) -> dict:
 
 
 @router.post("/api/agent")
-def api_agent(body: AgentIn):
+def api_agent(body: AgentIn, request: Request):
+    limits.check("agent", request, "Too many questions in a row: try again in an hour.")
+    limits.agent_budget()
     return run_agent(body)

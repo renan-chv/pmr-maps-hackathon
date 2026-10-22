@@ -17,14 +17,13 @@ import binascii
 import logging
 import os
 import time
-from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from . import db, profiles, verify
+from . import db, limits, profiles, verify
 
 log = logging.getLogger("reports")
 router = APIRouter()
@@ -224,7 +223,8 @@ def confidence(row: dict, now: Optional[datetime] = None) -> int:
 # --- Routes -------------------------------------------------------------------------
 
 @router.post("/api/users")
-def create_user(payload: Any = Body(None)):
+def create_user(request: Request, payload: Any = Body(None)):
+    limits.check("user", request, "too many profiles created from this connection: try again later")
     u = parse(NewUser, payload or {})
 
     def go(cur):
@@ -236,7 +236,8 @@ def create_user(payload: Any = Body(None)):
 
 
 @router.post("/api/reports")
-def create_report(payload: Any = Body(None)):
+def create_report(request: Request, payload: Any = Body(None)):
+    limits.check("report", request, "too many reports sent in a row: try again in an hour")
     r = parse(NewReport, payload)
 
     def go(cur):
@@ -254,7 +255,8 @@ def create_report(payload: Any = Body(None)):
 
 
 @router.post("/api/reports/{report_id}/confirm")
-def confirm_report(report_id: int, payload: Any = Body(None)):
+def confirm_report(report_id: int, request: Request, payload: Any = Body(None)):
+    limits.check("confirm", request, "too many confirmations in a row: try again later")
     parse(Confirm, payload or {})  # user_id accepted for later use (one vote per person)
 
     def go(cur):
@@ -310,8 +312,6 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
 
 ANALYZE_MODEL = os.getenv("REPORTS_MODEL", "claude-sonnet-5-5")  # set REPORTS_MODEL=claude-haiku-5-5 if > 3 s
 MAX_IMAGE_BYTES = 4 * 1024 * 1024        # the screen sends a 1024 px JPEG (~150 Ko); this is a safety cap
-ANALYZE_PER_10_MIN = int(os.getenv("REPORTS_ANALYZE_LIMIT", "30"))  # per client, each call costs a few cents
-_recent_calls: dict = defaultdict(deque)
 
 PROMPT = """You help wheelchair users report obstacles in the streets and stations of the Paris region \
 (Île-de-France). Look at the photo and always fill in the card by calling the `fiche` tool, with no text around it.
@@ -412,21 +412,6 @@ def analyser(image_base64: str, media_type: str = "image/jpeg") -> Fiche:
     raise ValueError(f"no card in Claude's answer (stop_reason={msg.stop_reason})")
 
 
-def _client_key(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
-
-
-def _rate_limited(key: str, now: float) -> bool:
-    calls = _recent_calls[key]
-    while calls and now - calls[0] > 600:
-        calls.popleft()
-    if len(calls) >= ANALYZE_PER_10_MIN:
-        return True
-    calls.append(now)
-    return False
-
-
 @router.post("/api/reports/analyze")
 def analyze_photo(request: Request, payload: Any = Body(None)):
     if not isinstance(payload, dict) or not isinstance(payload.get("image_base64"), str):
@@ -447,8 +432,7 @@ def analyze_photo(request: Request, payload: Any = Body(None)):
         v = payload.get(k)
         if v is not None and (not isinstance(v, (int, float)) or not lo <= v <= hi):
             raise HTTPException(400, f"{k} must be between {lo} and {hi} (Île-de-France)")
-    if _rate_limited(_client_key(request), time.monotonic()):
-        raise HTTPException(429, "too many photos analyzed in a row: try again in a few minutes")
+    limits.check("analyze", request, "too many photos analyzed in a row: try again in a few minutes")
 
     started = time.perf_counter()
     if not os.getenv("ANTHROPIC_API_KEY"):

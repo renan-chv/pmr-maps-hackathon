@@ -1095,6 +1095,7 @@ $("#r-send").addEventListener("click", async () => {
       user_id: userId(), lat: rep.place.lat, lon: rep.place.lon, target_type: rep.target?.type || "place", target_id: rep.target?.id || null,
       photo_thumb: rep.thumb || null,
     }) });
+    if (r.status === 429) { toast("You've sent a lot of reports in a row. Try again in an hour.", 5000); return; }
     if (!r.ok) throw new Error(r.status);
     toast("Thank you! It's on the map. Other users can confirm it.");
     goHome(); loadReports();
