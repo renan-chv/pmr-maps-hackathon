@@ -12,6 +12,7 @@ import re
 import os
 import threading
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -148,8 +149,20 @@ def _export(base: str, dataset: str, where: Optional[str] = None, select: Option
 
 # --- Lifts (live: IDFM ~3 updates a day, refreshed hourly by SNCF for stations) --
 
+# "Dalle routià¨re" (Gare du Nord, IDFM feed): an "è" whose two UTF-8 bytes were read as Latin-1 upstream, then case-mangled.
+# Only these letter pairs are repaired, never a real "à" followed by a space.
+_MOJIBAKE = re.compile("[\u00c3\u00e0]([\u00a2\u00a7\u00a8\u00a9\u00aa\u00ab\u00ae\u00af\u00b4\u00b6\u00b9\u00bb\u00bc])")
+
+
+def fix_mojibake(s: Any) -> Any:
+    if not isinstance(s, str) or ("\u00c3" not in s and "\u00e0" not in s):
+        return s
+    return _MOJIBAKE.sub(lambda m: bytes([0xC3, ord(m.group(1))]).decode("utf-8"), s)
+
+
 def fetch_lifts_raw() -> List[dict]:
-    return _export(IDF_REGION, "etat-des-ascenseurs")
+    rows = _export(IDF_REGION, "etat-des-ascenseurs")
+    return [{k: fix_mojibake(v) for k, v in r.items()} for r in rows]
 
 
 def lifts(force: bool = False) -> dict:
@@ -416,9 +429,27 @@ _OSM_LABEL = {
     "tram_stop": "Tram stop", "bus_stop": "Bus stop", "house": "Address", "street": "Street",
     "suburb": "Neighbourhood", "city": "City", "town": "Town", "village": "Village", "tower": "Landmark",
 }
+# Tag key when the value is not listed above: the subtitle always says what the result is.
+_OSM_KEY_LABEL = {
+    "tourism": "Sight", "historic": "Monument", "man_made": "Landmark", "amenity": "Place", "shop": "Shop",
+    "craft": "Shop", "office": "Office", "building": "Building", "leisure": "Leisure", "healthcare": "Health",
+    "railway": "Station", "public_transport": "Station", "highway": "Street", "aeroway": "Airport",
+    "place": "Area", "boundary": "Area", "landuse": "Area", "natural": "Nature", "waterway": "Water",
+}
 # Noise for a trip destination: bike docks, parkings, bus stops duplicate better results.
 _OSM_SKIP = {"bicycle_rental", "parking", "parking_entrance", "charging_station", "vending_machine",
              "waste_basket", "bench", "toilets", "atm", "parking_space", "motorcycle_parking", "bus_stop"}
+
+
+def _area(pr: dict) -> str:
+    """"7e" for a Paris arrondissement (75007, 75116), else "92130 Vanves" or the city."""
+    pc, city = pr.get("postcode") or "", pr.get("city") or ""
+    m = re.fullmatch(r"75(?:0(\d\d)|1(16))", pc)
+    if m:
+        n = int(m.group(1) or m.group(2))
+        if 1 <= n <= 20:
+            return "1er" if n == 1 else f"{n}e"
+    return " ".join(x for x in (pc, city) if x)
 
 
 def _photon_item(f: dict) -> Optional[dict]:
@@ -427,15 +458,32 @@ def _photon_item(f: dict) -> Optional[dict]:
     if not _in_idf(lon, lat) or pr.get("osm_value") in _OSM_SKIP:
         return None
     street = " ".join(x for x in (pr.get("housenumber"), pr.get("street")) if x)
-    place = " ".join(x for x in (pr.get("postcode"), pr.get("city")) if x)
     is_address = pr.get("osm_value") in ("house", "street") or (not pr.get("name") and street)
     if is_address:
         label = street or pr.get("name") or ""
-        return {"kind": "address", "label": label, "sub": place, "lon": lon, "lat": lat}
-    cat = _OSM_LABEL.get(pr.get("osm_value"), "")
-    where = ", ".join(x for x in (street, pr.get("city")) if x)
+        kind = "Street" if pr.get("osm_value") == "street" and not pr.get("housenumber") else "Address"
+        return {"kind": "address", "label": label, "sub": " · ".join(x for x in (kind, _area(pr)) if x),
+                "lon": lon, "lat": lat}
+    cat = (_OSM_LABEL.get(pr.get("osm_value"))
+           or {"city": "City", "district": "Neighbourhood", "locality": "Area"}.get(pr.get("type"))
+           or _OSM_KEY_LABEL.get(pr.get("osm_key"), "Place"))
+    where = ", ".join(x for x in (street, _area(pr) or pr.get("city")) if x)
     return {"kind": "place", "label": pr.get("name") or street, "sub": " · ".join(x for x in (cat, where) if x),
             "lon": lon, "lat": lat}
+
+
+def norm_text(s: str) -> str:
+    """Lowercase, accents and punctuation dropped: "Musée d'Orsay" -> "musee d orsay"."""
+    s = unicodedata.normalize("NFD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", s).split())
+
+
+def rank_exact_first(q: str, items: List[dict]) -> List[dict]:
+    """A result named exactly like the query goes first (stable: Photon's order otherwise),
+    so "Tour Eiffel" gives the tower before "Champ de Mars - Tour Eiffel"."""
+    nq = norm_text(q)
+    return sorted(items, key=lambda it: norm_text(it.get("label", "")) != nq)
 
 
 _suggest_cache: Dict[tuple, Tuple[float, List[dict]]] = {}
@@ -464,7 +512,7 @@ def _suggest_photon(q: str, near: Tuple[float, float], limit: int) -> List[dict]
         if dedupe not in seen:
             seen.add(dedupe)
             out.append(it)
-    out = out[:limit]
+    out = rank_exact_first(q, out)[:limit]
     if len(_suggest_cache) > 5000:
         _suggest_cache.clear()
     _suggest_cache[key] = (time.time(), out)

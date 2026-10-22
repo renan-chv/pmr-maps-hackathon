@@ -41,6 +41,8 @@
 html[data-text="1"], html.big { --fs: 1.375rem; }
 html[data-text="2"] { --fs: 1.625rem; }
 html[data-text="3"] { --fs: 2rem; }
+/* Phone or browser text at 200 %: data-text="2" brings the stacked layouts, data-tz keeps the size the user chose (index.html). */
+html[data-tz="0"] { --fs: 1.125rem; } html[data-tz="1"] { --fs: 1.375rem; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
@@ -83,7 +85,7 @@ input { caret-color: var(--brand); }
 .greet { margin: var(--sp-1) 0 var(--sp-3); font-size: var(--t-screen); font-weight: 800; line-height: 1.15; letter-spacing: -.02em; text-wrap: balance; }
 
 /* ---------- Search ---------- */
-.search { display: flex; align-items: center; gap: var(--sp-2); min-height: 58px; padding: 0 6px 0 var(--sp-4); border-radius: var(--r-m); background: var(--surface); border: 2px solid var(--line); box-shadow: var(--shadow-1); }
+.search { display: flex; align-items: center; gap: var(--sp-2); min-height: 58px; padding: 0 6px 0 var(--sp-4); border-radius: var(--r-m); background: var(--surface); border: 2px solid var(--line-strong); box-shadow: var(--shadow-1); }
 .search:focus-within { border-color: var(--brand); }
 .search-i { color: var(--ink-2); }
 .search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 14px 0; font-size: max(16px, 1em); outline: none; }
@@ -97,6 +99,8 @@ input { caret-color: var(--brand); }
 .suggest li { display: flex; gap: var(--sp-3); align-items: center; min-height: 60px; padding: var(--sp-2); border-radius: var(--r-s); cursor: pointer; }
 .suggest li + li { border-top: 1px solid var(--line); }
 .suggest li[aria-selected="true"], .suggest li:active { background: var(--brand-soft); }
+.suggest li[aria-selected="true"] { box-shadow: inset 3px 0 0 var(--brand); }  /* not colour alone: a bar marks the active option */
+.suggest li.sg-ask { min-height: 0; padding: var(--sp-2) var(--sp-3); font-weight: 700; color: var(--ink); cursor: default; }
 .suggest .t { min-width: 0; }
 .suggest b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .suggest small { display: block; color: var(--ink-2); font-size: var(--t-meta); }
@@ -217,6 +221,8 @@ input { caret-color: var(--brand); }
 .chip.on { background: var(--ink); color: var(--surface); }
 #map-tools { position: fixed; z-index: var(--z-overlay); right: 12px; bottom: calc(var(--sheet-h) + var(--safe-b) + 12px); display: flex; flex-direction: column; gap: var(--sp-2); transition: bottom .4s var(--ease), opacity .2s; }
 body.sheet-full #map-tools { opacity: 0; pointer-events: none; visibility: hidden; transition: bottom .4s var(--ease), opacity .2s, visibility 0s .2s; }
+/* No room left between the sheet and the map filters (large text, sheet at 75 %): hidden rather than over the filters (Sheet.set). */
+body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden; transition: bottom .4s var(--ease), opacity .2s, visibility 0s .2s; }
 .fab { width: 52px; height: 52px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow-1); }
 .fab[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
 .fab.txt { font-weight: 800; font-size: var(--t-body); letter-spacing: -.02em; }
@@ -479,6 +485,12 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 #chips .chip { min-height: 44px; padding: 0 12px 0 10px; gap: 5px; font-size: 15px; }
 #chips .chip .i { width: 18px; height: 18px; }
 @media (min-width: 1024px) { #chips { justify-content: flex-start; } }
+/* 320 px phone, Default and Large text: "Roadworks" was cut at the edge, so the filters wrap onto a second row.
+   Larger steps keep one row that scrolls sideways (two or three rows would hide the map). */
+@media (max-width: 359px) {
+  html:not([data-text="2"]):not([data-text="3"]) #chips { flex-wrap: wrap; justify-content: center; overflow: visible; }
+  html:not([data-text="2"]):not([data-text="3"]) #chips > * { margin-left: 0; margin-right: 0; }
+}
 
 /* Fluidity: let the phone scroll the sheet natively and never repaint the map for it */
 #sheet-body { -webkit-overflow-scrolling: touch; contain: content; }
@@ -490,6 +502,8 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 
 /* ---------- Maps-app conventions (UX tests) ---------- */
 .trip-fields { position: relative; }
+.trip-hint { margin: var(--sp-2) 0; font-weight: 700; color: var(--ink); }
+.trip-hint[hidden] { display: none; }
 .trip-swap { position: absolute; right: 6px; top: 40px; z-index: 2; width: 44px; height: 44px; display: grid; place-items: center;
   border: 2px solid var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--ink); }
 .trip-swap .i { width: 20px; height: 20px; }
@@ -520,6 +534,8 @@ body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }
 .when-at-l { display: block; margin: var(--sp-3) 0 var(--sp-1); font-size: var(--t-meta); font-weight: 700; color: var(--ink-2); }
 .when-at-l.off { opacity: .5; }
 #when-at { display: block; width: 100%; }
+/* Larger steps: date AND time must fit a 320 px field, so the field text stays smaller than the body text. */
+html:is([data-text="2"], [data-text="3"]) #when-at { font-size: max(16px, calc(var(--fs) * .62)); padding-left: 10px; padding-right: 6px; }
 #when-at:disabled { opacity: .5; }
 .when-err { margin: var(--sp-2) 0 0; font-size: var(--t-meta); font-weight: 700; }
 .when-err:empty { display: none; }
@@ -540,6 +556,8 @@ body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }
   list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scroll-padding: 0 var(--sp-4); scrollbar-width: none; }
 .home-places::-webkit-scrollbar { display: none; }
 .home-places:empty { display: none; }
+/* 320 px: the end of the row ("Work", a recent) was cut with no hint that it scrolls, so the pills wrap. */
+@media (max-width: 359px) { .home-places { flex-wrap: wrap; overflow: visible; margin: var(--sp-1) 0 0; padding: var(--sp-1) 0 var(--sp-2); } .home-places .hp { max-width: 100%; } }
 .hp { flex: none; display: flex; align-items: stretch; max-width: 78%; border-radius: 99px; background: var(--surface); box-shadow: var(--shadow-1); }
 .hp-go { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 52px; padding: 4px var(--sp-4) 4px var(--sp-3); border: 0; border-radius: 99px; background: none; text-align: left; }
 .hp.set .hp-go { padding-right: var(--sp-2); }

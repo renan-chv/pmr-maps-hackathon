@@ -95,6 +95,9 @@ const Sheet = (() => {
     grip.setAttribute("aria-valuetext", LABEL[name]);
     document.body.classList.toggle("sheet-full", name === "full" && isPhone());
     apply(isPhone() ? heights()[name] : 0);
+    // Large text, sheet at 75 %: zoom and locate would sit over the map filters, so they hide until there is room.
+    const tools = $("#map-tools"), vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    document.body.classList.toggle("tools-off", isPhone() && vh - cur - 12 - tools.offsetHeight < $("#chips").getBoundingClientRect().bottom + 8);
   }
   let startY = 0, startH = 0, moved = false;
   grip.addEventListener("pointerdown", (e) => {
@@ -525,7 +528,7 @@ function renderFavs() {
       (v ? `<button class="hp-edit" data-fav-edit="${f.key}" aria-label="Change the ${f.label} address">${PENCIL}</button>` : "") + `</li>`;
   });
   const rec = recents().map((r, i) => `<li class="hp"><button class="hp-go" data-recent="${i}">${icon("clock")}<span class="t">` +
-    `<b><span class="sr">Recent: </span>${esc(r.label)}</b><small>${esc(r.sub || "Recent")}</small></span></button></li>`);
+    `<b><span class="sr">Recent: </span>${esc(r.label)}</b><small>${esc(recentSub(r))}</small></span></button></li>`);
   const html = [...favs, ...rec].join("");
   if (ul.innerHTML === html) return;  // re-rendered on every return home: keep focus when nothing changed
   const hadFocus = ul.contains(document.activeElement);
@@ -850,6 +853,14 @@ function liftWay(l) {
   return { dir, exit };
 }
 // Plain-text name of a lift for buttons: "Line 14 elevator, toward Saint-Denis - Pleyel, exit 1 Cour de Rome".
+// Same as liftName, as HTML with the French parts marked (screen readers switch voice).
+function liftNameHTML(l, g) {
+  const { dir, exit } = liftWay(l);
+  const fr = (t) => `<span lang="fr">${esc(t)}</span>`;
+  const bits = [dir ? (dir === "all" ? "all directions" : `toward ${fr(dir)}`) : "", exit ? `exit ${fr(exit)}` : ""].filter(Boolean);
+  if (!bits.length) bits.push(l.situation ? fr(l.situation.split(/[.,]/)[0].replace(/\s+/g, " ").slice(0, 70)) : "location not specified");
+  return `${g && g.key !== "all" && g.key !== "access" ? `${esc(g.label)} elevator` : "Elevator"}, ${bits.join(", ")}`;
+}
 function liftName(l, g) {
   const { dir, exit } = liftWay(l);
   const bits = [dir ? (dir === "all" ? "all directions" : `toward ${dir}`) : "", exit ? `exit ${exit}` : ""].filter(Boolean);
@@ -880,10 +891,10 @@ function liftGroupHTML(g, i, only) {
     : `<ul class="ls-lifts">${lifts.map((l) => liftRowHTML(l, true, lifts.length > 1)).join("")}</ul>`;
   const can = lifts.filter((l) => l.status !== "notavailable");
   const report = !can.length ? "" : can.length === 1
-    ? `<button class="linkish ls-report" data-g="${i}" data-lift="${esc(can[0].liftid)}" aria-label="Report an outage, ${esc(liftName(can[0], g))}">Report an outage</button>`
+    ? `<button class="linkish ls-report" data-g="${i}" data-lift="${esc(can[0].liftid)}">Report an outage<span class="sr">, ${liftNameHTML(can[0], g)}</span></button>`
     : `<button class="linkish ls-report" data-g="${i}" aria-expanded="false" aria-controls="ls-pick-${i}">Report an outage${g.key === "all" || g.key === "access" ? "" : ` on ${esc(g.label)}`}</button>` +
       `<div class="ls-pick" id="ls-pick-${i}" hidden><p class="ls-note">Which elevator is out of order?</p>` +
-      can.map((l) => `<button class="ls-pick-b" data-lift="${esc(l.liftid)}" aria-label="Report an outage, ${esc(liftName(l, g))}">${esc(liftName(l, g).replace(/^[^,]*,\s*(.)/, (_, c) => c.toUpperCase()))}</button>`).join("") + `</div>`;
+      can.map((l) => `<button class="ls-pick-b" data-lift="${esc(l.liftid)}"><span class="sr">Report an outage, </span>${liftNameHTML(l, g).replace(/^[^,]*,\s*(<span lang="fr">)?(.)/, (_, sp, c) => (sp || "") + c.toUpperCase())}</button>`).join("") + `</div>`;
   const chip = g.chip ? (() => { const bg = lineColor(g.mode, g.code); return `<span class="lchip" style="background:${bg};color:${inkOn(bg)}" aria-hidden="true">${esc(g.chip)}</span>`; })() : `<span class="ls-ic" aria-hidden="true">${icon("lift")}</span>`;
   return `<section class="ls-group ${gs.st}"><h4 class="ls-h"><button class="ls-toggle" aria-expanded="${open}" aria-controls="ls-g-${i}">` +
     `${chip}<span class="${g.chip === g.label ? "sr" : "ls-name"}">${esc(g.label)}</span><span class="sr">, </span> <span class="ls-state">${mark(gs.st, "sm")}${srState(gs.st)}<span class="sr">, </span><span>${esc(gs.text)}</span></span>${icon("chev-r", "ls-chev")}</button></h4>` +
@@ -1167,12 +1178,19 @@ function openTrip(from, to) {
   $("#trip-from").value = trip.from ? trip.from.label : "";
   $("#trip-to").value = trip.to ? trip.to.label : "";
   $("#trip-result").innerHTML = "";
+  tripHint("");
   show("trip", "full");
-  if (!trip.from) locate().then(() => { if (!trip.from && S.myPos) { trip.from = myPosItem(); $("#trip-from").value = trip.from.label; if (trip.to) runTrip(); } });
+  if (!trip.from) locate().then(() => {
+    if (!trip.from && S.myPos) { trip.from = myPosItem(); $("#trip-from").value = trip.from.label; if (trip.to) runTrip(); }
+    else if (!trip.from && !$("#trip-from").value.trim()) { tripHint("Location is off. Where do you start?"); $("#trip-from").focus(); }
+  });
   if (REPLAY || (trip.from && trip.to)) runTrip(); else if (trip.from) $("#trip-to").focus();
   else $("#trip-from").focus();
 }
 
+// Line above the fields when the start could not be filled in (location off or refused).
+function tripHint(msg) { const h = $("#trip-hint"); h.textContent = msg; h.hidden = !msg; }
+$("#trip-from").addEventListener("input", () => tripHint(""));
 const REPLAY = new URLSearchParams(location.search).get("replay") === "demo";
 const VERDICT = {
   passe: { st: "ok", title: () => "This trip works", sub: (p) => (Profile.key() === "valide" ? "Nothing in the way." : `Nothing in the way for a ${p}.`) },
@@ -1251,11 +1269,13 @@ let lastTrip = null;
 async function runTrip(opts = {}) {
   const out = $("#trip-result");
   const demo = opts.demo || REPLAY;
-  // Typed but not picked (Google Maps style): take the first suggestion, never the previous trip's point.
+  // Typed but not picked (Google Maps style): take the best match when it is a sure one, never the previous trip's point.
   if (!demo) for (const k of ["from", "to"]) {
     const v = $(`#trip-${k}`).value.trim();
     if (trip[k]?.label === v) continue;
-    trip[k] = v.length >= 2 ? await tripAC[k].first() : null;
+    const best = v.length >= 2 ? await tripAC[k].first() : null;
+    if (best === CHOOSE) { trip[k] = null; out.innerHTML = ""; return; }  // the list is open on that field
+    trip[k] = best;
     if (trip[k]) $(`#trip-${k}`).value = trip[k].label;
     else if (v) { out.innerHTML = `<p class="err">No place found for “${esc(v)}”. Try a station, an address or a landmark.</p>`; return; }
   }
@@ -1540,8 +1560,32 @@ const STOP_TYPE = { metro: "Metro station", rail: "Train station", tram: "Tram s
 const recents = () => (store.json("recents") || []).slice(0, 5);
 function addRecent(it) {
   if (it.lon == null || it.kind === "me") return;
-  const r = { label: it.label, sub: it.sub || "", lon: it.lon, lat: it.lat };
+  // A station keeps its id, never its elevator status: that is read again each time it is shown.
+  const st = recentStation(it);
+  const r = st ? { label: it.label, sub: "", lon: it.lon, lat: it.lat, id: st.id } : { label: it.label, sub: it.sub || "", lon: it.lon, lat: it.lat };
   store.set("recents", JSON.stringify([r, ...recents().filter((x) => x.label !== r.label)].slice(0, 5)));
+}
+// Station behind a recent or picked item: by id, or by name for recents saved before ids were kept.
+function recentStation(r) {
+  if (r.id != null && S.stations.has(String(r.id))) return S.stations.get(String(r.id));
+  if (r.kind && r.kind !== "recent" && r.kind !== "station") return null;
+  const k = norm(r.label);
+  return [...S.stations.values()].find((st) => st.key === k && Math.abs(st.coord[0] - r.lon) < 0.01 && Math.abs(st.coord[1] - r.lat) < 0.01) || null;
+}
+// Subtitle of a recent: a station's elevators as they are now; old saved statuses ("2 of 5 elevators…") are dropped.
+function recentSub(r) {
+  const st = recentStation(r);
+  if (st) return stationSub(st).sub;
+  return r.sub && !/elevator|^unknown$/i.test(r.sub) ? r.sub : "Recent";
+}
+// "Metro station · elevators OK": what the result is, and its passenger elevators counted like the station sheet.
+const STATION_KIND = { Metro: "Metro station", RapidTransit: "RER station", Tramway: "Tram stop", LocalTrain: "Train station" };
+function stationSub(st) {
+  const { lifts: base, status } = stationLiftVerdict(st), n = base.length;
+  const ko = base.filter((l) => l.status === "notavailable").length, unk = base.filter((l) => l.status === "unknown").length;
+  const lifts = { ok: n > 1 ? "elevators OK" : "elevator OK", ko: n > 1 ? "no elevator working" : "elevator out of order",
+    warn: ko ? `${ko} of ${n} elevators out of order` : `${unk} of ${n} elevators unknown`, unk: "elevator status unknown" }[status];
+  return { status, sub: `${STATION_KIND[st.mode] || "Station"} · ${lifts}` };
 }
 // Addresses and places (shops, hospitals, restaurants…), ranked around `ref` [lon, lat].
 const suggestAPI = (q, ref) => getJSON(`/api/suggest?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ results: [] }));
@@ -1551,25 +1595,32 @@ function localStations(q, max = 4) {
   return [...S.stations.values()].filter((st) => words.every((w) => st.key.includes(w)))
     .sort((a, b) => (b.key.startsWith(words[0]) - a.key.startsWith(words[0])) || a.name.length - b.name.length)
     .slice(0, max)
-    .map((st) => ({ kind: "station", id: st.id, label: st.name, sub: verdictText(st)[0], status: st.status, lon: st.coord[0], lat: st.coord[1] }));
+    .map((st) => ({ kind: "station", id: st.id, label: st.name, ...stationSub(st), lon: st.coord[0], lat: st.coord[1] }));
 }
+// A place named exactly like the query ("Musée d'Orsay", "Tour Eiffel") beats the station named after it.
+// Generic results (a station, a street, a neighbourhood) do not: "Bastille" stays the metro station.
+const GENERIC_SUB = /^(Station|Tram stop|Bus stop|Neighbourhood|Area|City|Town|Village|Street|Address|Place|Building)\b/;
+const exactPlace = (it, q) => it.lon != null && norm(it.label) === norm(q) && !GENERIC_SUB.test(it.sub || "");
+// Text too loose to guess from: "10 rue", "ga". The user picks in the list instead.
+const vagueQuery = (q) => norm(q).length < 3 || /^\d+( ?(bis|ter))?( (rue|av|avenue|bd|boulevard|place|pl|quai|impasse|allee|chemin|route))?$/.test(norm(q));
+const CHOOSE = "choose";
 
 function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, stations = true } = {}) {
-  let items = [], sel = -1, timer = null, seq = 0;
+  let items = [], sel = -1, timer = null, seq = 0, askHint = "";
   const render = () => {
     if (!items.length) { list.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); return; }
-    list.innerHTML = items.map((it, i) => {
+    list.innerHTML = (askHint ? `<li class="sg-ask" role="presentation">${esc(askHint)}</li>` : "") + items.map((it, i) => {
       const lead = it.kind === "station" ? mark(it.status) : it.kind === "acces" ? mark(it.status, "food")
         : `<span class="mark neutral sq" aria-hidden="true">${icon(it.kind === "me" ? "locate" : it.kind === "place" ? "place" : it.kind === "fav" ? "home" : it.kind === "recent" ? "clock" : "address")}</span>`;
       return `<li role="option" id="${list.id}-${i}" aria-selected="${i === sel}" data-i="${i}">${lead}<span class="t"><b>${esc(it.label)}</b><small>${esc(it.sub || "")}</small></span></li>`;
     }).join("");
     list.hidden = false; input.setAttribute("aria-expanded", "true");
     if (sel >= 0) input.setAttribute("aria-activedescendant", `${list.id}-${sel}`);
-    list.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => pick(+li.dataset.i)));
+    list.querySelectorAll("li[data-i]").forEach((li) => li.addEventListener("click", () => pick(+li.dataset.i)));
   };
-  const pick = (i) => { const it = items[i]; if (!it || it.kind === "none") return; ++seq; items = []; render(); input.value = it.label; input.blur(); if (withMe) addRecent(it); onPick(it); };
+  const pick = (i) => { const it = items[i]; if (!it || it.kind === "none") return; ++seq; items = []; askHint = ""; render(); input.value = it.label; input.blur(); if (withMe) addRecent(it); onPick(it); };
   const favItems = () => [...FAVS.map((f) => { const v = store.json(`fav-${f.key}`); return v && { ...v, kind: "fav", sub: f.label }; }).filter(Boolean),
-    ...recents().map((r) => ({ ...r, kind: "recent", sub: r.sub || "Recent" }))];
+    ...recents().map((r) => ({ ...r, kind: "recent", sub: recentSub(r) }))];
   const run = async () => {
     const q = input.value.trim(), my = ++seq;
     const head = [];
@@ -1583,7 +1634,11 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     const ref = S.myPos || [map.getCenter().lng, map.getCenter().lat];
     // Addresses and places first (fast), restaurants from Acceslibre added when they arrive (can take seconds).
     let ign = { results: [] }, places = [];
-    const show = () => { if (my === seq) { items = [...head, ...local, ...ign.results.slice(0, 5), ...places.slice(0, 3)]; render(); } };
+    const show = () => {
+      if (my !== seq) return;
+      const found = ign.results.slice(0, 5), exact = found.filter((it) => exactPlace(it, q));
+      items = [...head, ...exact, ...local, ...found.filter((it) => !exact.includes(it)), ...places.slice(0, 3)]; render();
+    };
     const accP = q.length >= 3 ? getJSON(`/api/places/search?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ features: [] })) : null;
     ign = await suggestAPI(q, ref);
     const localNames = new Set(local.map((it) => norm(it.label)));
@@ -1596,29 +1651,49 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     show();
     if (my === seq && !local.length && !ign.results.length && !places.length) { items = [{ kind: "none", label: `No place found for “${q}”`, sub: "Try a station, an address or a landmark" }]; render(); }
   };
-  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 180); });
+  input.addEventListener("input", () => { askHint = ""; clearTimeout(timer); timer = setTimeout(run, 180); });
   input.addEventListener("focus", () => { onFocus?.(); run(); });
-  input.addEventListener("blur", () => setTimeout(() => { items = []; render(); }, 200));
+  // Closed a moment after leaving the field (a tap on a suggestion lands first), unless the field got the focus back.
+  input.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== input) { items = []; askHint = ""; render(); } }, 200));
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") { sel = Math.min(items.length - 1, sel + 1); render(); e.preventDefault(); }
     else if (e.key === "ArrowUp") { sel = Math.max(0, sel - 1); render(); e.preventDefault(); }
-    else if (e.key === "Enter") { if (items.length) pick(sel >= 0 ? sel : 0); else { ++seq; onEnter?.(); } e.preventDefault(); }
-    else if (e.key === "Escape") { items = []; render(); }
+    // Enter on typed text: the highlighted suggestion, else the best match when it is a sure one (onEnter), else the list stays open.
+    else if (e.key === "Enter") {
+      if (sel >= 0 && items[sel]) pick(sel);
+      else if (onEnter && input.value.trim()) { ++seq; onEnter(); }
+      else if (items.length) pick(0);
+      else { ++seq; onEnter?.(); }
+      e.preventDefault();
+    }
+    else if (e.key === "Escape") { items = []; askHint = ""; render(); }
   });
-  // First suggestion for the current text, for a search validated without picking.
-  // Stations and addresses only: the places search is too slow to wait for here.
+  // Best match for text validated without picking. Returns the item, null when nothing is found, or CHOOSE
+  // when the text is loose ("10 rue") or nothing really matches it: the list is then shown with a question.
   const first = async () => {
-    const q = input.value.trim(); ++seq; items = []; render();
-    if (withMe && myPosItem() && norm("my location").startsWith(norm(q))) return myPosItem();
+    const q = input.value.trim(), nq = norm(q); ++seq; items = []; askHint = ""; render();
+    if (withMe && myPosItem() && norm("my location").startsWith(nq)) return myPosItem();
     const local = stations ? localStations(q) : [];
-    if (local.length && norm(local[0].label).startsWith(norm(q))) return local[0];
     // Stations without elevators (Bastille…) are not in S.stations but are valid trip ends.
     await ensureQuais();
-    const quai = (S.quais || []).find((f) => norm(f.properties.name || "") === norm(q));
-    if (quai) return { kind: "place", label: quai.properties.name, lon: quai.geometry.coordinates[0], lat: quai.geometry.coordinates[1] };
+    const quai = (S.quais || []).find((f) => norm(f.properties.name || "") === nq);
     const ign = await suggestAPI(q, S.myPos || [map.getCenter().lng, map.getCenter().lat]);
     const all = [...local, ...ign.results].filter((x) => x.lon != null);
-    return all.find((x) => norm(x.label).startsWith(norm(q))) || all[0] || null;
+    const exact = ign.results.find((x) => exactPlace(x, q)) || local.find((x) => norm(x.label) === nq)
+      || (quai && { kind: "place", label: quai.properties.name, lon: quai.geometry.coordinates[0], lat: quai.geometry.coordinates[1] })
+      || all.find((x) => norm(x.label) === nq);
+    if (exact) return exact;
+    const starts = all.find((x) => norm(x.label).startsWith(nq));
+    if (starts && !vagueQuery(q) && nq.split(" ").length >= 2) return starts;
+    if (!all.length) return null;
+    ask(q);
+    return CHOOSE;
+  };
+  // Keep the list open under the field with the question, instead of guessing.
+  const ask = (q) => {
+    askHint = `Which place do you mean by “${q}”? Pick one below.`;
+    announce(askHint);
+    if (document.activeElement === input) run(); else input.focus();
   };
   return { run, first };
 }
@@ -1638,6 +1713,7 @@ const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, {
   onEnter: async () => {
     if ($("#search").value.trim().length < 2) return;
     const it = await mainSearch.first();
+    if (it === CHOOSE) return;
     if (it) pickMain(it); else toast("No place found. Try a station, an address or a landmark.");
   },
 });
@@ -1647,7 +1723,15 @@ $("#trip-swap").addEventListener("click", () => {
   if (trip.from && trip.to) runTrip();
 });
 const tripAC = {
-  from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) $("#trip-go").focus(); else $("#trip-to").focus(); }, { withMe: true, onEnter: () => runTrip() }),
+  from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; tripHint(""); if (trip.to) $("#trip-go").focus(); else $("#trip-to").focus(); }, { withMe: true,
+    // Enter in "From" with no destination yet: settle the start, then go to "To" (as picking it does).
+    onEnter: async () => {
+      if ($("#trip-to").value.trim() || $("#trip-from").value.trim().length < 2) return runTrip();
+      const it = await tripAC.from.first();
+      if (it === CHOOSE) return;
+      if (!it) return runTrip();
+      trip.from = it; $("#trip-from").value = it.label; tripHint(""); $("#trip-to").focus();
+    } }),
   to: autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true, onEnter: () => runTrip() }),
 };
 
@@ -1703,7 +1787,10 @@ const TEXT_STEPS = ["Default", "Large", "Larger", "Largest"];
 const textSeg = $("#textsize");
 function setTextSize(n) {
   n = Math.max(0, Math.min(TEXT_STEPS.length - 1, Math.trunc(Number(n)) || 0));
-  document.documentElement.dataset.text = String(n);
+  // Phone or browser text already at 200 % (root 20 px or more): the "Larger" layouts at least, the font size the user chose (data-tz).
+  const html = document.documentElement, zoomed = parseFloat(getComputedStyle(html).fontSize) >= 20 && n < 2;
+  html.dataset.text = String(zoomed ? 2 : n);
+  if (zoomed) html.dataset.tz = String(n); else delete html.dataset.tz;
   textSeg.querySelectorAll("input").forEach((r) => { r.checked = r.value === String(n); });
   return n;
 }
