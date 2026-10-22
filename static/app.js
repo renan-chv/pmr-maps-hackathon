@@ -591,8 +591,8 @@ function show(view, snap) {
   if (view !== "home" && !history.state?.roulib) history.pushState({ roulib: true }, "", location.href);
 }
 function goHome() {
-  // Focus was in the closing sheet (or nowhere): give it back to what opened it, else the home heading
-  // (not the search bar: focusing it would expand the sheet and open its suggestions).
+  // Focus was in the closing sheet (or nowhere): give it back to what opened it, else to the search bar,
+  // quietly (no full sheet, no suggestions until the user types), as Google Maps does.
   const lost = $("#sheet").contains(document.activeElement) || document.activeElement === document.body || !document.activeElement;
   show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty()); map.getSource("trip-ends")?.setData(empty());
   if (!layerOn.places) showPlacesOnMap([]);
@@ -600,7 +600,7 @@ function goHome() {
   const o = show.opener;
   if (!lost) return;
   if (o && o !== document.body && o !== $("#search") && document.contains(o)) o.focus({ preventScroll: true });
-  else focusEl($("#h-home"));
+  else { const s = $("#search"); s.dataset.quiet = "1"; s.focus({ preventScroll: true }); delete s.dataset.quiet; }
 }
 window.addEventListener("popstate", () => {
   if ($("#all-routes") && !$("#v-trip").hidden && lastTrip) return renderResults(lastTrip);  // detail -> list
@@ -1679,8 +1679,11 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     show();
     if (my === seq && !local.length && !ign.results.length && !places.length) { items = [{ kind: "none", label: `No place found for “${q}”`, sub: "Try a station, an address or a landmark" }]; render(); }
   };
-  input.addEventListener("input", () => { askHint = ""; clearTimeout(timer); timer = setTimeout(run, 180); });
-  input.addEventListener("focus", () => { onFocus?.(); run(); });
+  // A quiet focus (focus given back after closing a view) neither expands the sheet nor opens the list: that waits for typing.
+  let quiet = false;
+  input.addEventListener("input", () => { if (quiet) { quiet = false; onFocus?.(); } askHint = ""; clearTimeout(timer); timer = setTimeout(run, 180); });
+  input.addEventListener("focus", () => { if (input.dataset.quiet) { delete input.dataset.quiet; quiet = true; return; } quiet = false; onFocus?.(); run(); });
+  input.addEventListener("click", () => { if (quiet) { quiet = false; onFocus?.(); run(); } });  // a tap on the quietly focused field
   // Closed a moment after leaving the field (a tap on a suggestion lands first), unless the field got the focus back.
   input.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== input) { items = []; askHint = ""; render(); } }, 200));
   input.addEventListener("keydown", (e) => {
@@ -1694,7 +1697,8 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
       else { ++seq; onEnter?.(); }
       e.preventDefault();
     }
-    else if (e.key === "Escape") { items = []; askHint = ""; render(); }
+    // Escape closes the list and keeps the text: a search field would otherwise clear itself and reopen the default list.
+    else if (e.key === "Escape" && items.length) { e.preventDefault(); clearTimeout(timer); ++seq; items = []; askHint = ""; render(); }
   });
   // Best match for text validated without picking. Returns the item, null when nothing is found, or CHOOSE
   // when the text is loose ("10 rue") or nothing really matches it: the list is then shown with a question.
