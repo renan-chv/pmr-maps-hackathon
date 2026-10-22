@@ -182,7 +182,8 @@ const worksNear = (coord, radius = 150) => S.worksCenters.filter((w) => distM(co
 const placeCache = new Map();
 async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
   // Snap to the server's 0.01° tiles: nearby positions share one URL, so the browser and the CDN reuse it.
-  const T = 0.01, f = (v) => (Math.floor(v / T) * T).toFixed(2), c = (v) => (Math.ceil(v / T) * T).toFixed(2);
+  // Edges sit 0.0001° inside the tile grid so float rounding never adds a neighbour tile server-side.
+  const T = 0.01, f = (v) => (Math.floor(v / T) * T + 0.0001).toFixed(4), c = (v) => (Math.ceil(v / T) * T - 0.0001).toFixed(4);
   const bbox = [f(coord[0] - dLon), f(coord[1] - dLat), c(coord[0] + dLon), c(coord[1] + dLat)].join(",");
   if (!placeCache.has(bbox)) placeCache.set(bbox, getJSON(`/api/places?bbox=${bbox}`).catch((e) => { placeCache.delete(bbox); throw e; }));
   const d = await placeCache.get(bbox);
