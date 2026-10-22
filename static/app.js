@@ -1036,8 +1036,9 @@ async function runTrip(opts = {}) {
     if (trip[k]?.label === v) continue;
     trip[k] = v.length >= 2 ? await tripAC[k].first() : null;
     if (trip[k]) $(`#trip-${k}`).value = trip[k].label;
+    else if (v) { out.innerHTML = `<p class="err">No place found for “${esc(v)}”. Try a station, an address or a landmark.</p>`; return; }
   }
-  if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Type or pick the start and the destination.</p>`; return; }
+  if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Enter ${trip.from ? "a destination" : "a starting point"}.</p>`; return; }
   document.activeElement?.blur();
   out.innerHTML = `<p class="muted">Checking every step for your ${esc(Profile.get()?.short || "profile")}…</p>`;
   const q = new URLSearchParams({ profile: Profile.key() });
@@ -1090,7 +1091,7 @@ function renderResults(d) {
   const rec = d.replay === "demo";
   const prof = Profile.get()?.short || "profile";
   $("#v-trip").classList.add("has-result");
-  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Edit</span>`;
+  $("#trip-summary").innerHTML = `<span class="t">${esc(trip.from?.label || d.from?.label || "")} → ${esc(trip.to?.label || d.to?.label || "")}</span><span class="linkish">Edit</span>`;
   if (!its.length) { $("#trip-result").innerHTML = `<p>I couldn't find a trip.</p>` + demoButton(); bindDemo(); return; }
   const best = its[0];
   $("#trip-result").innerHTML =
@@ -1125,7 +1126,7 @@ function renderItinerary(d, id) {
   const planB = it.plan_b_id && d.itineraries.find((x) => x.id === it.plan_b_id);
   const rec = d.replay === "demo";
   $("#v-trip").classList.add("has-result");
-  $("#trip-summary").innerHTML = `<span class="t">${esc(d.from?.label || trip.from?.label || "")} → ${esc(d.to?.label || trip.to?.label || "")}</span><span class="linkish">Edit</span>`;
+  $("#trip-summary").innerHTML = `<span class="t">${esc(trip.from?.label || d.from?.label || "")} → ${esc(trip.to?.label || d.to?.label || "")}</span><span class="linkish">Edit</span>`;
   $("#trip-result").innerHTML =
     `<button class="back" id="all-routes">${icon("chev-l")}All trips</button>` +
     (isPlanB ? `<p class="badge-b">Plan B</p>` : "") +
@@ -1186,6 +1187,14 @@ $("#trip-go").addEventListener("click", () => runTrip());
 // ---------------------------------------------------------------------------
 // Search: stations from our data + places / addresses from IGN
 // ---------------------------------------------------------------------------
+// Stops without elevators (Bastille, Opéra…): not in S.stations but valid trip ends.
+function otherStations(q, max = 2) {
+  if (!S.quais?.length) return [];
+  const n = norm(q), seen = new Set([...S.stations.values()].map((st) => norm(st.name)));
+  return S.quais.filter((f) => norm(f.properties.name || "").startsWith(n))
+    .filter((f) => { const k = norm(f.properties.name); return !seen.has(k) && seen.add(k); }).slice(0, max)
+    .map((f) => ({ kind: "place", label: f.properties.name, sub: `${f.properties.type || "stop"} · no elevator data`, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
+}
 function localStations(q, max = 4) {
   const words = norm(q).split(" ").filter(Boolean);
   if (!words.length) return [];
@@ -1195,7 +1204,7 @@ function localStations(q, max = 4) {
     .map((st) => ({ kind: "station", id: st.id, label: st.name, sub: verdictText(st)[0], status: st.status, lon: st.coord[0], lat: st.coord[1] }));
 }
 
-function autocomplete(input, list, onPick, { withMe = false, onFocus, stations = true } = {}) {
+function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, stations = true } = {}) {
   let items = [], sel = -1, timer = null, seq = 0;
   const render = () => {
     if (!items.length) { list.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); return; }
@@ -1208,7 +1217,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
     if (sel >= 0) input.setAttribute("aria-activedescendant", `${list.id}-${sel}`);
     list.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => pick(+li.dataset.i)));
   };
-  const pick = (i) => { const it = items[i]; if (!it) return; items = []; render(); input.value = it.label; input.blur(); onPick(it); };
+  const pick = (i) => { const it = items[i]; if (!it) return; ++seq; items = []; render(); input.value = it.label; input.blur(); onPick(it); };
   const favItems = () => FAVS.map((f) => { const v = store.json(`fav-${f.key}`); return v && { ...v, kind: "fav", sub: f.label }; }).filter(Boolean);
   const run = async () => {
     const q = input.value.trim(), my = ++seq;
@@ -1216,17 +1225,22 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
     if (withMe && myPosItem() && (!q || norm("my location").startsWith(norm(q)))) head.push({ ...myPosItem(), sub: "Start from where you are" });
     if (withMe && !q) head.push(...favItems());
     if (q.length < 2) { items = head; sel = -1; render(); return; }
-    const local = stations ? localStations(q) : [];
+    if (stations && !S.quais?.length) await ensureQuais();  // once, so Bastille or Opéra show up from the first keystroke
+    if (my !== seq) return;
+    const local = stations ? [...localStations(q), ...otherStations(q)].slice(0, 4) : [];
     items = [...head, ...local]; sel = -1; render();
     const ref = S.myPos || [map.getCenter().lng, map.getCenter().lat];
-    const [ign, acc] = await Promise.all([
-      getJSON(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] })),
-      q.length >= 3 ? getJSON(`/api/places/search?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ features: [] })) : { features: [] },
-    ]);
-    if (my !== seq) return;
-    const places = acc.features.map((f) => ({ kind: "acces", f, label: f.properties.name, status: PLACE_ST[f.properties.wheelchair],
+    // Addresses and places first (fast), restaurants from Acceslibre added when they arrive (can take seconds).
+    let ign = { results: [] }, places = [];
+    const show = () => { if (my === seq) { items = [...head, ...local, ...ign.results.slice(0, 5), ...places.slice(0, 3)]; render(); } };
+    const accP = q.length >= 3 ? getJSON(`/api/places/search?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ features: [] })) : null;
+    ign = await getJSON(`/api/suggest?q=${encodeURIComponent(q)}`).catch(() => ({ results: [] }));
+    show();
+    if (!accP) return;
+    const acc = await accP;
+    places = acc.features.map((f) => ({ kind: "acces", f, label: f.properties.name, status: PLACE_ST[f.properties.wheelchair],
       sub: `${PLACE_FR[f.properties.wheelchair][0]} · ${f.properties.address || f.properties.activity || ""}`, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] }));
-    items = [...head, ...local, ...places.slice(0, 3), ...ign.results.slice(0, 4)]; render();
+    show();
   };
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 180); });
   input.addEventListener("focus", () => { onFocus?.(); run(); });
@@ -1234,7 +1248,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, stations =
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") { sel = Math.min(items.length - 1, sel + 1); render(); e.preventDefault(); }
     else if (e.key === "ArrowUp") { sel = Math.max(0, sel - 1); render(); e.preventDefault(); }
-    else if (e.key === "Enter") { pick(sel >= 0 ? sel : 0); e.preventDefault(); }
+    else if (e.key === "Enter") { if (items.length) pick(sel >= 0 ? sel : 0); else { ++seq; onEnter?.(); } e.preventDefault(); }
     else if (e.key === "Escape") { items = []; render(); }
   });
   // First suggestion for the current text, for a search validated without picking.
@@ -1261,8 +1275,8 @@ const pickMain = (it) => {
 };
 const mainSearch = autocomplete($("#search"), $("#suggest"), pickMain, { onFocus: () => isPhone() && Sheet.set("full") });
 const tripAC = {
-  from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) runTrip(); else $("#trip-to").focus(); }, { withMe: true }),
-  to: autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true }),
+  from: autocomplete($("#trip-from"), $("#suggest-from"), (it) => { trip.from = it; if (trip.to) $("#trip-go").focus(); else $("#trip-to").focus(); }, { withMe: true, onEnter: () => runTrip() }),
+  to: autocomplete($("#trip-to"), $("#suggest-to"), (it) => { trip.to = it; if (trip.from) runTrip(); }, { withMe: true, onEnter: () => runTrip() }),
 };
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import os
 import threading
 import time
@@ -368,8 +369,11 @@ def _in_idf(lon: float, lat: float) -> bool:
 def suggest(q: str, limit: int = 6) -> List[dict]:
     """Places (POI) + addresses in Île-de-France for the search box."""
     out, seen = [], set()
-    for index in ("poi", "address"):
-        params = {"q": q, "index": index, "limit": 10, "lat": 48.8566, "lon": 2.3522}
+    # "10 rue de Rivoli", "boulevard Saint-Michel": the user wants an address, not a place named after it.
+    looks_like_address = bool(re.match(r"\s*\d", q)) or bool(
+        re.search(r"\b(rue|avenue|av|bd|boulevard|place|quai|impasse|allée|chemin)\b", q, re.I))
+    for index in (("address", "poi") if looks_like_address else ("poi", "address")):
+        params = {"q": q, "index": index, "limit": 20, "lat": 48.8566, "lon": 2.3522}
         if index == "address":
             params["autocomplete"] = 1
         try:
@@ -399,6 +403,6 @@ def suggest(q: str, limit: int = 6) -> List[dict]:
                 continue
             seen.add(key)
             out.append(item)
-            if len(out) >= limit:
-                return out
-    return out
+    # Paris first, then the rest of Île-de-France (stable: keeps the geocoder's order inside each group).
+    out.sort(key=lambda it: not (it["kind"] == "place" and "Paris" in it["sub"] or it["sub"].startswith("75")))
+    return out[:limit]
