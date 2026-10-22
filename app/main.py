@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import os
@@ -15,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, poller, sources
+from . import db, poller, profiles, sources, verify
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -302,40 +303,125 @@ def _resolve(q: str) -> Optional[dict]:
     return sources.geocode(q)
 
 
-@app.get("/api/journey")
-def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., alias="to")):
-    if not PRIM_API_KEY:
-        raise HTTPException(503, "PRIM_API_KEY manquante : itinéraire indisponible")
-    a, b = _resolve(from_q), _resolve(to_q)
-    if not a or not b:
-        raise HTTPException(404, "adresse de départ ou d'arrivée introuvable")
-    r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params={
-        "from": f"{a['lon']};{a['lat']}", "to": f"{b['lon']};{b['lat']}",
-        "wheelchair": "true", "count": 3,
-    })
+FIXTURES = STATIC / "fixtures"
+
+
+def _navitia(a: dict, b: dict, forbidden: List[str] = ()) -> List[dict]:
+    params = [("from", f"{a['lon']};{a['lat']}"), ("to", f"{b['lon']};{b['lat']}"),
+              ("wheelchair", "true"), ("count", 3)] + [("forbidden_uris[]", u) for u in forbidden]
+    r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params=params)
     if r.status_code != 200:
         raise HTTPException(502, f"PRIM a répondu {r.status_code}: {r.text[:300]}")
-    journeys = []
-    for j in r.json().get("journeys", []):
-        sections, blocking = [], []
-        for s in j.get("sections", []):
-            sec = {"type": s.get("type"), "mode": (s.get("display_informations") or {}).get("commercial_mode"),
-                   "line": (s.get("display_informations") or {}).get("code"),
-                   "from": (s.get("from") or {}).get("name"), "to": (s.get("to") or {}).get("name"),
-                   "duration_s": s.get("duration"), "geojson": s.get("geojson")}
-            if s.get("type") == "public_transport":
-                for end in ("from", "to"):
-                    coord = ((s.get(end) or {}).get("stop_point") or {}).get("coord") or {}
-                    if coord.get("lon"):
-                        lifts = _lifts_near(float(coord["lon"]), float(coord["lat"]))
-                        sec[f"{end}_lifts"] = lifts
-                        blocking += [l for l in lifts if l["status"] != "available"]
-            sections.append(sec)
-        journeys.append({"duration_s": j.get("duration"), "departure": j.get("departure_date_time"),
-                         "arrival": j.get("arrival_date_time"), "sections": sections,
-                         "lifts_not_available": blocking})
-    return {"from": a, "to": b, "journeys": journeys, "source": "PRIM / Navitia (wheelchair=true)",
-            "lifts_fetched_at": sources.lifts()["fetched_at"]}
+    return r.json().get("journeys", [])
+
+
+def _legacy(j: dict) -> dict:
+    """Navitia journey with lifts near each stop: what Navitia alone proposes (baseline, current UI)."""
+    sections, blocking = [], []
+    for s in j.get("sections", []):
+        sec = {"type": s.get("type"), "mode": (s.get("display_informations") or {}).get("commercial_mode"),
+               "line": (s.get("display_informations") or {}).get("code"),
+               "from": (s.get("from") or {}).get("name"), "to": (s.get("to") or {}).get("name"),
+               "duration_s": s.get("duration"), "geojson": s.get("geojson")}
+        if s.get("type") == "public_transport":
+            for end in ("from", "to"):
+                coord = ((s.get(end) or {}).get("stop_point") or {}).get("coord") or {}
+                if coord.get("lon"):
+                    lifts = _lifts_near(float(coord["lon"]), float(coord["lat"]))
+                    sec[f"{end}_lifts"] = lifts
+                    blocking += [l for l in lifts if l["status"] != "available"]
+        sections.append(sec)
+    return {"duration_s": j.get("duration"), "departure": j.get("departure_date_time"),
+            "arrival": j.get("arrival_date_time"), "sections": sections, "lifts_not_available": blocking}
+
+
+def _summary(j: dict) -> dict:
+    """What Navitia alone says about a journey (no lift or sidewalk check): the comparison baseline."""
+    return {"duration_min": round((j.get("duration") or 0) / 60), "verdict_navitia": "accessible",
+            "steps": [{"type": s.get("type"), "line": (s.get("display_informations") or {}).get("code"),
+                       "mode": (s.get("display_informations") or {}).get("commercial_mode"),
+                       "from": (s.get("from") or {}).get("name"), "to": (s.get("to") or {}).get("name")}
+                      for s in j.get("sections", []) if s.get("type") in ("public_transport", "street_network")]}
+
+
+def _reports() -> List[dict]:
+    """Community reports (chantier B). Empty until its columns exist."""
+    if not db.enabled():
+        return []
+    try:
+        with db.conn().cursor() as cur:
+            cur.execute("""SELECT id, lon, lat, categorie, temporaire, confirmations, created_at, message
+                           FROM user_reports WHERE lon IS NOT NULL""")
+            cols = [c.name for c in cur.description]
+            return [dict(zip(cols, row), description=row[-1]) for row in cur.fetchall()]
+    except Exception:
+        logging.warning("user_reports not readable yet, journeys checked without community reports")
+        return []
+
+
+def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
+    """Optional GeoJSON-like layer from sources (stairs is added by chantier C)."""
+    fn = getattr(sources, fn_name, None)
+    if fn is None:
+        return [], None
+    try:
+        data = fn()
+    except Exception:
+        logging.exception("%s unavailable, journey checked without it", fn_name)
+        return [], None
+    feats = []
+    for r in data.get("rows", []):
+        shape = (r.get("geo_shape") or {}).get("geometry")
+        if shape:
+            feats.append({"type": "Feature", "geometry": shape, "properties": {
+                "summary": r.get("chantier_synthese"), "end": r.get("date_fin")}})
+    return feats, data.get("fetched_at")
+
+
+def _check_all(journeys: List[dict], profile: str, lifts: dict, prefix: str = "it") -> List[dict]:
+    works, works_at = _layer("works")
+    stairs, _ = _layer("stairs")
+    reports = _reports()
+    return [verify.verify_journey(j, profile, lifts["rows"], lifts.get("fetched_at"), works, works_at,
+                                  stairs, reports, it_id=f"{prefix}{i + 1}")
+            for i, j in enumerate(journeys)]
+
+
+@app.get("/api/journey")
+def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., alias="to"),
+                profile: str = Query(profiles.DEFAULT_PROFILE, description=", ".join(profiles.PROFILES)),
+                replay: Optional[str] = Query(None, description="demo: recorded journeys and lift snapshot")):
+    if profile not in profiles.PROFILES:
+        raise HTTPException(400, f"profile doit être l'un de : {', '.join(profiles.PROFILES)}")
+    if replay == "demo":
+        try:
+            demo = json.loads((FIXTURES / "navitia_demo.json").read_text())
+            lifts = json.loads((FIXTURES / "lifts_demo.json").read_text())
+        except FileNotFoundError:
+            raise HTTPException(404, "fichiers de démo absents (static/fixtures)")
+        a, b, journeys = demo["from"], demo["to"], demo["journeys"]
+    else:
+        if not PRIM_API_KEY:
+            raise HTTPException(503, "PRIM_API_KEY manquante : itinéraire indisponible")
+        a, b = _resolve(from_q), _resolve(to_q)
+        if not a or not b:
+            raise HTTPException(404, "adresse de départ ou d'arrivée introuvable")
+        journeys = _navitia(a, b)
+        lifts = sources.lifts()
+    itineraries = _check_all(journeys, profile, lifts)
+    if replay != "demo" and itineraries and all(it["verdict"] == "bloque" for it in itineraries):
+        forbidden = verify.blocking_stop_areas(itineraries[0])
+        if forbidden:
+            try:
+                itineraries += _check_all(_navitia(a, b, forbidden), profile, lifts, prefix="b")
+            except HTTPException:
+                logging.warning("plan B request failed, keeping the blocked itineraries only")
+    itineraries = verify.pick_plan_b(itineraries)
+    return {"from": a, "to": b, "profile": profile, "itineraries": itineraries,
+            "journeys": [] if replay == "demo" else [_legacy(j) for j in journeys],  # kept for the current UI
+            "baseline": [_summary(j) for j in journeys], "replay": replay,
+            "source": "PRIM / Navitia (wheelchair=true) vérifié par PMR Maps",
+            "lifts_fetched_at": lifts.get("fetched_at")}
 
 
 # --- Health & page ---------------------------------------------------------

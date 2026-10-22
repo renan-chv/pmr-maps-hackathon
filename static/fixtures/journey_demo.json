@@ -1,0 +1,409 @@
+{
+ "from": {
+  "label": "Rue de Rivoli, Paris 1er",
+  "lon": 2.3455,
+  "lat": 48.8597
+ },
+ "to": {
+  "label": "Esplanade du Général de Gaulle, Puteaux",
+  "lon": 2.2478,
+  "lat": 48.8889
+ },
+ "profile": "manuel",
+ "itineraries": [
+  {
+   "id": "it1",
+   "duration_min": 28,
+   "departure": "20261022T143000",
+   "arrival": "20261022T145800",
+   "verdict": "bloque",
+   "confidence": 5,
+   "blocked_at": "Esplanade de la Défense",
+   "steps": [
+    {
+     "type": "walk",
+     "from": "Rue de Rivoli, Paris 1er",
+     "to": "Châtelet - Les Halles",
+     "line": null,
+     "mode": null,
+     "duration_min": 5,
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3455,
+        48.8597
+       ],
+       [
+        2.3462,
+        48.8606
+       ],
+       [
+        2.3469698,
+        48.8617405
+       ]
+      ]
+     },
+     "stop_areas": [
+      "stop_area:IDFM:474151"
+     ],
+     "checks": [
+      {
+       "kind": "works",
+       "status": "obstacle",
+       "confidence": 5,
+       "obstacle": "trottoir_etroit",
+       "effect": "genant",
+       "source": "Ville de Paris – Chantiers à Paris",
+       "fetched_at": "2026-10-22T09:17:03+00:00",
+       "label": "Chantier sur le trottoir",
+       "message": "Construction ou réhabilitation d’immeuble (jusqu'au 2026-12-31)"
+      }
+     ],
+     "verdict": "risque"
+    },
+    {
+     "type": "transit",
+     "from": "Châtelet - Les Halles",
+     "to": "Esplanade de la Défense",
+     "line": "1",
+     "mode": "Métro",
+     "duration_min": 18,
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3469698,
+        48.8617405
+       ],
+       [
+        2.3212,
+        48.8656
+       ],
+       [
+        2.295586,
+        48.8735453
+       ],
+       [
+        2.2504078,
+        48.8874445
+       ]
+      ]
+     },
+     "stop_areas": [
+      "stop_area:IDFM:474151",
+      "stop_area:IDFM:71485"
+     ],
+     "checks": [
+      {
+       "kind": "lift",
+       "source": "IDFM – État des ascenseurs",
+       "fetched_at": "2026-10-22T09:11:00+00:00",
+       "station": "Châtelet - Les Halles",
+       "zdcid": "474151",
+       "lift_ids": [
+        "RATP:LiftEquipment:137023-SY-ASC-ASC_6:LOC",
+        "RATP:LiftEquipment:137023-SY-ASC-ASC_7:LOC"
+       ],
+       "status": "ok",
+       "confidence": 5,
+       "obstacle": null,
+       "effect": "sans_effet",
+       "label": "Ascenseurs ligne 1 à Châtelet - Les Halles",
+       "message": "2 ascenseur(s) en service",
+       "at": "from",
+       "stop_area": "stop_area:IDFM:474151"
+      },
+      {
+       "kind": "lift",
+       "source": "IDFM – État des ascenseurs",
+       "fetched_at": "2026-10-22T09:11:00+00:00",
+       "station": "Esplanade de la Défense",
+       "zdcid": "71485",
+       "lift_ids": [
+        "RATP:LiftEquipment:101079-SY-ASC-PBS_1:LOC"
+       ],
+       "status": "en_panne",
+       "confidence": 5,
+       "obstacle": "ascenseur_panne",
+       "effect": "bloquant",
+       "label": "Ascenseur ligne 1 à Esplanade de la Défense",
+       "message": "1 ascenseur(s) sur 1 en panne (signalé le 22/10 à 07h52), aucun en service confirmé",
+       "at": "to",
+       "stop_area": "stop_area:IDFM:71485"
+      }
+     ],
+     "verdict": "bloque"
+    },
+    {
+     "type": "walk",
+     "from": "Esplanade de la Défense",
+     "to": "Esplanade du Général de Gaulle, Puteaux",
+     "line": null,
+     "mode": null,
+     "duration_min": 3,
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.2504078,
+        48.8874445
+       ],
+       [
+        2.249,
+        48.8882
+       ],
+       [
+        2.2478,
+        48.8889
+       ]
+      ]
+     },
+     "stop_areas": [
+      "stop_area:IDFM:71485"
+     ],
+     "checks": [],
+     "verdict": "passe"
+    }
+   ],
+   "plan_b_id": "it2"
+  },
+  {
+   "id": "it2",
+   "duration_min": 36,
+   "departure": "20261022T143000",
+   "arrival": "20261022T150600",
+   "verdict": "risque",
+   "confidence": 5,
+   "blocked_at": null,
+   "steps": [
+    {
+     "type": "walk",
+     "from": "Rue de Rivoli, Paris 1er",
+     "to": "Châtelet - Les Halles",
+     "line": null,
+     "mode": null,
+     "duration_min": 5,
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3455,
+        48.8597
+       ],
+       [
+        2.3462,
+        48.8606
+       ],
+       [
+        2.3469698,
+        48.8617405
+       ]
+      ]
+     },
+     "stop_areas": [
+      "stop_area:IDFM:474151"
+     ],
+     "checks": [
+      {
+       "kind": "works",
+       "status": "obstacle",
+       "confidence": 5,
+       "obstacle": "trottoir_etroit",
+       "effect": "genant",
+       "source": "Ville de Paris – Chantiers à Paris",
+       "fetched_at": "2026-10-22T09:17:03+00:00",
+       "label": "Chantier sur le trottoir",
+       "message": "Construction ou réhabilitation d’immeuble (jusqu'au 2026-12-31)"
+      }
+     ],
+     "verdict": "risque"
+    },
+    {
+     "type": "transit",
+     "from": "Châtelet - Les Halles",
+     "to": "La Défense",
+     "line": "1",
+     "mode": "Métro",
+     "duration_min": 20,
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.3469698,
+        48.8617405
+       ],
+       [
+        2.3212,
+        48.8656
+       ],
+       [
+        2.295586,
+        48.8735453
+       ],
+       [
+        2.2504078,
+        48.8874445
+       ],
+       [
+        2.2396006,
+        48.8916123
+       ]
+      ]
+     },
+     "stop_areas": [
+      "stop_area:IDFM:474151",
+      "stop_area:IDFM:71517"
+     ],
+     "checks": [
+      {
+       "kind": "lift",
+       "source": "IDFM – État des ascenseurs",
+       "fetched_at": "2026-10-22T09:11:00+00:00",
+       "station": "Châtelet - Les Halles",
+       "zdcid": "474151",
+       "lift_ids": [
+        "RATP:LiftEquipment:137023-SY-ASC-ASC_6:LOC",
+        "RATP:LiftEquipment:137023-SY-ASC-ASC_7:LOC"
+       ],
+       "status": "ok",
+       "confidence": 5,
+       "obstacle": null,
+       "effect": "sans_effet",
+       "label": "Ascenseurs ligne 1 à Châtelet - Les Halles",
+       "message": "2 ascenseur(s) en service",
+       "at": "from",
+       "stop_area": "stop_area:IDFM:474151"
+      },
+      {
+       "kind": "lift",
+       "source": "IDFM – État des ascenseurs",
+       "fetched_at": "2026-10-22T09:11:00+00:00",
+       "station": "La Défense",
+       "zdcid": "71517",
+       "lift_ids": [
+        "RATP:LiftEquipment:137029-SY-ASC-ASC04:LOC"
+       ],
+       "status": "ok",
+       "confidence": 5,
+       "obstacle": null,
+       "effect": "sans_effet",
+       "label": "Ascenseurs ligne 1 à La Défense",
+       "message": "1 ascenseur(s) en service",
+       "at": "to",
+       "stop_area": "stop_area:IDFM:71517"
+      }
+     ],
+     "verdict": "passe"
+    },
+    {
+     "type": "walk",
+     "from": "La Défense",
+     "to": "Esplanade du Général de Gaulle, Puteaux",
+     "line": null,
+     "mode": null,
+     "duration_min": 9,
+     "geojson": {
+      "type": "LineString",
+      "coordinates": [
+       [
+        2.2396006,
+        48.8916123
+       ],
+       [
+        2.2425,
+        48.8908
+       ],
+       [
+        2.2455,
+        48.8898
+       ],
+       [
+        2.2478,
+        48.8889
+       ]
+      ]
+     },
+     "stop_areas": [
+      "stop_area:IDFM:71517"
+     ],
+     "checks": [
+      {
+       "kind": "walk",
+       "status": "obstacle",
+       "confidence": 5,
+       "obstacle": "long_trajet_pied",
+       "effect": "genant",
+       "source": "calcul PMR Maps",
+       "fetched_at": null,
+       "label": "Long trajet à pied",
+       "message": "672 m à pied"
+      }
+     ],
+     "verdict": "risque"
+    }
+   ],
+   "plan_b_id": null
+  }
+ ],
+ "journeys": [],
+ "baseline": [
+  {
+   "duration_min": 28,
+   "verdict_navitia": "accessible",
+   "steps": [
+    {
+     "type": "street_network",
+     "line": null,
+     "mode": null,
+     "from": "Rue de Rivoli, Paris 1er",
+     "to": "Châtelet - Les Halles"
+    },
+    {
+     "type": "public_transport",
+     "line": "1",
+     "mode": "Métro",
+     "from": "Châtelet - Les Halles",
+     "to": "Esplanade de la Défense"
+    },
+    {
+     "type": "street_network",
+     "line": null,
+     "mode": null,
+     "from": "Esplanade de la Défense",
+     "to": "Esplanade du Général de Gaulle, Puteaux"
+    }
+   ]
+  },
+  {
+   "duration_min": 36,
+   "verdict_navitia": "accessible",
+   "steps": [
+    {
+     "type": "street_network",
+     "line": null,
+     "mode": null,
+     "from": "Rue de Rivoli, Paris 1er",
+     "to": "Châtelet - Les Halles"
+    },
+    {
+     "type": "public_transport",
+     "line": "1",
+     "mode": "Métro",
+     "from": "Châtelet - Les Halles",
+     "to": "La Défense"
+    },
+    {
+     "type": "street_network",
+     "line": null,
+     "mode": null,
+     "from": "La Défense",
+     "to": "Esplanade du Général de Gaulle, Puteaux"
+    }
+   ]
+  }
+ ],
+ "replay": "demo",
+ "source": "PRIM / Navitia (wheelchair=true) vérifié par PMR Maps",
+ "lifts_fetched_at": "2026-10-22T09:11:00+00:00"
+}
