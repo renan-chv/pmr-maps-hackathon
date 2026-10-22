@@ -37,7 +37,6 @@
   --sheet-h: 420px;
   --z-map: 0; --z-overlay: 10; --z-sheet: 20; --z-toast: 30; --z-skip: 40;
 }
-html.big { --fs: 21px; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
@@ -474,3 +473,6 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; }
 #chips .chip { min-height: 44px; padding: 0 12px 0 10px; gap: 5px; font-size: 15px; }
 #chips .chip .i { width: 18px; height: 18px; }
 @media (min-width: 1024px) { #chips { justify-content: flex-start; } }
+
+/* Fluidity: let the phone scroll the sheet natively and never repaint the map for it */
+#sheet-body { -webkit-overflow-scrolling: touch; contain: content; }

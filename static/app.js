@@ -224,6 +224,10 @@ async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
 const map = new maplibregl.Map({
   container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
   center: [2.3488, 48.8566], zoom: 12.4, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
+  // iPhones render at 3x: capping at 2x divides the GPU work by ~2.25 with no visible loss on a map.
+  pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+  fadeDuration: 0, renderWorldCopies: false, maxPitch: 0, antialias: false,
+  maxTileCacheSize: 120, refreshExpiredTiles: false,
 });
 map.touchZoomRotate.disableRotation();
 
@@ -257,6 +261,7 @@ const BASE_CLUTTER = /^(poi_|highway-shield|road_shield)/;
 map.on("load", () => {
   for (const l of map.getStyle().layers) {
     if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
+    if (l.type === "symbol" && /housenumber|poi|road_oneway|highway-name-minor|highway_name_other/.test(l.id)) map.setLayerZoomRange(l.id, 16, 24);
     // Place names in French (the base style prefers English for districts).
     if (l.type === "symbol" && l.layout && l.layout["text-field"]) map.setLayoutProperty(l.id, "text-field", ["coalesce", ["get", "name:fr"], ["get", "name"]]);
     // Calm, warm base: white streets on cream, so our markers are what stands out.
@@ -1308,13 +1313,8 @@ document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("clic
   } else if (k === "places") loadPlacesLayer();
 }));
 
-const textBtn = $("#textsize");
-function setBig(on) {
-  document.documentElement.classList.toggle("big", on);
-  textBtn.setAttribute("aria-pressed", String(on));
-}
-setBig(store.get("big") === "1");
-textBtn.addEventListener("click", () => { const on = !document.documentElement.classList.contains("big"); setBig(on); store.set("big", on ? "1" : "0"); toast(on ? "Texte agrandi." : "Texte normal."); });
+// The in-app text size setting was removed: the phone's own text size setting applies. Clear the old choice.
+try { localStorage.removeItem("big"); } catch {}
 
 (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
