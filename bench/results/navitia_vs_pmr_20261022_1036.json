@@ -1,0 +1,830 @@
+{
+ "summary": {
+  "run_at": "2026-10-22T10:36:34+00:00",
+  "lifts_fetched_at": "2026-10-22T10:36:34+00:00",
+  "profile": "manuel",
+  "trips_requested": 50,
+  "trips_with_result": 40,
+  "errors": 10,
+  "navitia_first_verdicts": {
+   "risque": 34,
+   "passe": 6
+  },
+  "causes": {
+   "longue_marche": 32,
+   "chantier_trottoir": 9,
+   "ascenseur_partiel": 6,
+   "ascenseur_souvent_en_panne": 1
+  },
+  "lift_problem_trips": 6,
+  "lift_blocked_trips": 0,
+  "blocked_trips": 0,
+  "blocked_with_plan_b": 0,
+  "not_clear_trips": 34,
+  "mode": "live (PRIM/Navitia, état IDFM des ascenseurs, Dispotrains, Ville de Paris)"
+ },
+ "trips": [
+  {
+   "from": "Opéra Garnier, Paris",
+   "to": "Gare Montparnasse, Paris",
+   "navitia_first": {
+    "duration_min": 14,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it2",
+    "verdict": "passe",
+    "duration_min": 12
+   },
+   "plan_b": true,
+   "plan_b_source": "navitia_alternative"
+  },
+  {
+   "from": "Bibliothèque François Mitterrand, Paris",
+   "to": "Parvis de La Défense, Puteaux",
+   "navitia_first": {
+    "duration_min": 162,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 162
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare du Nord, Paris",
+   "to": "Gare de l'Est, Paris",
+   "navitia_first": {
+    "duration_min": 0,
+    "verdict": "passe",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": []
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "passe",
+    "duration_min": 0
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare de l'Est, Paris",
+   "to": "Gare Saint-Lazare, Paris",
+   "navitia_first": {
+    "duration_min": 36,
+    "verdict": "risque",
+    "confidence": 5,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche",
+     "chantier_trottoir"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 36
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Parvis de La Défense, Puteaux",
+   "to": "Gare Montparnasse, Paris",
+   "navitia_first": {
+    "duration_min": 174,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 174
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Panthéon, Paris",
+   "to": "Parvis de La Défense, Puteaux",
+   "navitia_first": {
+    "duration_min": 193,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 193
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Tour Eiffel, Paris",
+   "to": "Mairie du 20e arrondissement, Paris",
+   "navitia_first": {
+    "duration_min": 58,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 58
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare de Lyon, Paris",
+   "to": "Gare de l'Est, Paris",
+   "navitia_first": {
+    "duration_min": 18,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 18
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Mairie du 18e arrondissement, Paris",
+   "to": "Musée du Louvre, Paris",
+   "navitia_first": {
+    "duration_min": 30,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 30
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Bibliothèque François Mitterrand, Paris",
+   "to": "Mairie du 20e arrondissement, Paris",
+   "navitia_first": {
+    "duration_min": 83,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 83
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare de Lyon, Paris",
+   "to": "Parc de la Villette, Paris",
+   "navitia_first": {
+    "duration_min": 43,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 43
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Opéra Garnier, Paris",
+   "to": "Parc de la Villette, Paris",
+   "navitia_first": {
+    "duration_min": 66,
+    "verdict": "risque",
+    "confidence": 5,
+    "blocked_at": null,
+    "causes": [
+     "ascenseur_partiel"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 66
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare de l'Est, Paris",
+   "to": "Hôtel de Ville, Paris",
+   "navitia_first": {
+    "duration_min": 29,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 29
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Musée d'Orsay, Paris",
+   "to": "Gare du Nord, Paris",
+   "navitia_first": {
+    "duration_min": 33,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "ascenseur_partiel",
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 33
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Place de la Bastille, Paris",
+   "to": "Porte Maillot, Paris",
+   "navitia_first": {
+    "duration_min": 146,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 146
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Bibliothèque François Mitterrand, Paris",
+   "to": "Place d'Italie, Paris",
+   "navitia_first": {
+    "duration_min": 74,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 74
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Place de la Bastille, Paris",
+   "to": "Gare d'Austerlitz, Paris",
+   "navitia_first": {
+    "duration_min": 10,
+    "verdict": "passe",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": []
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "passe",
+    "duration_min": 10
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôpital Lariboisière, Paris",
+   "to": "Gare du Nord, Paris",
+   "navitia_first": {
+    "duration_min": 26,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "chantier_trottoir",
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 26
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare Saint-Lazare, Paris",
+   "to": "Gare de Lyon, Paris",
+   "navitia_first": {
+    "duration_min": 31,
+    "verdict": "risque",
+    "confidence": 5,
+    "blocked_at": null,
+    "causes": [
+     "chantier_trottoir",
+     "longue_marche",
+     "ascenseur_partiel",
+     "ascenseur_souvent_en_panne"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 31
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Place d'Italie, Paris",
+   "to": "Hôpital Lariboisière, Paris",
+   "navitia_first": {
+    "duration_min": 12,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it2",
+    "verdict": "passe",
+    "duration_min": 8
+   },
+   "plan_b": true,
+   "plan_b_source": "navitia_alternative"
+  },
+  {
+   "from": "Hôpital Saint-Louis, Paris",
+   "to": "Gare Montparnasse, Paris",
+   "navitia_first": {
+    "duration_min": 53,
+    "verdict": "risque",
+    "confidence": 5,
+    "blocked_at": null,
+    "causes": [
+     "chantier_trottoir",
+     "longue_marche",
+     "ascenseur_partiel"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 53
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôpital Necker, Paris",
+   "to": "Porte Maillot, Paris",
+   "navitia_first": {
+    "duration_min": 135,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 135
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôpital Necker, Paris",
+   "to": "Musée du Louvre, Paris",
+   "navitia_first": {
+    "duration_min": 20,
+    "verdict": "passe",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": []
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "passe",
+    "duration_min": 20
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare du Nord, Paris",
+   "to": "Place de la Bastille, Paris",
+   "navitia_first": {
+    "duration_min": 32,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche",
+     "chantier_trottoir"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 32
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Centre Pompidou, Paris",
+   "to": "Parvis de La Défense, Puteaux",
+   "navitia_first": {
+    "duration_min": 185,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 185
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôtel de Ville, Paris",
+   "to": "Mairie du 20e arrondissement, Paris",
+   "navitia_first": {
+    "duration_min": 28,
+    "verdict": "passe",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": []
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "passe",
+    "duration_min": 28
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare Montparnasse, Paris",
+   "to": "Hôpital Saint-Louis, Paris",
+   "navitia_first": {
+    "duration_min": 51,
+    "verdict": "risque",
+    "confidence": 5,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche",
+     "ascenseur_partiel",
+     "chantier_trottoir"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 51
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôpital Européen Georges-Pompidou, Paris",
+   "to": "Place de la République, Paris",
+   "navitia_first": {
+    "duration_min": 27,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it3",
+    "verdict": "passe",
+    "duration_min": 48
+   },
+   "plan_b": true,
+   "plan_b_source": "navitia_alternative"
+  },
+  {
+   "from": "Opéra Garnier, Paris",
+   "to": "Musée du Louvre, Paris",
+   "navitia_first": {
+    "duration_min": 38,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "chantier_trottoir"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 38
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Tour Eiffel, Paris",
+   "to": "Porte Maillot, Paris",
+   "navitia_first": {
+    "duration_min": 52,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 52
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôpital Necker, Paris",
+   "to": "Musée d'Orsay, Paris",
+   "navitia_first": {
+    "duration_min": 43,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 43
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Panthéon, Paris",
+   "to": "Gare de l'Est, Paris",
+   "navitia_first": {
+    "duration_min": 24,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "chantier_trottoir",
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 24
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Place d'Italie, Paris",
+   "to": "Hôpital Européen Georges-Pompidou, Paris",
+   "navitia_first": {
+    "duration_min": 22,
+    "verdict": "passe",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": []
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "passe",
+    "duration_min": 22
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare de l'Est, Paris",
+   "to": "Porte Maillot, Paris",
+   "navitia_first": {
+    "duration_min": 178,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 178
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Gare du Nord, Paris",
+   "to": "Hôtel de Ville, Paris",
+   "navitia_first": {
+    "duration_min": 34,
+    "verdict": "risque",
+    "confidence": 5,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 34
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Opéra Garnier, Paris",
+   "to": "Place de la République, Paris",
+   "navitia_first": {
+    "duration_min": 55,
+    "verdict": "passe",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": []
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "passe",
+    "duration_min": 55
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôpital Necker, Paris",
+   "to": "Gare d'Austerlitz, Paris",
+   "navitia_first": {
+    "duration_min": 16,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 16
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Hôpital Necker, Paris",
+   "to": "Gare de Lyon, Paris",
+   "navitia_first": {
+    "duration_min": 11,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it3",
+    "verdict": "passe",
+    "duration_min": 13
+   },
+   "plan_b": true,
+   "plan_b_source": "navitia_alternative"
+  },
+  {
+   "from": "Panthéon, Paris",
+   "to": "Gare du Nord, Paris",
+   "navitia_first": {
+    "duration_min": 24,
+    "verdict": "risque",
+    "confidence": 3,
+    "blocked_at": null,
+    "causes": [
+     "chantier_trottoir",
+     "longue_marche"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 24
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  },
+  {
+   "from": "Parc de la Villette, Paris",
+   "to": "Panthéon, Paris",
+   "navitia_first": {
+    "duration_min": 52,
+    "verdict": "risque",
+    "confidence": 5,
+    "blocked_at": null,
+    "causes": [
+     "longue_marche",
+     "ascenseur_partiel"
+    ]
+   },
+   "best_pmr": {
+    "id": "it1",
+    "verdict": "risque",
+    "duration_min": 52
+   },
+   "plan_b": false,
+   "plan_b_source": null
+  }
+ ]
+}

@@ -16,7 +16,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from . import profiles
 
 LIFT_RADIUS_M = 150     # lifts are geolocated at the station centroid
-NEAR_WALK_M = 15        # an obstacle closer than this to a walking step is on the way
+NEAR_WALK_M = 15        # fallback distance for obstacles given as lines or points
 LONG_WALK_M = 400       # beyond this a walking step is flagged as long
 UNRELIABLE_BELOW = 0.85  # lift in service less than this share of the time: warn (estimate)
 RAIL_MODES = ("metro", "métro", "rer", "train", "transilien", "ter")
@@ -72,6 +72,45 @@ def _vertices(geometry: dict) -> List[List[float]]:
 
     walk((geometry or {}).get("coordinates"))
     return out
+
+
+def _rings(geometry: dict) -> List[List[List[float]]]:
+    g = geometry or {}
+    if g.get("type") == "Polygon":
+        return list(g.get("coordinates") or [])
+    if g.get("type") == "MultiPolygon":
+        return [ring for poly in g.get("coordinates") or [] for ring in poly]
+    return []
+
+
+def _inside(p, ring) -> bool:
+    x, y, inside = p[0], p[1], False
+    for i in range(len(ring)):
+        (x1, y1), (x2, y2) = ring[i][:2], ring[i - 1][:2]
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            inside = not inside
+    return inside
+
+
+def _segments_cross(a, b, c, d) -> bool:
+    def orient(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    return (orient(a, b, c) > 0) != (orient(a, b, d) > 0) and (orient(c, d, a) > 0) != (orient(c, d, b) > 0)
+
+
+def _crosses(geometry: dict, line: List[List[float]]) -> bool:
+    """True when the walking line enters a footprint (polygon); lines and points fall back to 5 m."""
+    rings = _rings(geometry)
+    if not rings:
+        return _near_line(geometry, line, within=5)
+    xs, ys = [p[0] for p in line], [p[1] for p in line]
+    pts = [p for r in rings for p in r]
+    if not any(min(xs) - 1e-4 <= p[0] <= max(xs) + 1e-4 and min(ys) - 1e-4 <= p[1] <= max(ys) + 1e-4 for p in pts):
+        return False
+    if any(_inside(p, r) for p in line for r in rings):
+        return True
+    return any(_segments_cross(line[i], line[i + 1], r[j - 1], r[j])
+               for i in range(len(line) - 1) for r in rings for j in range(len(r)))
 
 
 def _near_line(geometry: dict, line: List[List[float]], within: float = NEAR_WALK_M) -> bool:
@@ -226,7 +265,7 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
     now = now or datetime.now(timezone.utc)
     out: List[dict] = []
     for f in works:
-        if _near_line(f.get("geometry"), line):
+        if _crosses(f.get("geometry"), line):
             p = f.get("properties") or {}
             # a sidewalk worksite usually leaves a way round: never more than "genant" on its own
             eff = _at_most_genant(profiles.effect("trottoir_etroit", profile))
@@ -235,7 +274,7 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
                         "label": "Chantier sur le trottoir",
                         "message": f"{p.get('summary') or 'Chantier'}" + (f" (jusqu'au {p['end']})" if p.get("end") else "")})
     for f in stairs:
-        if _near_line(f.get("geometry"), line, within=10):
+        if _crosses(f.get("geometry"), line):
             out.append({"kind": "stairs", "status": "obstacle", "confidence": 3, "obstacle": "escalier",
                         "effect": profiles.effect("escalier", profile),
                         "source": "Ville de Paris – Voies en escalier", "fetched_at": None,
@@ -306,6 +345,9 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
                     c["at"] = where
                     c["stop_area"] = area
                     step["checks"].append(c)
+        elif line and stype == "crow_fly":
+            # straight line drawn by Navitia, not a real path: only its length means something
+            step["checks"] = walk_checks(line, profile, now=now)
         elif line:
             step["checks"] = walk_checks(line, profile, works, stairs, reports, works_fetched_at, now)
         step["verdict"] = _step_verdict(step["checks"])
