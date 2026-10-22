@@ -246,3 +246,12 @@ body.sheet-full #map-tools { opacity: 0; pointer-events: none; }
   .btn:hover { border-color: var(--ink-2); } .btn.primary:hover { filter: brightness(1.08); }
   #toast { top: auto; bottom: 28px; }
 }
+
+/* ---------- Photos ---------- */
+.photo { margin: var(--sp-2) 0 var(--sp-3); border-radius: var(--r-m); overflow: hidden; background: var(--raised); box-shadow: var(--shadow-1); }
+.photo img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.photo figcaption { padding: var(--sp-2) var(--sp-3); font-size: .78em; color: var(--ink-2); background: var(--surface); }
+.photo figcaption a { color: var(--ink-2); }
+.photo.small img { aspect-ratio: 3 / 2; }
+#photo-near .h2 { margin-top: var(--sp-5); }
+#photo img { aspect-ratio: 5 / 2; }
