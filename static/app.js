@@ -29,12 +29,29 @@ const icon = (name, cls = "") => `<svg class="i ${cls}" aria-hidden="true"><use 
 const mark = (st, cls = "") => `<span class="mark ${st} ${cls}" aria-hidden="true">${icon(st)}</span>`;
 const isPhone = () => window.matchMedia("(max-width: 1023px) and (not ((orientation: landscape) and (max-height: 540px)))").matches;
 
+// In the native iOS/Android shell the page is served from the app bundle: API calls go to the hosted backend.
+const API = window.ROULIB_API || "";
+// Every call to the backend: a failed connection (or a gateway that cannot reach the app) tells Net,
+// any real answer clears it. Errors carry the HTTP status and the API's machine code ({"code": "no_route"}).
+async function api(path, opts) {
+  let r;
+  try { r = await fetch(path.startsWith("/api/") ? API + path : path, opts); }
+  catch (e) { Net.fail(); const err = new Error("network"); err.offline = true; throw err; }
+  if (r.status === 502 || r.status === 504) Net.fail(); else Net.ok();
+  return r;
+}
 async function getJSON(url) {
-  const r = await fetch(url);
+  const r = await api(url);
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(body.detail || `Error ${r.status}`); e.status = r.status; throw e; }
+  if (!r.ok) {
+    const d = body.detail;  // FastAPI: a string, or the object given to HTTPException
+    const e = new Error((typeof d === "string" ? d : d?.detail || d?.message) || `Error ${r.status}`);
+    e.status = r.status; e.code = body.code || d?.code || null;
+    throw e;
+  }
   return body;
 }
+const postJSON = (path, data, method = "POST") => api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
 
 function rel(iso) {
   if (!iso) return "unknown date";
@@ -62,6 +79,41 @@ function toast(msg, ms = 3800) {
   requestAnimationFrame(() => { t.textContent = msg; });
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.textContent = ""), ms);
 }
+// Network banner, in the sheet under the grip: offline, or the server not answering. Never blocks anything:
+// what was loaded stays on screen with its own time. Retries by itself, and as soon as the phone is back online.
+const Net = (() => {
+  const bar = $("#netbar"), text = $("#netbar-t"), btn = $("#netbar-retry");
+  let down = false, timer = null;
+  const render = () => {
+    const off = navigator.onLine === false;
+    bar.hidden = !(off || down);
+    text.textContent = off ? "You're offline. Showing what was loaded." : "Roulib's server isn't answering. Showing what was loaded.";
+    btn.hidden = off;
+  };
+  const retry = () => { loadLifts(); loadAlerts(); loadReports(); };
+  btn.addEventListener("click", () => {
+    btn.disabled = true; btn.textContent = "Trying…";
+    retry();
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Try again"; }, 2500);
+  });
+  window.addEventListener("offline", render);
+  window.addEventListener("online", () => { down = false; clearInterval(timer); render(); toast("Back online."); retry(); Net.onUp?.(); });
+  render();
+  return {
+    onUp: null,  // called when the connection or the server comes back
+    isDown: () => down || navigator.onLine === false,
+    fail() { if (down) return; down = true; render(); clearInterval(timer); timer = setInterval(retry, 30000); },
+    ok() { if (!down) return; down = false; clearInterval(timer); render(); Net.onUp?.(); },
+  };
+})();
+
+// Safety net: a promise nobody waited for (a plugin, a library) logs one readable warning, never "Uncaught (in promise) Object".
+window.addEventListener("unhandledrejection", (e) => {
+  const r = e.reason;
+  console.warn("Unhandled:", (r && (r.message || r.code || r.status)) || String(r));
+  e.preventDefault();
+});
+
 // Short message for screen readers (results, errors), without re-reading the whole list.
 function announce(msg) {
   const r = $("#sr-status"); if (!r) return;
@@ -76,6 +128,13 @@ const srState = (st) => `<span class="sr">${SR_STATE[st] || ""}</span>`;
 // ---------------------------------------------------------------------------
 // Bottom sheet: three heights on phones, side panel elsewhere (CSS)
 // ---------------------------------------------------------------------------
+// Height of the notch / status bar (0 in a browser tab): the full sheet and the map padding keep clear of it.
+const safeTop = (() => {
+  const p = document.createElement("div");
+  p.style.cssText = "position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none";
+  document.body.appendChild(p);
+  return () => p.offsetHeight;
+})();
 const Sheet = (() => {
   const el = $("#sheet"), grip = $("#grip"), body = $("#sheet-body");
   const LABEL = { peek: "collapsed", half: "half", full: "full screen" };
@@ -84,7 +143,7 @@ const Sheet = (() => {
     const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     // Larger text steps: the half sheet opens higher, or it would only show a title and the search bar.
     const big = Number(document.documentElement.dataset.text || 0) >= 2;
-    return { peek: Math.min(big ? 260 : 210, Math.round(vh * 0.3)), half: Math.round(vh * (big ? 0.75 : 0.6)), full: vh - 76 };
+    return { peek: Math.min(big ? 260 : 210, Math.round(vh * 0.3)), half: Math.round(vh * (big ? 0.75 : 0.6)), full: vh - Math.max(76, safeTop() + 28) };
   };
   // The sheet keeps its full height and slides with transform (GPU), so the map never relayouts mid-animation.
   let cur = 0;
@@ -136,7 +195,8 @@ const Sheet = (() => {
     const hs = heights();
     apply(Math.max(hs.peek * 0.7, Math.min(hs.full, pull.h - (e.touches[0].clientY - pull.y))));
   }, { passive: false });
-  body.addEventListener("touchend", () => {
+  // touchcancel (an incoming call, iOS taking the gesture): same as lifting the finger, the sheet settles on a level.
+  const release = () => {
     if (pull?.on) {
       el.classList.remove("dragging");
       const hs = heights(), moved = cur - pull.h;
@@ -146,8 +206,11 @@ const Sheet = (() => {
       else set(Object.entries(hs).sort((x, y) => Math.abs(x[1] - cur) - Math.abs(y[1] - cur))[0][0]);
     }
     pull = null;
-  });
+  };
+  body.addEventListener("touchend", release);
+  body.addEventListener("touchcancel", release);
   grip.addEventListener("pointercancel", end);
+  grip.addEventListener("lostpointercapture", end);
   grip.addEventListener("keydown", (e) => {
     const order = ["peek", "half", "full"], i = order.indexOf(snap);
     if (e.key === "ArrowUp") { set(order[Math.min(2, i + 1)]); e.preventDefault(); }
@@ -159,8 +222,8 @@ const Sheet = (() => {
   set("half");
   return {
     set, get: () => snap,
-    padding: () => (isPhone() ? { bottom: heights()[snap === "full" ? "half" : snap] + 20, top: 76, left: 24, right: 24 }
-      : { left: el.getBoundingClientRect().right + 20, top: 76, right: 76, bottom: 40 }),
+    padding: () => (isPhone() ? { bottom: heights()[snap === "full" ? "half" : snap] + 20, top: 76 + safeTop(), left: 24, right: 24 }
+      : { left: el.getBoundingClientRect().right + 20, top: 76 + safeTop(), right: 76, bottom: 40 }),
     scrollTop: () => { body.scrollTop = 0; },
   };
 })();
@@ -257,7 +320,21 @@ async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
 // ---------------------------------------------------------------------------
 // Map
 // ---------------------------------------------------------------------------
-const map = new maplibregl.Map({
+// No map library (the app opened offline before it was ever cached) or no WebGL: a stand-in that does nothing,
+// so search, trips, lists and reports keep working. The map area says so and offers to try again.
+function createMap(opts) {
+  try { if (window.maplibregl) return new maplibregl.Map(opts); } catch (e) { console.warn("Map unavailable:", e.message || e); }
+  document.body.classList.add("no-map");
+  $("#map").innerHTML = `<div class="map-off"><p><b>The map can't load right now.</b> Search, trips and lists still work.</p>` +
+    `<button class="btn" type="button" id="map-retry">Try again</button></div>`;
+  $("#map-retry").addEventListener("click", () => location.reload());
+  const fixed = { getZoom: () => 12.4, getCenter: () => ({ lng: 2.3488, lat: 48.8566 }), isStyleLoaded: () => false, getLayer: () => undefined,
+    getBounds: () => ({ getWest: () => 2.33, getEast: () => 2.37, getSouth: () => 48.84, getNorth: () => 48.87 }) };
+  const noop = new Proxy(function () {}, { get: (_, k) => (k in fixed ? fixed[k] : noop), apply: () => noop });
+  return noop;
+}
+const hasMap = () => !document.body.classList.contains("no-map");
+const map = createMap({
   container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
   center: [2.3488, 48.8566], zoom: 12.4, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
   // iPhones render at 3x: capping at 2x divides the GPU work by ~2.25 with no visible loss on a map.
@@ -266,6 +343,13 @@ const map = new maplibregl.Map({
   maxTileCacheSize: 120, refreshExpiredTiles: false,
 });
 map.touchZoomRotate.disableRotation();
+// With no listener, MapLibre does console.error(errorObject): Android's WebView log shows just "Object".
+// Here: one readable line (what failed, which URL); offline tile failures are expected and only feed the banner.
+map.on("error", (e) => {
+  if (navigator.onLine === false) return Net.fail();
+  const err = e?.error || {};
+  console.warn(`map: ${err.message || err.status || "error"}${err.url ? ` (${String(err.url).split("?")[0]})` : ""}`);
+});
 
 const MARK_PATHS = { ok: "m5 12.5 4.5 4.5L19 7.5", ko: "M6 6l12 12M18 6 6 18", warn: "M12 5v9M12 19h.01", unk: "M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01",
   food: "M7 3v18M4 3v5a3 3 0 0 0 6 0V3M18 21V3c-2.5 1.5-4 4.5-4 8h4" };
@@ -295,6 +379,9 @@ const empty = () => ({ type: "FeatureCollection", features: [] });
 const BASE_CLUTTER = /^(poi_|highway-shield|road_shield)/;
 
 map.on("load", () => {
+  // The credits open folded (an "i" button): unfolded, they ran under the Report and locate buttons.
+  const attrib = document.querySelector(".maplibregl-ctrl-attrib");
+  attrib?.removeAttribute("open"); attrib?.classList.remove("maplibregl-compact-show");
   for (const l of map.getStyle().layers) {
     if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
     if (l.type === "symbol" && /housenumber|poi|road_oneway|highway-name-minor|highway_name_other/.test(l.id)) map.setLayerZoomRange(l.id, 16, 24);
@@ -388,11 +475,11 @@ map.on("load", () => {
     Sheet.set(Sheet.get() === "full" ? "half" : "peek");
   });
 
-  loadLifts().then(applyHash);
+  // Elevator data loads with the page, not with the map: it may already be here.
+  if (S.stations.size) map.getSource("stations").setData(stationsGeoJSON());
+  if (reportsData.length) renderReports();
   loadStatic();
-  loadAlerts();
-  setInterval(loadLifts, 5 * 60 * 1000);
-  setInterval(loadAlerts, 60 * 1000);
+  loadReports();
 });
 
 function quickPopup(e, kind) {
@@ -408,6 +495,7 @@ const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)")
 const flyTo = (coord, zoom = 15.5) => (reduceMotion() ? map.jumpTo({ center: coord, zoom, padding: Sheet.padding() })
   : map.flyTo({ center: coord, zoom, padding: Sheet.padding(), essential: true }));
 function fitTo(coords) {
+  if (!hasMap() || !coords.length) return;
   const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
   coords.forEach((c) => b.extend(c));
   const pad = Sheet.padding(), c = map.getCanvas(), h = c.clientHeight, w = c.clientWidth;
@@ -438,7 +526,8 @@ async function loadLifts() {
 
 // Heavy layers load on demand, once: platforms when a station opens or the chip is on,
 // roadworks when the map reaches street level or a sheet needs them.
-const once = (fn) => { let p = null; return () => (p ||= fn().catch((e) => { p = null; console.warn(e); })); };
+const errText = (e) => (e && (e.message || e.status)) || String(e);
+const once = (fn) => { let p = null; return () => (p ||= fn().catch((e) => { p = null; console.warn("load:", errText(e)); })); };
 const ensureQuais = once(async () => {
   const d = await getJSON("/api/stations"); S.quais = d.features; S.meta.quais = d.meta;
   map.getSource("quais")?.setData(d); renderSources();
@@ -462,7 +551,7 @@ async function loadBus() {
   if (!layerOn.bus || map.getZoom() < 14.5) return;
   const b = map.getBounds();
   const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
-  try { map.getSource("bus").setData(await getJSON(`/api/bus-stops?bbox=${bbox}`)); } catch (e) { console.warn("bus", e); }
+  try { map.getSource("bus").setData(await getJSON(`/api/bus-stops?bbox=${bbox}`)); } catch (e) { console.warn("bus:", errText(e)); }
 }
 
 async function loadPlacesLayer() {
@@ -470,7 +559,7 @@ async function loadPlacesLayer() {
   // Cover the visible map (the server accepts at most 4x4 tiles of 0.01°, so cap each half-span at 0.015°).
   const c = map.getCenter(), b = map.getBounds();
   const dLon = Math.min((b.getEast() - b.getWest()) / 2, 0.015), dLat = Math.min((b.getNorth() - b.getSouth()) / 2, 0.015);
-  try { showPlacesOnMap((await placesAround([c.lng, c.lat], dLon, dLat)).filter((f) => f.properties.category === "food")); } catch (e) { console.warn("places", e); }
+  try { showPlacesOnMap((await placesAround([c.lng, c.lat], dLon, dLat)).filter((f) => f.properties.category === "food")); } catch (e) { console.warn("places:", errText(e)); }
 }
 
 async function loadAlerts() {
@@ -488,7 +577,7 @@ async function loadAlerts() {
         `<small>${what}, ${rel(a.detected_at)}</small></span>${icon("chev-r", "chev")}</button></li>`;
     }).join("");
     bindOpen(ul);
-  } catch (e) { console.warn("alerts", e); }
+  } catch (e) { console.warn("alerts:", errText(e)); }
 }
 
 // ---------------------------------------------------------------------------
@@ -612,7 +701,7 @@ document.querySelectorAll("[data-back]").forEach((b) => b.addEventListener("clic
 // Escape closes the open sheet like its visible Back button (trip detail: back to the list).
 // Capture phase: an open suggestion list or time picker is seen before its own Escape closes it, and keeps priority.
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || e.defaultPrevented || !$("#when-panel").hidden || document.querySelector(".suggest:not([hidden])")) return;
+  if (e.key !== "Escape" || e.defaultPrevented || !$("#when-panel").hidden || document.querySelector(".suggest:not([hidden]), dialog[open]")) return;
   const view = document.querySelector(".view:not([hidden])");
   const back = view && [...view.querySelectorAll("#all-routes, [data-back], [data-back-trip]")].find((b) => b.offsetParent);
   if (back) { e.preventDefault(); back.click(); }
@@ -666,13 +755,22 @@ async function openFood() {
   foodPos = await here();
   if (!S.myPos) setPin(foodPos);
   flyTo(foodPos, 15.5);
+  // Acceslibre can take a while on a cold area: say so rather than look stuck.
+  const here_ = () => !$("#v-list").hidden && $("#l-title").textContent === "Eat nearby";
+  const slow = setTimeout(() => { if (here_() && !foodAll.length) $("#l-body").innerHTML = `<p class="muted loading">Still searching. Acceslibre can take a few seconds the first time</p>`; }, 6000);
   try {
-    foodAll = (await placesAround(foodPos)).filter((f) => f.properties.category === "food")
+    foodAll = [];
+    const feats = await placesAround(foodPos);
+    if (!here_()) return;  // the user moved on: no list, no pins behind their back
+    foodAll = feats.filter((f) => f.properties.category === "food")
       .map((f) => ({ f, d: distM(foodPos, f.geometry.coordinates) })).sort((a, b) => a.d - b.d);
     renderFood();
   } catch (e) {
-    $("#l-body").innerHTML = `<p class="err">I can't load the restaurants. Try again in a moment.</p>`;
-  }
+    if (!here_()) return;
+    $("#l-body").innerHTML = `<p class="err">${e.offline ? "You're offline, so I can't load the restaurants." : e.code ? esc(e.message) : "I can't load the restaurants right now."}</p>` +
+      `<button class="btn block" type="button" id="food-retry">Try again</button>`;
+    $("#food-retry").addEventListener("click", openFood);
+  } finally { clearTimeout(slow); }
 }
 function renderFoodFilters() {
   const F = [["ok", "ok", "Step-free"], ["help", "hand", "With a little help"], ["wc", "wc", "Accessible toilets"]];
@@ -1024,7 +1122,12 @@ function radioKeys(group) {
 radioKeys($("#r-cats"));
 function renderReportCats() {
   $("#r-cats").innerHTML = R_CATS.map((c, i) => `<button class="r-cat" role="radio" aria-checked="${rep.cat === c.key}" tabindex="${radioTab(c.key, rep.cat, i)}" data-cat="${c.key}">${icon(c.ic)}<span>${c.label}</span></button>`).join("");
-  document.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => { rep.cat = b.dataset.cat; renderReportCats(); $(`[data-cat="${rep.cat}"]`)?.focus(); }));
+  document.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => {
+    rep.cat = b.dataset.cat;
+    // The user's own pick wins over the photo's suggestion (it was ignored when sending); the description stays.
+    if (rep.ai) rep.ai = { ...rep.ai, categorie: null, gravite: null, temporaire: null };
+    renderReportCats(); $(`[data-cat="${rep.cat}"]`)?.focus();
+  }));
   renderReportSummary();
 }
 
@@ -1072,10 +1175,13 @@ $("#r-photo").addEventListener("change", async (e) => {
   $("#r-thumb").src = rep.photo; $("#r-thumb").hidden = false;
   $("#r-summary").insertAdjacentHTML("afterbegin", `<p class="muted" id="r-analyzing">${icon("spark")}Analyzing the photo…</p>`);
   try {
-    const r = await fetch("/api/reports/analyze", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image_base64: rep.photo.split(",")[1], lat: rep.place.lat, lon: rep.place.lon }) });
+    const r = await postJSON("/api/reports/analyze", { image_base64: rep.photo.split(",")[1], lat: rep.place.lat, lon: rep.place.lon });
     if (!r.ok) throw new Error(r.status);
-    rep.ai = await r.json();
+    const ai = await r.json().catch(() => null);
+    // No analysis (no key, refusal, blurry photo): the route answers an empty card. That is not an answer,
+    // and it must not replace what the user picked ("Obstacle in the way" became "Other problem, for information").
+    if (!ai || ai.analyse === "indisponible" || !(ai.confiance > 0)) throw new Error("no analysis");
+    rep.ai = ai;
     if (rep.ai?.categorie) rep.cat = R_CATS.some((c) => c.key === rep.ai.categorie) ? rep.ai.categorie : (rep.ai.categorie === "escalier" ? "marche" : rep.cat || "autre");
     renderReportCats();
   } catch {
@@ -1089,36 +1195,122 @@ $("#r-send").addEventListener("click", async () => {
   if (!c) return;
   const btn = $("#r-send"); btn.disabled = true; btn.textContent = "Sending…";
   try {
-    const r = await fetch("/api/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+    const r = await postJSON("/api/reports", {
       categorie: rep.ai?.categorie || c.key, temporaire: rep.ai?.temporaire ?? c.temporaire, gravite: rep.ai?.gravite || c.gravite,
       description: rep.text || rep.ai?.description || `${c.label} at ${rep.place.label}`, confiance: rep.ai?.confiance ?? 1,
       user_id: userId(), lat: rep.place.lat, lon: rep.place.lon, target_type: rep.target?.type || "place", target_id: rep.target?.id || null,
       photo_thumb: rep.thumb || null,
-    }) });
+    });
     if (r.status === 429) { toast("You've sent a lot of reports in a row. Try again in an hour.", 5000); return; }
-    if (!r.ok) throw new Error(r.status);
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw Object.assign(new Error(typeof b.detail === "string" ? b.detail : r.status), { status: r.status, code: b.code || b.detail?.code });
+    }
     toast("Thank you! It's on the map. Other users can confirm it.");
     goHome(); loadReports();
-  } catch {
-    toast("Reports aren't connected yet: this one was not sent. Try again later.", 5000);
+  } catch (e) {
+    // The report stays filled in: nothing to type again.
+    if (e.code === "offensive") { $("#r-text").hidden = false; $("#r-text").focus(); }  // the words to change are there
+    toast(e.offline ? "You're offline: this report was not sent. Send it again when you're back online."
+      : e.code === "offensive" ? e.message
+      : e.status === 503 || e.status === 404 ? "Reports aren't connected yet: this one was not sent. Try again later."
+      : "I couldn't send your report. Try again in a moment.", 6000);
   } finally { btn.disabled = false; btn.textContent = "Send report"; }
 });
 
-let reportsData = [];
-let reportsApi = true;
+// Moderation (community content): "Report as inappropriate" on every report shown, and "Hide reports from this person".
+// The hidden people stay on this phone; their reports are filtered out everywhere (map, report sheet, trip steps).
+const idList = (k) => { const v = store.json(k); return new Set(Array.isArray(v) ? v.map(String) : []); };
+const blockedAuthors = () => idList("pmr_blocked_authors");
+const isBlocked = (author) => author != null && author !== "" && blockedAuthors().has(String(author));
+function setBlocked(author, on) {
+  const s = blockedAuthors(); on ? s.add(String(author)) : s.delete(String(author));
+  store.set("pmr_blocked_authors", JSON.stringify([...s].slice(-500)));
+  renderReports(); renderUnhide();
+}
+const isFlagged = (id) => idList("pmr_flagged_reports").has(String(id));
+// The two actions, under a report. Hiding needs the report's author, never shown, and never yourself.
+function modHTML(id, author) {
+  if (id == null) return "";
+  const canHide = author != null && author !== "" && String(author) !== String(userId() ?? "");
+  return `<div class="mod" data-report="${esc(id)}" data-author="${esc(author ?? "")}">` +
+    (isFlagged(id) ? `<p class="mod-done">${icon("ok")}<span>You reported this as inappropriate. Thank you.</span></p>`
+      : `<button class="linkish mod-btn" type="button" data-mod="flag">${icon("flag")}<span>Report as inappropriate</span></button>`) +
+    (canHide ? `<button class="linkish mod-btn" type="button" data-mod="hide">${icon("eye-off")}<span>Hide reports from this person</span></button>` : "") + `</div>`;
+}
+async function flagReport(btn) {
+  const box = btn.closest(".mod"), id = box.dataset.report, label = btn.querySelector("span");
+  btn.disabled = true; btn.setAttribute("aria-busy", "true"); label.textContent = "Sending…";
+  try {
+    const r = await postJSON(`/api/reports/${encodeURIComponent(id)}/flag`, { user_id: userId() });
+    if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
+    const s = idList("pmr_flagged_reports"); s.add(String(id));
+    store.set("pmr_flagged_reports", JSON.stringify([...s].slice(-500)));
+    const done = document.createElement("p");
+    done.className = "mod-done"; done.setAttribute("role", "status"); done.tabIndex = -1;
+    done.innerHTML = `${icon("ok")}<span>Thank you. This report was sent for review.</span>`;
+    btn.replaceWith(done); done.focus({ preventScroll: true });
+  } catch (e) {
+    btn.disabled = false; btn.removeAttribute("aria-busy"); label.textContent = "Report as inappropriate";
+    toast(e.offline ? "You're offline: nothing was sent. Try again when you're back online."
+      : e.status === 429 ? "You've sent a lot of these in a row. Try again later." : "I couldn't send that. Try again in a moment.", 5000);
+  }
+}
+function hideAuthor(btn) {
+  const box = btn.closest(".mod"), author = box.dataset.author;
+  setBlocked(author, true);
+  // In place of the report (sheet or trip step): what happened, and a way back.
+  const note = document.createElement("div");
+  note.className = "mod-hidden"; note.setAttribute("role", "status"); note.tabIndex = -1;
+  note.innerHTML = `<p>${icon("eye-off")}<span><b>Reports from this person are hidden</b> on this phone. You can show them again from your profile.</span></p>` +
+    `<button class="linkish" type="button">Undo</button>`;
+  note.querySelector("button").addEventListener("click", () => {
+    setBlocked(author, false);
+    note.innerHTML = `<p>${icon("ok")}<span>Their reports show again. Reopen this page to see them.</span></p>`;
+  });
+  const host = box.closest(".check") || $("#detail");
+  if (host.classList?.contains("check")) {
+    // The same person's other reports on this trip go too.
+    document.querySelectorAll(".check .mod").forEach((m) => { if (m !== box && m.dataset.author === author) m.closest(".check").outerHTML = hiddenCheckHTML(); });
+    host.replaceChildren(note);
+  } else { host.innerHTML = ""; host.append(note); setPin(null); }
+  note.focus({ preventScroll: true });
+}
+$("#sheet-body").addEventListener("click", (e) => {
+  const b = e.target.closest(".mod-btn");
+  if (!b || b.disabled) return;
+  b.dataset.mod === "flag" ? flagReport(b) : hideAuthor(b);
+});
+// A trip step's check that comes from a community report.
+const reportCheck = (c) => c.kind === "report" || c.report_id != null;
+const checkAuthor = (c) => c.author ?? reportsAll.find((f) => String(f.properties.id) === String(c.report_id))?.properties.author;
+const hiddenCheck = (c) => reportCheck(c) && isBlocked(checkAuthor(c));
+
+let reportsData = [], reportsAll = [];
+let reportsApi = true, reportsPause = 0;  // 503 (no database): ask again in 5 minutes, not on every map move
+function renderReports() {
+  reportsData = reportsAll.filter((f) => !isBlocked(f.properties.author));
+  map.getSource("reports")?.setData({ type: "FeatureCollection", features: reportsData.map((f, i) => ({ ...f, properties: { i, st: GRAV_ST[f.properties.gravite] || "warn" } })) });
+}
 async function loadReports() {
-  if (!reportsApi || map.getZoom() < 13) return;
+  if (!reportsApi || Date.now() < reportsPause || map.getZoom() < 13) return;
   const b = map.getBounds();
   const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
   try {
-    const d = await getJSON(`/api/reports?bbox=${bbox}`).catch((e) => { if (e.status === 404 || e.status === 405) reportsApi = false; throw e; });
-    reportsData = d.features || [];
-    map.getSource("reports")?.setData({ type: "FeatureCollection", features: reportsData.map((f, i) => ({ ...f, properties: { i, st: GRAV_ST[f.properties.gravite] || "warn" } })) });
+    const d = await getJSON(`/api/reports?bbox=${bbox}`).catch((e) => {
+      if (e.status === 404 || e.status === 405) reportsApi = false;
+      if (e.status === 503) reportsPause = Date.now() + 5 * 60 * 1000;
+      throw e;
+    });
+    reportsAll = d.features || [];
+    renderReports();
   } catch { /* no reports API yet */ }
 }
 
 function openReport(f) {
   const p = f.properties, coord = f.geometry.coordinates, st = GRAV_ST[p.gravite] || "warn";
+  if (isBlocked(p.author)) return;
+  $("#detail").dataset.kind = "report";
   setPin(coord);
   show("detail", "half");
   flyTo(coord, 17);
@@ -1128,32 +1320,37 @@ function openReport(f) {
     `<p class="sub">Reported by the community ${p.created_at ? rel(p.created_at) : ""}${p.is_demo ? " · demo report" : ""}</p>` +
     `<div class="verdict ${st}">${mark(st, "lg")}<span><strong>${p.gravite === "bloquant" ? "Blocking in a wheelchair" : p.gravite === "genant" ? "Inconvenient" : "For information"}</strong>${esc(p.description || "")}</span></div>` +
     `<p class="trip-meta">${confPill(p.confidence || 2)} <span class="muted">${plural(p.confirmations || 1, "person saw it", "people saw it")}</span></p>` +
-    `<button class="btn primary block" id="still-there">${icon("ok")}Still there</button>` +
+    `<button class="btn primary block" id="still-there">${icon("ok")}<span>Still there</span></button>` +
+    modHTML(p.id, p.author) +
     `<p class="src">Community report, not verified by an official source. It loses confidence if nobody confirms it.</p>`;
   $("#still-there").addEventListener("click", async (e) => {
-    e.currentTarget.disabled = true;
+    const btn = e.currentTarget, label = btn.querySelector("span");
+    btn.disabled = true; label.textContent = "Saving…";
     try {
-      const r = await fetch(`/api/reports/${encodeURIComponent(p.id)}/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: userId() }) });
+      const r = await postJSON(`/api/reports/${encodeURIComponent(p.id)}/confirm`, { user_id: userId() });
       if (!r.ok) throw new Error(r.status);
       const d = await r.json().catch(() => ({}));
+      label.textContent = "Confirmed";
       toast(`Thank you! ${d.confirmations ? plural(d.confirmations, "person has confirmed it", "people have confirmed it") : "Confirmation saved"}.`);
       loadReports();
-    } catch { e.currentTarget.disabled = false; toast("I couldn't save that. Try again in a moment."); }
+    } catch (err) {
+      btn.disabled = false; label.textContent = "Still there";
+      toast(err.offline ? "You're offline: nothing was saved. Try again when you're back online." : "I couldn't save that. Try again in a moment.");
+    }
   });
 }
 
 async function openPlace(item) {
   const coord = [item.lon, item.lat];
-  await ensureWorks();
+  $("#detail").dataset.kind = "address";
   setPin(coord);
   show("detail", "half");
   flyTo(coord, 16);
   const near = nearestStations(coord, 3, 1500);
-  const works = worksNear(coord, 150);
   $("#detail").innerHTML = photoSlot() +
     `<h2 id="d-title" class="title">${esc(item.label)}</h2><p class="sub">${esc(item.sub || "")}</p>` +
-    `<div id="place-access"><p class="muted">Checking whether this place is accessible…</p></div>` +
-    (works.length ? `<p class="note">${icon("cone")}<span><b>${plural(works.length, "sidewalk works site", "sidewalk works sites")}</b> within 150 m. ${esc(works[0].p.summary || "Roadworks")}, until ${esc(works[0].p.end)}.</span></p>` : "") +
+    `<div id="place-access" aria-busy="true"><p class="muted">Checking whether this place is accessible…</p></div>` +
+    `<div id="place-works"></div>` +
     `<div class="btn-row"><button class="btn primary" id="go-to">Go there</button><button class="btn" id="go-from">Start here</button></div>` +
     `<h3 class="h2">Nearby stations with elevators</h3>` +
     (near.length ? stationList(near) : `<p class="muted">No station with an elevator within 1.5 km.</p>`) +
@@ -1162,6 +1359,12 @@ async function openPlace(item) {
   bindOpen($("#detail"));
   $("#go-to").addEventListener("click", () => openTrip(null, item));
   $("#go-from").addEventListener("click", () => openTrip(item, null));
+  // Roadworks load once (a few seconds on a slow network): the sheet is already open meanwhile.
+  ensureWorks().then(() => {
+    const box = $("#place-works"), works = worksNear(coord, 150);
+    if (!box || $("#d-title")?.textContent !== item.label || !works.length) return;
+    box.innerHTML = `<p class="note">${icon("cone")}<span><b>${plural(works.length, "sidewalk works site", "sidewalk works sites")}</b> within 150 m. ${esc(works[0].p.summary || "Roadworks")}, until ${esc(works[0].p.end)}.</span></p>`;
+  });
   // Same place in Acceslibre? Match by name within 120 m.
   try {
     const key = norm(item.label);
@@ -1171,11 +1374,14 @@ async function openPlace(item) {
     const box = $("#place-access");
     if (!box) return;
     fillPhoto(coord, cands.length ? cands[0].f.properties.id : null);
+    box.removeAttribute("aria-busy");
     box.innerHTML = cands.length
       ? acceslibreBlock(cands[0].f.properties) + `<p class="src"><a href="${esc(cands[0].f.properties.url)}" target="_blank" rel="noopener">See the Acceslibre page</a></p>`
       : `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Not described yet</strong>This place has no accessibility page on Acceslibre.</span></div>`;
   } catch {
-    const box = $("#place-access"); if (box) box.innerHTML = "";
+    // Unknown is never shown as accessible: say the check could not run.
+    const box = $("#place-access");
+    if (box) { box.removeAttribute("aria-busy"); box.innerHTML = `<div class="verdict unk">${mark("unk", "lg")}<span><strong>Accessibility not checked</strong>I couldn't reach Acceslibre just now. Try again in a moment.</span></div>`; }
   }
 }
 
@@ -1310,7 +1516,9 @@ async function runTrip(opts = {}) {
   }
   if (!demo && (!trip.from || !trip.to)) { out.innerHTML = `<p class="err">Enter ${trip.from ? "a destination" : "a starting point"}.</p>`; return; }
   document.activeElement?.blur();
-  out.innerHTML = `<p class="muted">Checking every step for your ${esc(Profile.get()?.short || "profile")}…</p>`;
+  tripRetry = false;
+  out.setAttribute("aria-busy", "true");
+  out.innerHTML = `<p class="muted loading">Checking every step for your ${esc(Profile.get()?.short || "profile")}…</p>`;
   const q = new URLSearchParams({ profile: Profile.key() });
   if (demo) { q.set("replay", "demo"); q.set("from", "demo"); q.set("to", "demo"); }
   else { q.set("from", `${trip.from.lon},${trip.from.lat}`); q.set("to", `${trip.to.lon},${trip.to.lat}`); }
@@ -1322,10 +1530,74 @@ async function runTrip(opts = {}) {
     lastTrip = d;
     renderResults(d);
   } catch (e) {
-    if (e.status === 503) renderTripFallback();
-    else announce("I couldn't find a trip."), out.innerHTML = `<p class="err">I couldn't find a trip. ${/not reachable|no_(origin|destination)/.test(e.message || "") ? "No public transport reaches this place: try a nearby station or address." : esc(e.message)}</p>`;
-    bindDemo();
+    renderTripError(e, demo);
+  } finally { out.removeAttribute("aria-busy"); }
+}
+
+// A trip that cannot be checked is never a raw error: what happened in plain words, then what to do next.
+let tripRetry = false;  // the last check failed for lack of a connection: run it again once it is back
+Net.onUp = () => { if (tripRetry && !$("#v-trip").hidden) runTrip(); };
+const inParis = (p) => p?.lon > 2.224 && p.lon < 2.47 && p.lat > 48.815 && p.lat < 48.903;
+function tripState({ ic, title, sub, actions = "", extra = "" }) {
+  $("#v-trip").classList.remove("has-result");  // the form stays in view: changing a place or the time is the way out
+  $("#trip-result").innerHTML = `<div class="verdict unk trip-state"><span class="mark neutral lg" aria-hidden="true">${icon(ic)}</span>` +
+    `<span><strong role="heading" aria-level="3">${esc(title)}</strong>${esc(sub)}</span></div>` +
+    (actions ? `<div class="state-actions">${actions}</div>` : "") + extra;
+  $("#trip-result [data-act=retry]")?.addEventListener("click", () => runTrip());
+  $("#trip-result [data-act=time]")?.addEventListener("click", changeTime);
+  $("#trip-result [data-act=places]")?.addEventListener("click", () => { $("#trip-to").focus(); $("#trip-to").select(); });
+  bindOpen($("#trip-result"));
+  bindDemo();
+  announce(`${title}. ${sub}`);
+  focusEl($("#trip-result .verdict strong"));
+}
+function renderTripError(e, demo) {
+  const act = (k, ic, label, primary) => `<button class="btn block${primary ? " primary" : ""}" type="button" data-act="${k}">${icon(ic)}${label}</button>`;
+  const when = tripTime.mode === "now" ? "right now" : "at that time";
+  const nearTo = () => {
+    const to = trip.to, near = to?.lon != null ? nearestStations([to.lon, to.lat], 6, 1000).filter((x) => x.st.status === "ok").slice(0, 3) : [];
+    return (near.length ? `<h3 class="h2">Stations with every elevator working near ${esc(to.label)}</h3>${stationList(near)}` : "") +
+      (inParis(to) ? `<p class="note"><span><b>PAM 75</b>, the door-to-door transport service for people with reduced mobility in Paris, can take you there. Book it ahead.</span></p>` : "");
+  };
+  if (e.offline) {
+    tripRetry = true;
+    return navigator.onLine === false
+      ? tripState({ ic: "offline", title: "You're offline", sub: "I need a connection to check this trip. I'll check it again as soon as you're back online.",
+        actions: act("retry", "route", "Try again", true) })
+      : tripState({ ic: "offline", title: "I can't reach Roulib's server", sub: "Your connection may be weak. I'll check this trip again as soon as the server answers.",
+        actions: act("retry", "route", "Try again", true) });
   }
+  if (e.code === "no_route") {
+    return tripState({ ic: "route", title: "No step-free trip found", sub: `Public transport has no route without stairs between these places ${when}.`,
+      actions: (demo ? "" : act("time", "clock", "Try another time", true)) + act("places", "pin", "Change the destination"), extra: nearTo() });
+  }
+  if (e.status === 503 && e.code === "upstream") {
+    return tripState({ ic: "clock", title: "The trip planner isn't answering", sub: "Île-de-France Mobilités' route service didn't reply. This happens now and then: try again in a moment.",
+      actions: act("retry", "route", "Try again", true) + (demo ? "" : act("time", "clock", "Try another time")), extra: nearTo() });
+  }
+  if (e.code === "outside_area") {
+    return tripState({ ic: "pin", title: "Roulib covers Île-de-France only", sub: "Pick a departure and an arrival in the Paris region, or see what a full check looks like with the recorded sample trip.",
+      actions: act("places", "pin", "Edit the places", true) + demoButton() });
+  }
+  if (e.status === 503) return renderTripFallback();
+  if (e.status === 429) {
+    return tripState({ ic: "clock", title: "Too many checks in a row", sub: "Wait a few minutes, then try again.", actions: act("retry", "route", "Try again", true) });
+  }
+  if (!demo && (e.status === 404 || /not reachable|no_(origin|destination)|not found/i.test(e.message || ""))) {
+    return tripState({ ic: "pin", title: "I can't find one of these places", sub: "No public transport reaches it, or the address is unknown. Try a nearby station, an address or a landmark.",
+      actions: act("places", "pin", "Edit the places", true) });
+  }
+  tripState({ ic: "unk", title: "I couldn't check this trip", sub: "Something went wrong on Roulib's side. Try again in a moment.", actions: act("retry", "route", "Try again", true) });
+}
+// "Try another time": the form comes back with the time picker open (the results header hides the form).
+function changeTime() {
+  $("#v-trip").classList.remove("has-result");
+  if (isPhone()) Sheet.set("full");
+  openWhen();
+  // "Another time" means a set time: "Depart at" is picked, the date field is next.
+  if (tripTime.mode === "now") { document.querySelector('input[name="when-mode"][value="depart"]').checked = true; syncWhenMode(); }
+  $("#when-panel").scrollIntoView({ block: "nearest", behavior: reduceMotion() ? "auto" : "smooth" });
+  document.querySelector('input[name="when-mode"]:checked').focus({ preventScroll: true });
 }
 
 // Trip time, like Google Maps: "Leave now" by default, or "Depart at" / "Arrive by" a local Paris time.
@@ -1393,6 +1665,16 @@ $("#when-panel").addEventListener("keydown", (e) => {
 
 const demoButton = () => `<button class="btn block" id="trip-demo">${icon("route")}See a sample trip (recorded)</button>`;
 const bindDemo = () => $("#trip-demo")?.addEventListener("click", () => runTrip({ demo: true }));
+// Home entry: the recorded example from anywhere (App Review tests outside Paris), no search or location needed.
+function openDemo() {
+  $("#v-trip").classList.remove("has-result");
+  $("#trip-result").innerHTML = "";
+  if (/station=/.test(location.hash)) history.replaceState(history.state, "", location.pathname + location.search);
+  tripHint("");
+  show("trip", "full");
+  runTrip({ demo: true });
+}
+$("#demo-trip").addEventListener("click", openDemo);
 
 function renderTripFallback() {
   const a = [trip.from.lon, trip.from.lat], b = [trip.to.lon, trip.to.lat];
@@ -1414,7 +1696,11 @@ function stepTitle(s) {
   if (s.type === "transfer") return "Transfer";
   return { manuel: "By wheelchair", electrique: "By wheelchair", poussette: "With the stroller" }[Profile.key()] || "On foot";
 }
+// A report from a person the user chose to hide: not shown, but the step says one was left out (its verdict counted it).
+const hiddenCheckHTML = () => `<li class="check check-hidden"><span class="mark neutral" aria-hidden="true">${icon("eye-off")}</span>` +
+  `<div><b>Report hidden</b><small>From a person you chose to hide. It may still count in this step's verdict.</small></div></li>`;
 function checkLine(c, recorded) {
+  if (hiddenCheck(c)) return hiddenCheckHTML();
   const st = checkState(c);
   const rel = "";  // reliability is part of c.message ("History: working 92% of the time…"), said once
   // A lift that is not plainly OK: one tap to that station's elevators (state, history, report).
@@ -1423,7 +1709,8 @@ function checkLine(c, recorded) {
   const lead = st === "info" ? `<span class="mark neutral" aria-hidden="true">${icon(c.kind === "works" ? "cone" : "unk")}</span><span class="sr">For information</span>`
     : mark(st) + srState(st);
   return `<li class="check">${lead}<div><b>${esc(c.label || c.kind)}</b><div>${esc(c.message || "")}</div>${rel}${link}` +
-    `<div class="meta">${freshPill(c, recorded)}<span class="muted">${esc(c.source || "")}</span></div></div></li>`;
+    `<div class="meta">${freshPill(c, recorded)}<span class="muted">${esc(c.source || "")}</span></div>` +
+    (reportCheck(c) ? modHTML(c.report_id, checkAuthor(c)) : "") + `</div></li>`;
 }
 
 // Every option blocked: never a dead end. The option closest to working, another time, nearby stations, PAM 75.
@@ -1442,7 +1729,7 @@ function wayOutHTML(d, skipId = null) {
 }
 function bindWayOut(d, stations = true) {
   $("#way-least")?.addEventListener("click", (e) => renderItinerary(d, e.currentTarget.dataset.way));
-  $("#way-time")?.addEventListener("click", () => openWhen());
+  $("#way-time")?.addEventListener("click", changeTime);  // the form is hidden under results: openWhen alone showed nothing
   const box = $("#trip-result .way-out");
   if (stations && box) bindOpen(box);
 }
@@ -1461,7 +1748,7 @@ function renderResults(d) {
   const prof = Profile.get()?.short || "profile";
   $("#v-trip").classList.add("has-result");
   $("#trip-summary").innerHTML = `<span class="t">${esc(trip.from?.label || d.from?.label || "")} → ${esc(trip.to?.label || d.to?.label || "")}</span><span class="linkish">Edit</span>`;
-  if (!its.length) { $("#trip-result").innerHTML = `<p class="err">I couldn't find a trip between these two places. Try a nearby station.</p>`; return; }
+  if (!its.length) return renderTripError({ code: "no_route" }, rec);
   const best = its[0];
   $("#trip-result").innerHTML =
     `<h3 class="results-head">${best.verdict === "bloque" ? `No trip works${esc(forWho())} ${d.when ? "at that time" : "right now"}.` : `${plural(its.filter((x) => x.verdict !== "bloque").length, "possible trip", "possible trips")}${esc(forWho())}`}</h3>` +
@@ -1471,7 +1758,7 @@ function renderResults(d) {
     `<ul class="routes">` + its.map((it, i) => {
       const V = VERDICT[it.verdict] || VERDICT.risque;
       const why = it.verdict === "bloque" ? V.title(it)
-        : it.verdict === "risque" ? `Watch out: ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn").map((c) => c.label)))].slice(0, 2).join(", ") || "see the steps"}`
+        : it.verdict === "risque" ? `Watch out: ${[...new Set(it.steps.flatMap((s) => (s.checks || []).filter((c) => checkState(c) === "warn" && !hiddenCheck(c)).map((c) => c.label)))].slice(0, 2).join(", ") || "see the steps"}`
         : "Nothing blocks this trip";
       return `<li><button class="route ${V.st}" data-it="${esc(it.id)}">` +
         `<span class="route-top">${i === 0 && it.verdict !== "bloque" ? `<span class="tag">Best for you</span>` : it.id === least ? `<span class="tag">Closest to working</span>` : ""}<span class="chips">${chipsRow(it)}</span>` +
@@ -1556,7 +1843,7 @@ function openCompare(d) {
   const base = d.baseline[0];
   const ours = d.itineraries[0];
   const planB = ours.plan_b_id && d.itineraries.find((x) => x.id === ours.plan_b_id);
-  const blockers = ours.steps.flatMap((s) => (s.checks || []).filter((c) => !["ok", "info"].includes(checkState(c))));
+  const blockers = ours.steps.flatMap((s) => (s.checks || []).filter((c) => !["ok", "info"].includes(checkState(c)) && !hiddenCheck(c)));
   $("#compare").innerHTML =
     `<div class="cmp">` +
     `<div class="cmp-col"><h3>Regular app</h3><div class="verdict ok">${mark("ok")}<span><strong>“Accessible”</strong>${base.duration_min} min</span></div>` +
@@ -1787,8 +2074,12 @@ function locate() {
       () => resolve(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   });
 }
-$("#locate").addEventListener("click", async () => {
+$("#locate").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (btn.classList.contains("busy")) return;
+  btn.classList.add("busy"); btn.setAttribute("aria-busy", "true");  // a fix can take a few seconds
   const pos = await locate();
+  btn.classList.remove("busy"); btn.removeAttribute("aria-busy");
   if (!pos) return toast("I can't find your location. Allow location access in your phone settings.");
   flyTo(pos, 15.5);
 });
@@ -1862,10 +2153,14 @@ function applyHash() {
 window.addEventListener("hashchange", applyHash);
 
 // Offline support: instant reloads, last known data in tunnels. Never presented as live.
-if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
-window.addEventListener("offline", () => toast("Offline: showing the last known information, with its time.", 5000));
-window.addEventListener("online", () => { toast("Back online."); loadLifts(); loadAlerts(); });
+if ("serviceWorker" in navigator && !window.ROULIB_NATIVE) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+// Offline / back online: the Net banner says it and retries (top of this file).
 renderFavs();
+// Elevator status and the "Just changed" feed load at once, map or no map.
+loadLifts().then(applyHash);
+loadAlerts();
+setInterval(loadLifts, 5 * 60 * 1000);
+setInterval(loadAlerts, 60 * 1000);
 
 // ---------------------------------------------------------------------------
 // First launch: choose a mobility profile (roadmap screen 1)
@@ -1878,7 +2173,100 @@ function renderOnboard() {
   document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#v-onboard").classList.add("picked"); $("#o-go").disabled = false; $(`[data-p="${chosen}"]`)?.focus(); }));
   $("#o-go").disabled = !chosen;
   $("#o-name").value = Profile.name();
+  // Deleting only means something once there is a profile or an account.
+  $("#delete-row").hidden = !(Profile.get() || userId());
+  renderUnhide();
 }
+
+// ---------------------------------------------------------------------------
+// Help, privacy and "Delete my data" (profile screen)
+// ---------------------------------------------------------------------------
+// In the app the bundle has no web address of its own: the policy opens from the hosted site in the in-app browser.
+if (API) $("#privacy-link").href = `${API}/static/privacy.html`;
+function renderUnhide() {
+  const n = blockedAuthors().size;
+  $("#unhide-row").hidden = !n;
+  $("#unhide-sub").textContent = n ? `Reports from ${plural(n, "person", "people")} you chose to hide` : "";
+}
+$("#unhide").addEventListener("click", () => {
+  store.set("pmr_blocked_authors", "[]"); renderReports(); renderUnhide();
+  toast("Hidden reports show again."); $("#delete-data").focus();
+});
+
+// Everything Roulib keeps on this phone. Profile.clear() takes the pmr_* keys (account, name, hidden people, flags).
+const LOCAL_KEYS = /^(fav-|recents$|text$|big$)/;
+function clearThisPhone() {
+  Profile.clear();
+  try { Object.keys(localStorage).filter((k) => LOCAL_KEYS.test(k)).forEach((k) => localStorage.removeItem(k)); } catch {}
+}
+const dlg = $("#confirm");
+let dlgOpener = null;
+function openDelete() {
+  const id = userId();
+  dlgOpener = $("#delete-data");  // iOS Safari does not focus a tapped button: name the way back explicitly
+  $("#cf-title").textContent = id ? "Delete your data?" : "Clear your data?";
+  $("#cf-body").innerHTML = (id
+    ? `<p>This deletes your Roulib account from our server and clears what this app keeps on this phone: your profile, first name, Home, Work, recent places and display settings.</p>`
+    : `<p>You have no Roulib account: everything is on this phone. This clears your profile, first name, Home, Work, recent places and display settings.</p>`) +
+    `<p class="muted">You can't undo this. You will choose your profile again, as on the first day.</p>`;
+  $("#cf-ok").textContent = id ? "Delete my data" : "Clear my data";
+  $("#cf-ok").disabled = false; $("#cf-local").hidden = true; $("#cf-err").textContent = "";
+  dlg.removeAttribute("aria-busy");
+  if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
+  $("#cf-cancel").focus();
+}
+function closeDelete() {
+  if (dlg.open) dlg.close();
+  dlgOpener?.focus?.({ preventScroll: true });
+}
+function failDelete(msg, offerLocal) {
+  dlg.removeAttribute("aria-busy");
+  $("#cf-err").textContent = msg;
+  $("#cf-ok").disabled = false; $("#cf-ok").textContent = "Try again";
+  $("#cf-local").hidden = !offerLocal;
+}
+async function confirmDelete() {
+  const id = userId(), ok = $("#cf-ok");
+  $("#cf-err").textContent = "";
+  if (id) {
+    ok.disabled = true; ok.textContent = "Deleting…"; dlg.setAttribute("aria-busy", "true");
+    let r;
+    try {
+      const token = Profile.token();
+      r = await api(`/api/users/${encodeURIComponent(id)}`, { method: "DELETE", headers: token ? { "X-User-Token": token } : {} });
+    } catch { return failDelete("I can't reach Roulib's server, so your account was not deleted. Check your connection and try again."); }
+    const body = await r.json().catch(() => ({}));
+    // 404 with the API's own message: the account is already gone. FastAPI's bare "Not Found": the route itself is missing.
+    const gone = r.ok || (r.status === 404 && body.detail && body.detail !== "Not Found");
+    if (!gone) {
+      if (r.status === 401 || r.status === 403) return failDelete("Roulib's server could not confirm that this account is yours, so it was not deleted. Ask us through Help & contact, or clear this phone only.", true);
+      if (r.status === 429) return failDelete("Too many tries in a row. Wait a few minutes, then try again.");
+      return failDelete("Deleting accounts isn't available right now, so your account was not deleted. Try again later, or clear this phone only.", true);
+    }
+  }
+  finishDelete(id ? "Your account and the data on this phone are deleted." : "The data on this phone is cleared.");
+}
+function finishDelete(msg) {
+  clearThisPhone();
+  chosen = null; lastTrip = null; onboardFrom = null; trip.from = null; trip.to = null; pendingFav = null;
+  Object.assign(tripTime, { mode: "now", at: "" }); $("#when-label").textContent = whenPhrase("now");
+  for (const s of ["#trip-from", "#trip-to", "#search", "#o-name"]) $(s).value = "";
+  $("#trip-result").innerHTML = ""; $("#v-trip").classList.remove("has-result");
+  setTextSize(0);
+  if (dlg.open) dlg.close();
+  renderFavs(); renderMe(); renderReports();
+  $("#v-onboard").classList.remove("picked");
+  renderOnboard();
+  show("onboard", "full");
+  toast(msg, 5000);
+}
+$("#delete-data").addEventListener("click", openDelete);
+$("#cf-ok").addEventListener("click", confirmDelete);
+$("#cf-cancel").addEventListener("click", closeDelete);
+$("#cf-local").addEventListener("click", () => finishDelete("The data on this phone is cleared. Your account is still on Roulib's server."));
+dlg.addEventListener("cancel", (e) => { if (dlg.getAttribute("aria-busy")) e.preventDefault(); else setTimeout(closeDelete); });
+// A tap on the dimmed backdrop (outside the panel) cancels, like an iOS sheet.
+dlg.addEventListener("click", (e) => { if (e.target === dlg && !dlg.getAttribute("aria-busy")) closeDelete(); });
 $("#o-go").addEventListener("click", () => {
   if (!chosen) return;
   const first = !Profile.get();

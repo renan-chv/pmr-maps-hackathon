@@ -5,6 +5,7 @@ so the UI (and later the agent) can always show source + freshness.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -13,7 +14,8 @@ import os
 import threading
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -22,6 +24,7 @@ import httpx
 
 log = logging.getLogger("sources")
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/tmp/pmr-cache"))
+SERVERLESS = bool(os.getenv("VERCEL"))  # functions freeze between requests: no background refresh there
 
 IDF_REGION = "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets"
 IDFM = "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets"
@@ -82,8 +85,20 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+_SAFE_KEY = re.compile(r"[A-Za-z0-9_.:()-]{1,120}")
+
+
 def _disk(key: str) -> Path:
-    return CACHE_DIR / f"{key}.json"
+    # Keys can carry user text (a search query): hash anything that is not a plain file name.
+    name = key if _SAFE_KEY.fullmatch(key) and ".." not in key else "h_" + hashlib.sha1(key.encode()).hexdigest()
+    return CACHE_DIR / f"{name}.json"
+
+
+def _read_disk(key: str) -> Any:
+    try:
+        return json.loads(_disk(key).read_text()) if _disk(key).exists() else None
+    except (OSError, ValueError):
+        return None
 
 
 def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
@@ -92,10 +107,25 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
     The last good payload is also written to disk. If the upstream API fails,
     we serve the last known version flagged with "stale": True so the UI can
     say how old it is instead of showing nothing.
+
+    Expired but in memory: answered at once (its fetched_at says how old it is) while a background refresh
+    runs. A slow upstream (Paris roadworks export: minutes at times) then never blocks a journey. ttl=0 forces.
     """
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < ttl:
         return hit[1]
+    if hit and ttl > 0 and not SERVERLESS:
+        in_background(f"refresh:{key}", lambda: _load(key, ttl, fn))
+        value = hit[1]
+        if isinstance(value, dict) and not value.get("stale") and time.time() - hit[0] > 2 * ttl + 60:
+            # the refreshes keep failing: say so, as the blocking path does (same object every time after this)
+            value = {**value, "stale": True}
+            _cache[key] = (hit[0], value)
+        return value
+    return _load(key, ttl, fn)
+
+
+def _load(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
     with _locks.setdefault(key, threading.Lock()):
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < ttl:
@@ -104,9 +134,9 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
             value = fn()
         except Exception as e:
             stale = hit[1] if hit else None
-            if stale is None and _disk(key).exists():
-                stale = json.loads(_disk(key).read_text())
             if stale is None:
+                stale = _read_disk(key)
+            if not isinstance(stale, dict):
                 raise
             log.warning("%s: upstream failed (%s), serving stale data from %s", key, e, stale.get("fetched_at"))
             return {**stale, "stale": True, "error": str(e)}
@@ -119,11 +149,29 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
         return value
 
 
-def _get_json(url: str, params: dict, label: str) -> Any:
+_bg_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="bg")
+places_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="places")  # slow tiles never starve the layers
+_inflight: Dict[str, Future] = {}
+_inflight_lock = threading.Lock()
+
+
+def in_background(key: str, fn: Callable[[], Any], pool: Optional[ThreadPoolExecutor] = None) -> Future:
+    """Run fn in a worker thread, once per key at a time. A caller that stops waiting (time budget) leaves it
+    running: the result lands in the cache and the next request gets it at once."""
+    with _inflight_lock:
+        fut = _inflight.get(key)
+        if fut is None:
+            fut = (pool or _bg_pool).submit(fn)
+            _inflight[key] = fut
+            fut.add_done_callback(lambda _f: _inflight.pop(key, None))
+    return fut
+
+
+def _get_json(url: str, params: dict, label: str, timeout: Optional[float] = None) -> Any:
     for attempt in range(3):
         try:
             t0 = time.time()
-            r = _client.get(url, params=params)
+            r = _client.get(url, params=params, timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT)
             r.raise_for_status()
             body = r.json()
             log.info("%s: %.1fs", label, time.time() - t0)
@@ -301,6 +349,7 @@ def stairs() -> dict:
 # --- Places: restaurants, shops… (Acceslibre) -----------------------------
 
 PLACE_TILE = 0.01  # degrees, about 730 m x 1.1 km in Paris
+ACCESLIBRE_TIMEOUT_S = 45  # per page; the tabular API is slow but should not hold a worker for minutes
 PLACE_COLUMNS = ",".join([
     "id", "name", "activite", "numero", "voie", "postal_code", "commune", "longitude", "latitude",
     "stationnement_pmr", "stationnement_ext_pmr",
@@ -331,10 +380,11 @@ def places_tile(tx: int, ty: int) -> dict:
             "latitude__greater": f"{ty * PLACE_TILE:.4f}", "latitude__less": f"{(ty + 1) * PLACE_TILE:.4f}",
         }
         label = f"acceslibre {tx},{ty}"
-        first = _get_json(ACCESLIBRE, {**base, "page": 1}, label)
+        first = _get_json(ACCESLIBRE, {**base, "page": 1}, label, timeout=ACCESLIBRE_TIMEOUT_S)
         rows = first["data"]
         pages = min(-(-first["meta"]["total"] // 200), 15)  # at most 3000 places per tile
-        more = _tile_pool.map(lambda p: _get_json(ACCESLIBRE, {**base, "page": p}, label)["data"], range(2, pages + 1))
+        more = _tile_pool.map(lambda p: _get_json(ACCESLIBRE, {**base, "page": p}, label,
+                                                  timeout=ACCESLIBRE_TIMEOUT_S)["data"], range(2, pages + 1))
         for chunk in more:
             rows += chunk
         return {"fetched_at": now_iso(), "rows": rows}
@@ -369,7 +419,11 @@ def warm_up() -> None:
     if PLACES_WARM_BBOX:
         try:
             tiles = place_tiles(*[float(v) for v in PLACES_WARM_BBOX.split(",")])
-            list(_tile_pool.map(lambda xy: places_tile(*xy), tiles))
+            # Not on _tile_pool: places_tile queues its pages there, and waiting on them from inside the same
+            # pool deadlocks once every worker holds a tile.
+            for f in [in_background(f"places_{tx}_{ty}", lambda tx=tx, ty=ty: places_tile(tx, ty), places_pool)
+                      for tx, ty in tiles]:
+                f.result()
             log.info("places warm-up: %d tiles", len(tiles))
         except Exception:
             log.exception("warm-up failed for places (%s)", PLACES_WARM_BBOX)
@@ -671,13 +725,20 @@ def sound_modules() -> dict:
     return cached("sound_modules", 86400, load)
 
 
-def low_vision() -> Dict[str, Optional[dict]]:
-    """Every layer of the visually impaired checks. A layer that cannot be loaded is None: checked as unknown."""
+def low_vision(budget_s: Optional[float] = None) -> Dict[str, Optional[dict]]:
+    """Every layer of the visually impaired checks, loaded in parallel. A layer that cannot be loaded (or, with
+    budget_s, is not ready in time: it keeps loading in the background) is None: checked as unknown."""
+    fns = (stop_signals, line_signals, sncf_assistance, sncf_equipment, crossing_lights, sound_modules)
+    futures = {fn.__name__: in_background(f"lv_{fn.__name__}", fn) for fn in fns}
+    deadline = None if budget_s is None else time.monotonic() + budget_s
     out: Dict[str, Optional[dict]] = {}
-    for fn in (stop_signals, line_signals, sncf_assistance, sncf_equipment, crossing_lights, sound_modules):
+    for name, fut in futures.items():
         try:
-            out[fn.__name__] = fn()
+            out[name] = fut.result(timeout=None if deadline is None else max(0.0, deadline - time.monotonic()))
+        except FutureTimeout:
+            log.warning("%s still loading, visually impaired checks degrade to unknown for now", name)
+            out[name] = None
         except Exception:
-            log.exception("%s unavailable, visually impaired checks degrade to unknown", fn.__name__)
-            out[fn.__name__] = None
+            log.exception("%s unavailable, visually impaired checks degrade to unknown", name)
+            out[name] = None
     return out

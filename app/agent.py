@@ -24,12 +24,16 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import db, limits, profiles
+from .errors import ApiError
 
 log = logging.getLogger("agent")
 router = APIRouter()
 
 MODEL = os.getenv("AGENT_MODEL", "claude-opus-5-5")  # claude-haiku-5-5 if latency is too high
 MAX_TURNS = 6
+CLAUDE_TIMEOUT_S = 45  # per model call; the SDK default (10 min) would hold a worker long after the app gave up
+MAX_HISTORY = 20       # previous turns accepted; only the last 6 are sent
+MAX_HISTORY_CHARS = 2000
 PARIS = ZoneInfo("Europe/Paris")
 FIXTURES = Path(__file__).resolve().parent.parent / "static" / "fixtures"
 
@@ -43,7 +47,7 @@ def anthropic_client():
         if not os.getenv("ANTHROPIC_API_KEY"):
             raise HTTPException(503, "ANTHROPIC_API_KEY missing: assistant unavailable")
         import anthropic
-        _client = anthropic.Anthropic()
+        _client = anthropic.Anthropic(timeout=CLAUDE_TIMEOUT_S, max_retries=1)
     return _client
 
 
@@ -287,7 +291,8 @@ class AgentIn(BaseModel):
     user_id: Optional[int] = None
     replay: Optional[Literal["demo"]] = None
     config: Literal["full", "no_tools"] = "full"
-    history: List[dict] = Field(default_factory=list, description="Previous turns [{role, content}] (text)")
+    history: List[dict] = Field(default_factory=list, max_length=MAX_HISTORY,
+                                description="Previous turns [{role, content}] (text)")
 
 
 def _verdict_from(trace: List[dict]) -> Optional[str]:
@@ -340,8 +345,9 @@ def run_agent(body: AgentIn) -> dict:
         raise HTTPException(400, f"profile must be one of: {', '.join(profiles.PROFILES)}")
     client = anthropic_client()
     use_tools = body.config == "full"
-    messages: List[dict] = [m for m in body.history if m.get("role") in ("user", "assistant")
-                            and isinstance(m.get("content"), str)][-6:]
+    messages: List[dict] = [{"role": m["role"], "content": m["content"][:MAX_HISTORY_CHARS]} for m in body.history
+                            if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)
+                            and m["content"].strip()][-6:]
     messages.append({"role": "user", "content": body.message})
     trace: List[dict] = []
     usage = {"input_tokens": 0, "output_tokens": 0}
@@ -354,7 +360,12 @@ def run_agent(body: AgentIn) -> dict:
                       messages=messages, output_config={"effort": "low"})
         if use_tools:
             kwargs["tools"] = TOOLS
-        resp = client.messages.create(**kwargs)
+        try:
+            resp = client.messages.create(**kwargs)
+        except Exception as e:  # overloaded, timeout, network: say so in words, never a 500
+            log.warning("Claude call failed: %s", type(e).__name__)
+            raise ApiError(503, "The assistant is not answering right now. Trip planning and the map still work.",
+                           "upstream", headers={"Retry-After": "30"})
         usage["input_tokens"] += getattr(resp.usage, "input_tokens", 0) or 0
         usage["output_tokens"] += getattr(resp.usage, "output_tokens", 0) or 0
         texts = [b.text for b in resp.content if b.type == "text"]

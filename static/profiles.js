@@ -20,15 +20,26 @@ const Profile = (() => {
     get: () => PMR_PROFILES.find((p) => p.key === read("pmr_profile")) || null,
     key: () => (PMR_PROFILES.find((p) => p.key === read("pmr_profile")) || PMR_PROFILES[0]).key,
     name: () => read("pmr_name") || "",
+    // Light account: its id, and the secret that proves this phone owns it (needed to delete it).
+    userId: () => read("pmr_user_id"),
+    token: () => read("pmr_user_token"),
     save(key, name) {
       write("pmr_profile", key);
       write("pmr_name", (name || "").trim().slice(0, 40));
       // Light account (chantier B). Optional: the app works without it.
       if (!read("pmr_user_id")) {
-        fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" },
+        fetch((window.ROULIB_API || "") + "/api/users", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ display_name: (name || "").trim() || "Anonymous", profile: key }) })
-          .then((r) => (r.ok ? r.json() : null)).then((d) => d && d.id && write("pmr_user_id", String(d.id))).catch(() => {});
+          .then((r) => (r.ok ? r.json() : null)).then((d) => {
+            if (!d || !d.id) return;
+            write("pmr_user_id", String(d.id));
+            if (d.token) write("pmr_user_token", String(d.token));
+          }).catch(() => {});
       }
+    },
+    // "Delete my data": every pmr_* key (profile, first name, account id and token, hidden people, flags).
+    clear() {
+      try { Object.keys(localStorage).filter((k) => k.startsWith("pmr_")).forEach((k) => localStorage.removeItem(k)); } catch {}
     },
   };
 })();

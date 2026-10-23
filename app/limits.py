@@ -20,6 +20,8 @@ RULES: Dict[str, Tuple[int, int]] = {
     "report": (int(os.getenv("REPORTS_PER_HOUR", "10")), 3600),
     "confirm": (30, 3600),
     "user": (2, 86400),  # one person, one or two profiles a day (a new phone, a reset): more is abuse
+    "flag": (20, 3600),
+    "delete_user": (10, 3600),
 }
 # Whole app, per UTC day: each agent answer costs about 3 cents, so 50 a day is at most about 1.50 EUR.
 AGENT_DAILY_LIMIT = int(os.getenv("AGENT_DAILY_LIMIT", "50"))

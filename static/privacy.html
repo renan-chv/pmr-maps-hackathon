@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fff9f1">
+  <title>Roulib – Privacy policy</title>
+  <style>
+    :root { --ground:#fff9f1; --ink:#1c1a17; --ink2:#5a524a; --blue:#3d3bd6; --line:#e8dfd3; }
+    @media (prefers-color-scheme: dark) { :root { --ground:#171512; --ink:#f4efe8; --ink2:#c4bbb0; --blue:#a9a8ff; --line:#38322b; } }
+    * { box-sizing:border-box; }
+    html { -webkit-text-size-adjust:100%; }
+    body { margin:0; background:var(--ground); color:var(--ink); font:17px/1.55 "Atkinson Hyperlegible Next", -apple-system, system-ui, sans-serif;
+      padding:calc(24px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left)); }
+    main { max-width:680px; margin:0 auto; }
+    .back { display:inline-flex; align-items:center; min-height:44px; color:var(--blue); font-weight:700; text-decoration:none; }
+    h1 { font-size:32px; line-height:1.15; margin:12px 0 4px; letter-spacing:-.01em; }
+    h2 { font-size:21px; margin:32px 0 8px; }
+    p, li { color:var(--ink2); }
+    strong { color:var(--ink); }
+    ul { padding-left:22px; }
+    li { margin:6px 0; }
+    a { color:var(--blue); }
+    .date { margin:0 0 24px; }
+    .box { border:1px solid var(--line); border-radius:16px; padding:4px 18px; }
+  </style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">‹ Back to Roulib</a>
+  <h1>Privacy policy</h1>
+  <p class="date">Last updated: 23 October 2026</p>
+
+  <div class="box">
+    <p><strong>In short:</strong> no account with a password, no advertising, no tracking, no sale of data. Roulib only uses what it needs to check your trip, and you can delete what you shared at any time from the app (Profile › Delete my data).</p>
+  </div>
+
+  <h2>Who we are</h2>
+  <p>Roulib is built by a small team that started it at the Future Founders hackathon in Paris. For any question about your data, open a request at <a href="https://github.com/renan-chv/pmr-maps-hackathon/issues">github.com/renan-chv/pmr-maps-hackathon/issues</a>.</p>
+
+  <h2>What stays on your phone</h2>
+  <ul>
+    <li>Your mobility profile (for example manual wheelchair), your optional first name, your Home and Work places, your display settings and the people whose reports you chose to hide.</li>
+  </ul>
+
+  <h2>What is sent to our server, and why</h2>
+  <ul>
+    <li><strong>Your position and destination</strong>, only when you look for a trip or for places near you, to calculate and check the trip. We do not save your trips; the hosting provider's technical logs keep requests for a short time for security and debugging only.</li>
+    <li><strong>Your profile</strong>: a random number, the mobility profile you picked and your first name if you typed one. It lets the community count confirmations of a report.</li>
+    <li><strong>The reports you send</strong>: the photo (reduced in size), the description, the place and the time. Reports are shown to other Roulib users near that place, so do not include people's faces or personal details.</li>
+    <li><strong>Questions you ask the assistant</strong> and its answers, kept to measure and improve the quality of answers.</li>
+  </ul>
+
+  <h2>Services we rely on</h2>
+  <ul>
+    <li>Hosting: Aiven, in the European Union.</li>
+    <li>Map images: OpenFreeMap (your phone downloads the map tiles directly, like any map app).</li>
+    <li>Public data, queried by our server without anything that identifies you: Île-de-France Mobilités (trips and lifts), Ville de Paris (roadworks), Acceslibre (accessibility of places), Wikimedia Commons (photos of places).</li>
+    <li>AI analysis: when you attach a photo to a report or ask the assistant a question, the content is sent to Anthropic to describe the obstacle or write the answer. Anthropic does not use it to train its models.</li>
+  </ul>
+
+  <h2>How long we keep it</h2>
+  <ul>
+    <li>Reports stay visible while they are useful and are removed when you delete your data, or when other users flag them as inappropriate.</li>
+    <li>Your profile is kept until you delete it.</li>
+  </ul>
+
+  <h2>Your rights</h2>
+  <p>Under the GDPR you can access, correct or delete your data. The quickest way is in the app: <strong>Profile › Delete my data</strong> erases your profile and every report you sent. You can also write to us at the address above, or complain to the CNIL (cnil.fr).</p>
+
+  <h2>Children</h2>
+  <p>Roulib is not aimed at children under 13 and does not knowingly collect their data.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the date at the top changes too, and we will say so in the app when the change matters.</p>
+</main>
+</body>
+</html>

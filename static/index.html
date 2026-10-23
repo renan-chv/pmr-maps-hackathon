@@ -9,6 +9,7 @@
     /* Phone or browser text at 200 % (root 20 px or more): the "Larger" layouts, at the size the user chose (data-tz) */
     if (parseFloat(getComputedStyle(d).fontSize) >= 20 && !(+t >= 2)) { d.dataset.tz = +t || 0; t = "2"; }
     if (t) d.dataset.text = t; } catch (e) {}</script>
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Roulib">
   <link rel="manifest" href="/static/manifest.webmanifest">
@@ -45,6 +46,8 @@
 
   <main id="sheet" aria-label="Main panel">
     <div id="grip" role="slider" tabindex="0" aria-label="Panel size" aria-valuetext="half"><span></span></div>
+    <!-- Network trouble: says so without blocking anything; what was loaded stays on screen with its time -->
+    <div id="netbar" class="netbar" role="status" hidden><svg class="i" aria-hidden="true"><use href="#i-offline"/></svg><span id="netbar-t"></span><button id="netbar-retry" class="linkish" type="button" hidden>Try again</button></div>
     <div id="sheet-body" tabindex="-1">
 
       <!-- FIRST LAUNCH: mobility profile -->
@@ -54,7 +57,7 @@
         <p class="sub">I check every trip for you: elevators, roadworks, steps. Pick the one that fits you. No difficulty getting around? Join the community: every report you send helps someone in a wheelchair.</p>
         <div class="ptiles" role="radiogroup" aria-labelledby="o-title" id="ptiles"></div>
         <label for="o-name" class="field-label">Your first name <span class="muted">(optional)</span></label>
-        <input id="o-name" class="field" type="text" autocomplete="given-name" enterkeyhint="done" placeholder="For example: Lea">
+        <input id="o-name" class="field" type="text" autocomplete="given-name" enterkeyhint="done" placeholder="For example: Martin">
         <h3 class="h2">Display</h3>
         <fieldset id="textsize" class="ts">
           <legend class="ts-l">Text size</legend>
@@ -67,6 +70,14 @@
         </fieldset>
         <button id="o-go" class="btn primary block" disabled>Let's go</button>
         <p class="src">Your choice stays on this phone. You can change it at any time.</p>
+
+        <h3 class="h2" id="o-help-h">Help and privacy</h3>
+        <ul class="list o-help" aria-labelledby="o-help-h">
+          <li><a class="item" id="privacy-link" href="/static/privacy.html" target="_blank" rel="noopener"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-lock"/></svg></span><span class="t"><b>Privacy policy</b><small>What Roulib keeps, and why</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></a></li>
+          <li><a class="item" href="https://github.com/renan-chv/pmr-maps-hackathon/issues" target="_blank" rel="noopener"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-help"/></svg></span><span class="t"><b>Help &amp; contact</b><small>Ask a question or report a problem, on GitHub</small></span><svg class="i chev" aria-hidden="true"><use href="#i-ext"/></svg></a></li>
+          <li id="unhide-row" hidden><button class="item" id="unhide" type="button"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-eye-off"/></svg></span><span class="t"><b>Show hidden reports again</b><small id="unhide-sub"></small></span></button></li>
+          <li id="delete-row" hidden><button class="item danger" id="delete-data" type="button"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-trash"/></svg></span><span class="t"><b>Delete my data</b><small>Your account, and everything this app keeps on this phone</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+        </ul>
       </section>
 
       <!-- COMPARISON (demo) -->
@@ -97,6 +108,8 @@
           <li><button class="home-act a-near" data-go="near"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-lift"/></svg></span><span class="t"><b>Stations near me</b><small id="act-near">With elevators</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
           <li><button class="home-act a-lift" data-go="pannes"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span><span class="t"><b>Elevator outages</b><small id="tile-pannes">Elevators out of order</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
         </ul>
+        <!-- Works anywhere, without a search or a location: what a full check looks like (recorded, labelled as such) -->
+        <button id="demo-trip" class="home-demo" type="button"><span class="home-demo-ic" aria-hidden="true"><svg class="i"><use href="#i-route"/></svg></span><span class="t"><b>See a sample trip (recorded)</b><small>Paris, recorded on 22 October. Not live</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button>
 
         <!-- Network status: the text version of the map (screen readers), below the fold -->
         <h2 class="h2 home-status" id="h-status">Network status</h2>
@@ -200,6 +213,20 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
+  <!-- Confirmation sheet (destructive actions only). A real <dialog>: focus stays inside, Escape cancels. -->
+  <dialog id="confirm" class="confirm" aria-labelledby="cf-title" aria-describedby="cf-body">
+    <div class="cf-panel">
+      <h2 id="cf-title" class="title"></h2>
+      <div id="cf-body" class="cf-body"></div>
+      <p id="cf-err" class="err cf-err" role="alert"></p>
+      <div class="cf-actions">
+        <button id="cf-ok" class="btn danger block" type="button"></button>
+        <button id="cf-local" class="btn block" type="button" hidden>Clear this phone only</button>
+        <button id="cf-cancel" class="btn block" type="button" autofocus>Cancel</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Icon set: authored SVG, 24px grid, 2px stroke, round caps -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
@@ -245,10 +272,17 @@
       <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 5v9M12 19h.01"/></symbol>
       <symbol id="i-unk" viewBox="0 0 24 24"><path d="M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-offline" viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0 1 4.2-2.6M9.6 5.2A15 15 0 0 1 22 8.8M5 12.5a10 10 0 0 1 4.3-2.2M14.9 10.6A10 10 0 0 1 19 12.5M8.5 16a5 5 0 0 1 7 0M12 20h.01M3 3l18 18"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.3 2.4c-.5.2-.8.7-.8 1.2v.4M12 16.8h.01"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 7V4.5h4V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/></symbol>
+      <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></symbol>
+      <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.6 3.2M6.6 7.6A15.6 15.6 0 0 0 2.5 12s3.5 6 9.5 6a9.5 9.5 0 0 0 4.4-1.1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
       <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-.5a6 6 0 0 1-5-2.7L3 15.5a1.5 1.5 0 0 1 2.4-1.8L8 16"/></symbol>
     </defs>
   </svg>
 
+  <script src="/static/native.js"></script>
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="/static/profiles.js"></script>
   <script src="/static/app.js"></script>

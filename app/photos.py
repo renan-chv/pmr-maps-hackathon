@@ -71,9 +71,9 @@ def _commons_near(lat: float, lon: float, radius: int = 80) -> Optional[dict]:
             "iiprop": "url|extmetadata", "iiurlwidth": 720,
         })
         r.raise_for_status()
-    except httpx.HTTPError:
+        pages = sorted((r.json().get("query") or {}).get("pages", {}).values(), key=lambda p: p.get("index", 99))
+    except (httpx.HTTPError, ValueError, AttributeError):
         return None
-    pages = sorted((r.json().get("query") or {}).get("pages", {}).values(), key=lambda p: p.get("index", 99))
     for p in pages:
         title = p.get("title", "")
         if re.search(r"plaque|plan|map|logo|\.svg$|\.pdf$", title, re.I):
@@ -97,7 +97,7 @@ def _acceslibre_site(place_id: str) -> Optional[str]:
         r = httpx.get(ACCESLIBRE, timeout=8, params={"id__exact": place_id, "columns": "id,site_internet", "page_size": 1})
         r.raise_for_status()
         rows = r.json().get("data") or []
-    except httpx.HTTPError:
+    except (httpx.HTTPError, ValueError, AttributeError):
         return None
     return (rows[0].get("site_internet") or "").strip() if rows else None
 
@@ -114,6 +114,8 @@ def _photo(place_id: Optional[str], lat: float, lon: float) -> dict:
 
 
 @router.get("/api/photo")
-def api_photo(lat: float, lon: float, id: Optional[str] = Query(None, description="Acceslibre place id")):
+def api_photo(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180),
+              id: Optional[str] = Query(None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$",
+                                        description="Acceslibre place id")):
     key = f"photo_{id or ''}_{round(lat, 4)}_{round(lon, 4)}"
     return sources.cached(key, 86400, lambda: _photo(id, lat, lon))

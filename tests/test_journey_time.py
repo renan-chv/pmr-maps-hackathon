@@ -59,7 +59,7 @@ class FakeResp:
     text = ""
 
     def json(self):
-        return {"journeys": []}
+        return {"journeys": [{"sections": []}]}  # an empty list is a "no_route" now (tests/test_app_store.py)
 
 
 def capture_params(monkeypatch):

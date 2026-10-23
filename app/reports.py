@@ -1,12 +1,18 @@
 """Community reports (chantier B): light accounts, obstacle reports, confirmations.
 
 Routes used by the map (static/app.js, static/profiles.js, static/report.js):
-  POST /api/users                -> {"id": 12}
-  POST /api/reports              -> {"id": 34}
-  POST /api/reports/{id}/confirm -> {"confirmations": 2}
-  GET  /api/reports?bbox=...     -> GeoJSON FeatureCollection
-  POST /api/reports/analyze      -> the report card Claude proposes from a photo (the user validates it)
+  POST   /api/users                -> {"id": 12, "token": "<secret>"}  (keep the token: it deletes the account)
+  DELETE /api/users/{id}           -> {"deleted": true}  header X-User-Token: <token>; 403 wrong/missing, 404 unknown
+  POST   /api/reports              -> {"id": 34}; 422 {"detail", "code": "offensive"} for slurs or obscenities
+  POST   /api/reports/{id}/confirm -> {"confirmations": 2}
+  POST   /api/reports/{id}/flag    -> {"flags": 1, "hidden": false}  body {"user_id"?, "reason"?}; one flag per
+                                      person: per profile when X-User-Token proves user_id, else per connection
+  GET    /api/reports?bbox=...     -> GeoJSON FeatureCollection; each feature has "author" (short stable hash, or
+                                      null when anonymous) so a user can hide everything from one author
+  POST   /api/reports/analyze      -> the report card Claude proposes from a photo (the user validates it)
 
+A report flagged by HIDE_AFTER_FLAGS different people is hidden from the map and from the journey engine.
+Deleting an account deletes the profile and every report it made (photo thumbnails live in the report row).
 The description is stored in user_reports.message: the journey engine (main._reports) reads it there.
 Every input is checked here and refused with a 400 in plain English; without a database the routes answer 503.
 """
@@ -14,16 +20,20 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
 import logging
 import os
+import secrets
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Path, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from . import db, limits, profiles, verify
+from . import db, limits, moderation, profiles, verify
+from .errors import ApiError
 
 log = logging.getLogger("reports")
 router = APIRouter()
@@ -35,6 +45,9 @@ TARGET_TYPES = ("photo", "lift", "station", "place", "works", "manual")
 LAT_RANGE, LON_RANGE = (48.0, 49.5), (1.4, 3.6)  # Île-de-France
 MAX_THUMB_BYTES = 300 * 1024
 MAX_FEATURES = 500
+MAX_ID = 2**31 - 1     # PostgreSQL INT: a bigger id would be a database error, not a "not found"
+HIDE_AFTER_FLAGS = 2   # flagged by this many different people: hidden from the map and from the journeys
+MAX_TOKEN_LEN = 200
 
 
 # --- Input models (pydantic) ---------------------------------------------------
@@ -49,6 +62,8 @@ def _user_id(v: Any) -> Optional[int]:
         raise ValueError("user_id must be a number")
     if n <= 0:
         raise ValueError("user_id must be a positive number")
+    if n > MAX_ID:
+        raise ValueError("user_id is too large")
     return n
 
 
@@ -164,6 +179,26 @@ class Confirm(BaseModel):
         return _user_id(v)
 
 
+class Flag(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    user_id: Optional[int] = None
+    reason: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def _uid(cls, v):
+        return _user_id(v)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _reason(cls, v):
+        if v in (None, ""):
+            return None
+        if not isinstance(v, str):
+            raise ValueError("reason must be text")
+        return v
+
+
 def parse(model: type, payload: Any):
     """Validate a JSON body and answer 400 (not FastAPI's 422) with a readable message."""
     if not isinstance(payload, dict):
@@ -188,7 +223,10 @@ def parse(model: type, payload: Any):
 # --- Database helpers -------------------------------------------------------------
 
 def _run(fn: Callable):
-    """Run fn(cursor) on the shared connection. Retries once if Aiven closed an idle connection."""
+    """Run fn(cursor) on the shared connection. Retries once if Aiven closed an idle connection.
+
+    fn must be safe to run twice (the retry): each statement on its own is atomic (autocommit).
+    """
     if not db.enabled():
         raise HTTPException(503, "database not configured (DATABASE_URL): reports unavailable")
     import psycopg
@@ -204,6 +242,65 @@ def _run(fn: Callable):
                 db.conn().close()
             except Exception:
                 pass
+        except psycopg.DataError as e:  # a value PostgreSQL refuses (out of range, bad text): the caller's input
+            log.warning("database refused a value: %s", type(e).__name__)
+            raise HTTPException(400, "a value in the request is out of range")
+        except psycopg.Error:
+            log.exception("database error")
+            raise HTTPException(503, "database error, try again in a moment")
+
+
+def token_hash(token: str) -> str:
+    """Only this hash of the account token is stored: a database leak does not let anyone delete accounts."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+_salt: Optional[bytes] = None
+
+
+def _author_salt(cur) -> bytes:
+    """Secret salt of the author hashes: REPORT_AUTHOR_SALT, else a random one created once in the database.
+
+    Without a secret salt, sequential user ids would be trivial to recover from their hash.
+    """
+    global _salt
+    if _salt is None:
+        env = os.getenv("REPORT_AUTHOR_SALT")
+        if env:
+            _salt = env.encode("utf-8")
+        else:
+            cur.execute("""INSERT INTO app_settings (key, value) VALUES ('author_salt', %s)
+                           ON CONFLICT (key) DO NOTHING""", (secrets.token_hex(16),))
+            cur.execute("SELECT value FROM app_settings WHERE key = 'author_salt'")
+            _salt = cur.fetchone()[0].encode("utf-8")
+    return _salt
+
+
+def author_of(user_id: Optional[int], salt: bytes) -> Optional[str]:
+    """Short, stable, non-reversible id of a report's author (null when anonymous): the app hides an author by it."""
+    if user_id is None:
+        return None
+    return hmac.new(salt, f"user:{user_id}".encode(), hashlib.sha256).hexdigest()[:10]
+
+
+def _flagger(salt: bytes, ip: str) -> str:
+    """One flag per connection and report, without storing the IP address itself."""
+    return "ip:" + hmac.new(salt, f"ip:{ip}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _token_ok(stored_hash: Optional[str], token: Optional[str]) -> bool:
+    token = (token or "").strip()
+    return bool(stored_hash and token and len(token) <= MAX_TOKEN_LEN
+                and hmac.compare_digest(stored_hash, token_hash(token)))
+
+
+def _verified_user(cur, user_id: Optional[int], token: Optional[str]) -> Optional[int]:
+    """user_id when the request proves it with that profile's token, else None (anonymous)."""
+    if user_id is None or not token:
+        return None
+    cur.execute("SELECT token_hash FROM user_profile WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    return user_id if row and _token_ok(row[0], token) else None
 
 
 def _existing_user(cur, user_id: Optional[int]) -> Optional[int]:
@@ -226,19 +323,51 @@ def confidence(row: dict, now: Optional[datetime] = None) -> int:
 def create_user(request: Request, payload: Any = Body(None)):
     limits.check("user", request, "too many profiles created from this connection today: try again tomorrow")
     u = parse(NewUser, payload or {})
+    token = secrets.token_urlsafe(24)  # given once; only its hash is stored
 
     def go(cur):
-        cur.execute("""INSERT INTO user_profile (display_name, profile, is_demo)
-                       VALUES (%s, %s, false) RETURNING id""", (u.display_name, u.profile))
+        cur.execute("""INSERT INTO user_profile (display_name, profile, is_demo, token_hash)
+                       VALUES (%s, %s, false, %s) RETURNING id""", (u.display_name, u.profile, token_hash(token)))
         return cur.fetchone()[0]
 
-    return {"id": _run(go)}
+    return {"id": _run(go), "token": token}
+
+
+@router.delete("/api/users/{user_id}")
+def delete_user(request: Request, user_id: int = Path(..., ge=1, le=MAX_ID),
+                x_user_token: Optional[str] = Header(None)):
+    """Delete an account (App Store guideline 5.1.1(v)): the profile and every report it made."""
+    limits.check("delete_user", request, "too many attempts in a row: try again later")
+
+    def go(cur):
+        cur.execute("SELECT token_hash FROM user_profile WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+        if row is None:
+            return "unknown"
+        if not _token_ok(row[0], x_user_token):
+            return "forbidden"
+        # Children first (foreign keys); the profile goes last, so a failure half-way can simply be retried.
+        cur.execute("DELETE FROM user_reports WHERE user_id = %s", (user_id,))  # their flags go with them (cascade)
+        cur.execute("DELETE FROM report_flags WHERE user_id = %s", (user_id,))
+        cur.execute("DELETE FROM saved_trips WHERE user_id = %s", (user_id,))
+        cur.execute("DELETE FROM user_profile WHERE id = %s", (user_id,))
+        return "deleted"
+
+    outcome = _run(go)
+    if outcome == "unknown":
+        raise ApiError(404, "This profile does not exist (it may already be deleted).", "not_found")
+    if outcome == "forbidden":
+        raise ApiError(403, "Wrong or missing deletion key for this profile.", "forbidden")
+    log.info("user %s deleted with their reports", user_id)
+    return {"deleted": True}
 
 
 @router.post("/api/reports")
 def create_report(request: Request, payload: Any = Body(None)):
     limits.check("report", request, "too many reports sent in a row: try again in an hour")
     r = parse(NewReport, payload)
+    if moderation.is_offensive(r.description):
+        raise ApiError(422, moderation.OFFENSIVE_DETAIL, "offensive")
 
     def go(cur):
         cur.execute(
@@ -255,7 +384,7 @@ def create_report(request: Request, payload: Any = Body(None)):
 
 
 @router.post("/api/reports/{report_id}/confirm")
-def confirm_report(report_id: int, request: Request, payload: Any = Body(None)):
+def confirm_report(request: Request, report_id: int = Path(..., ge=1, le=MAX_ID), payload: Any = Body(None)):
     limits.check("confirm", request, "too many confirmations in a row: try again later")
     parse(Confirm, payload or {})  # user_id accepted for later use (one vote per person)
 
@@ -271,6 +400,33 @@ def confirm_report(report_id: int, request: Request, payload: Any = Body(None)):
     return {"confirmations": n}
 
 
+@router.post("/api/reports/{report_id}/flag")
+def flag_report(request: Request, report_id: int = Path(..., ge=1, le=MAX_ID), payload: Any = Body(None),
+                x_user_token: Optional[str] = Header(None)):
+    """Report offensive or wrong content (App Store guideline 1.2). One flag per person and report:
+    per profile when X-User-Token proves user_id (a user_id alone is not trusted), else per connection."""
+    limits.check("flag", request, "too many reports flagged in a row: try again later")
+    f = parse(Flag, payload or {})
+    ip = limits.client_key(request)
+
+    def go(cur):
+        cur.execute("SELECT 1 FROM user_reports WHERE id = %s", (report_id,))
+        if cur.fetchone() is None:
+            return None
+        uid = _verified_user(cur, f.user_id, x_user_token)
+        who = f"user:{uid}" if uid else _flagger(_author_salt(cur), ip)
+        cur.execute("""INSERT INTO report_flags (report_id, user_id, client_key, reason) VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (report_id, client_key) DO NOTHING""", (report_id, uid, who, f.reason))
+        cur.execute("SELECT count(*) FROM report_flags WHERE report_id = %s", (report_id,))
+        return cur.fetchone()[0]
+
+    n = _run(go)
+    if n is None:
+        raise HTTPException(404, "report not found")
+    log.info("report %s flagged (%d flags)", report_id, n)
+    return {"flags": n, "hidden": n >= HIDE_AFTER_FLAGS}
+
+
 @router.get("/api/reports")
 def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat")):
     try:
@@ -281,18 +437,21 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
         raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat (min before max)")
 
     def go(cur):
+        salt = _author_salt(cur)
         cur.execute(
-            """SELECT id, lon, lat, categorie, gravite, temporaire, message, created_at, is_demo,
-                      COALESCE(confirmations, 1) AS confirmations, photo_thumb
-               FROM user_reports
-               WHERE lon BETWEEN %s AND %s AND lat BETWEEN %s AND %s
-               ORDER BY created_at DESC LIMIT %s""", (x1, x2, y1, y2, MAX_FEATURES))
+            """SELECT r.id, r.lon, r.lat, r.categorie, r.gravite, r.temporaire, r.message, r.created_at, r.is_demo,
+                      COALESCE(r.confirmations, 1) AS confirmations, r.photo_thumb, r.user_id
+               FROM user_reports r
+               WHERE r.lon BETWEEN %s AND %s AND r.lat BETWEEN %s AND %s
+                 AND (SELECT count(*) FROM report_flags f WHERE f.report_id = r.id) < %s
+               ORDER BY r.created_at DESC LIMIT %s""", (x1, x2, y1, y2, HIDE_AFTER_FLAGS, MAX_FEATURES))
         cols = [c.name for c in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        return salt, [dict(zip(cols, row)) for row in cur.fetchall()]
 
     now = datetime.now(timezone.utc)
     feats = []
-    for r in _run(go):
+    salt, rows = _run(go)
+    for r in rows:
         created = r["created_at"]
         feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]},
                       "properties": {
@@ -300,7 +459,7 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
                           "temporaire": bool(r["temporaire"]), "description": r["message"] or "",
                           "created_at": created.isoformat() if created else None, "is_demo": bool(r["is_demo"]),
                           "confirmations": r["confirmations"], "confidence": confidence(r, now),
-                          "photo_thumb": r["photo_thumb"],
+                          "photo_thumb": r["photo_thumb"], "author": author_of(r["user_id"], salt),
                       }})
     return {"type": "FeatureCollection", "features": feats,
             "meta": {"source": "Roulib community reports", "count": len(feats)}}

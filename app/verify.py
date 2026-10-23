@@ -375,13 +375,10 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
 # --- Walking steps -------------------------------------------------------------
 
 def _report_confidence(r: dict, now: datetime) -> int:
-    created = r.get("created_at")
-    if isinstance(created, str):
-        try:
-            created = datetime.fromisoformat(created)
-        except ValueError:
-            created = None
-    age_h = (now - created).total_seconds() / 3600 if isinstance(created, datetime) else 0.0
+    created = _as_dt(r.get("created_at"))  # naive stamps are Paris time, never a crash on aware - naive
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=PARIS)
+    age_h = (now - created).total_seconds() / 3600 if created is not None else 0.0
     level = 4 if (r.get("confirmations") or 1) >= 2 and age_h < 24 else 2
     if r.get("temporaire"):
         level -= int(age_h // 48)
@@ -423,6 +420,17 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
     if walk:
         out.append(walk)
     return out
+
+
+def stairs_unknown_check(profile: str) -> Optional[dict]:
+    """The stepped-streets layer could not be loaded: unknown is never shown as clear (risk, not a block)."""
+    full = profiles.effect("escalier", profile)
+    if full == "sans_effet":
+        return None
+    return {"kind": "stairs", "status": "inconnu", "confidence": 1, "obstacle": "escalier",
+            "effect": _at_most_genant(full), "source": "Ville de Paris – Stepped streets", "fetched_at": None,
+            "label": "Stepped streets", "message": "Stepped-street data is unavailable right now: "
+                                                   "this walk could not be checked for steps."}
 
 
 def works_summary(crossed: List[dict], profile: str, fetched_at: Optional[str] = None) -> Optional[dict]:
@@ -540,8 +548,9 @@ def low_vision_index(lv: Dict[str, Optional[dict]]) -> dict:
         for r in lv["sncf_equipment"]["rows"]:
             item = (r.get("accessibilite") or "").strip()
             # keyed by UIC code and by name: Paris Gare de Lyon is 87686006 here, 87686030 in the assistance list
-            for key in (str(r.get("uic")), (r.get("nom_de_la_gare") or "").strip().lower()):
-                idx["equip"].setdefault(key, set()).add(item)
+            # (not named `key`: that is the cache key below, and overwriting it rebuilt the index on every journey)
+            for station_key in (str(r.get("uic")), (r.get("nom_de_la_gare") or "").strip().lower()):
+                idx["equip"].setdefault(station_key, set()).add(item)
     if lv.get("crossing_lights") and lv.get("sound_modules"):
         idx["lights"] = {}
         for r in lv["crossing_lights"]["rows"]:
@@ -775,11 +784,13 @@ def _step_verdict(checks: List[dict]) -> str:
 
 def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_at: Optional[str] = None,
                    works: Iterable[dict] = (), works_fetched_at: Optional[str] = None,
-                   stairs: Iterable[dict] = (), reports: Iterable[dict] = (),
+                   stairs: Optional[Iterable[dict]] = (), reports: Iterable[dict] = (),
                    reliability: Optional[Dict[str, dict]] = None, it_id: str = "it1",
                    now: Optional[datetime] = None, low_vision: Optional[Dict[str, Optional[dict]]] = None) -> dict:
+    """stairs=None means the stepped-streets layer is unavailable: walks get an "unknown" stairs check."""
     profile = profiles.normalize(profile)
-    works, stairs, reports = list(works), list(stairs), list(reports)
+    stairs_unknown = stairs is None
+    works, stairs, reports = list(works), list(stairs or ()), list(reports)
     # Visually impaired checks: only for profiles they matter to, so the others keep their exact results.
     lv = low_vision_index(low_vision) if low_vision is not None and cares_about_low_vision(profile) else None
     steps: List[dict] = []
@@ -818,6 +829,10 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
             step["checks"] = walk_checks(line, profile, now=now)
         elif line:
             step["checks"] = walk_checks(line, profile, works, stairs, reports, works_fetched_at, now)
+            if stairs_unknown and stype == "street_network":
+                unknown = stairs_unknown_check(profile)
+                if unknown:
+                    step["checks"].append(unknown)
             crossing = crossing_check(line, lv, profile) if lv is not None else None
             if crossing:
                 step["checks"].append(crossing)

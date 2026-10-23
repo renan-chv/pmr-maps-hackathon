@@ -34,7 +34,9 @@
   --shadow-2: 0 -2px 6px rgba(30, 26, 22, .05), 0 -12px 34px rgba(30, 26, 22, .14);
   --ease: cubic-bezier(.16, 1, .3, 1);
   --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
+  --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
   --sheet-h: 420px;
+  color-scheme: light;  /* the page is light only: iOS dark mode must not darken the date picker or scrollbars */
   --z-map: 0; --z-overlay: 10; --z-sheet: 20; --z-toast: 30; --z-skip: 40;
 }
 /* Text size steps (Display setting): 18, 22, 26, 32 px body text. html.big = the old switch, read as "Large". */
@@ -45,6 +47,8 @@ html[data-text="3"] { --fs: 2rem; }
 html[data-tz="0"] { --fs: 1.125rem; } html[data-tz="1"] { --fs: 1.375rem; }
 
 * { box-sizing: border-box; }
+/* `hidden` always wins: .btn, .mic, .r-add set their own display and used to stay visible when hidden (no speech input). */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
 body { font: 400 var(--fs)/1.45 var(--font); color: var(--ink); background: var(--ground); -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
 button, input { font: inherit; color: inherit; }
@@ -258,11 +262,14 @@ body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden
   #chips { left: 452px; top: 16px; padding: 0; flex-wrap: wrap; overflow: visible; }
   #map-tools { bottom: 112px; right: 16px; }
   .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: 0; }
+  #toast { top: auto; bottom: 28px; }
+}
+/* Hover only where there is a pointer that hovers: an iPad keeps no "stuck" hover after a tap. */
+@media (min-width: 1024px) and (hover: hover) {
   .item:hover, .suggest li:hover { background: var(--raised); }
   .chip:hover:not(.on), .fchip:hover:not([aria-pressed="true"]) { background: var(--raised); }
   .tile:hover { filter: brightness(.98); }
   .btn:hover { border-color: var(--ink-2); } .btn.primary:hover { filter: brightness(1.08); }
-  #toast { top: auto; bottom: 28px; }
 }
 
 /* ---------- Photos ---------- */
@@ -512,6 +519,8 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 .trip-swap .i { width: 20px; height: 20px; }
 .trip-row .field { padding-right: 56px; }
 body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }  /* filters belong to the map */
+/* Map credits ride on top of the sheet: with the sheet full they would end up under the clock. They stay one tap away on the map. */
+body.sheet-full .maplibregl-ctrl-bottom-right, body.sheet-full .maplibregl-ctrl-bottom-left { opacity: 0; pointer-events: none; visibility: hidden; }
 #o-go { position: sticky; bottom: calc(var(--safe-b) + 12px); z-index: 2; box-shadow: var(--shadow-1), 0 0 0 var(--sp-3) var(--ground); }
 /* Sticky only once a tile is tapped: before that it stays in the flow instead of hiding the last tiles. Tab scrolls tiles above it. */
 #v-onboard:not(.picked) #o-go { position: static; }
@@ -640,7 +649,7 @@ html:is([data-text="2"], [data-text="3"]) #when-at { font-size: max(16px, calc(v
 .ts-seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .ts-seg span { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; height: 100%; min-height: 64px; padding: 6px 4px; border-radius: var(--r-s);
   text-align: center; font-size: var(--t-meta); font-weight: 700; line-height: 1.15; color: var(--ink-2); overflow-wrap: anywhere; }
-.ts-a { font-weight: 800; line-height: 1; color: var(--ink); }
+.ts-a { font-weight: 800; line-height: 1; color: var(--ink); white-space: nowrap; letter-spacing: -.06em; }  /* "A+++" no longer breaks onto two lines at 390 px */
 .ts-seg label:nth-child(1) .ts-a { font-size: 1.125rem; } .ts-seg label:nth-child(2) .ts-a { font-size: 1.375rem; }
 .ts-seg label:nth-child(3) .ts-a { font-size: 1.625rem; } .ts-seg label:nth-child(4) .ts-a { font-size: 2rem; }
 .ts-seg input:checked + span { background: var(--surface); color: var(--brand); box-shadow: inset 0 0 0 2px var(--brand), var(--shadow-1); }
@@ -677,3 +686,121 @@ html[data-text="3"] .mark.lg { width: 64px; height: 64px; } html[data-text="3"] 
   html[data-text="1"] :is(.ptiles, .favs, .cmp, .r-cats) { grid-template-columns: 1fr; }
   html[data-text="1"] .ptile { flex-direction: row; align-items: center; min-height: 0; grid-column: auto; }
 }
+
+/* ---------- Network banner (offline, server not answering) ---------- */
+/* In the sheet, under the grip: visible at every sheet height, never over the map controls. */
+.netbar { flex: none; display: flex; align-items: center; gap: var(--sp-2); margin: 0 var(--sp-4) var(--sp-2); padding: 2px var(--sp-1) 2px var(--sp-3);
+  border-radius: var(--r-s); background: var(--warn-soft); color: var(--ink); font-size: var(--t-meta); font-weight: 700; line-height: 1.3; }
+.netbar[hidden] { display: none; }
+.netbar > .i { width: 20px; height: 20px; color: var(--warn); }
+.netbar > span { flex: 1; min-width: 0; padding: 10px 0; }
+.netbar .linkish { flex: none; padding: 0 var(--sp-2); font-size: var(--t-meta); }
+@media (min-width: 1024px) { .netbar { margin: var(--sp-4) var(--sp-5) 0; } }
+@media (orientation: landscape) and (max-height: 540px) { .netbar { margin-top: var(--sp-3); } }
+
+/* ---------- Calm trip states (no step-free route, planner down, offline) ---------- */
+.verdict.trip-state { background: var(--raised); }
+.trip-state .mark.neutral { background: var(--surface); color: var(--ink); }
+.trip-state .mark.neutral .i { stroke-width: 2.2; }
+.state-actions .btn.block:first-child { margin-top: var(--sp-4); }
+.loading::after { content: ""; display: inline-block; width: 1.2em; text-align: left; animation: dots 1.2s steps(4, end) infinite; }
+@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+.fab.busy .i { animation: breathe 1s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .3; } }
+
+/* ---------- Community reports: moderation ---------- */
+.mod { display: flex; flex-wrap: wrap; gap: 0 var(--sp-4); margin-top: var(--sp-2); }
+.mod-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 0; color: var(--ink-2); font-size: var(--t-meta); font-weight: 700; text-align: left; }
+.mod-btn .i { width: 18px; height: 18px; }
+.mod-btn[disabled] { opacity: .6; cursor: progress; }
+.mod-done { display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0; color: var(--ok); font-size: var(--t-meta); font-weight: 700; }
+.mod-done .i { width: 18px; height: 18px; stroke-width: 3; }
+.mod-hidden { margin: var(--sp-3) 0 0; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-m); background: var(--raised); }
+.mod-hidden p { display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0; }
+.mod-hidden p .i { width: 20px; height: 20px; margin-top: 2px; color: var(--ink-2); }
+.mod-hidden .linkish { padding-left: 28px; }
+#detail > .mod-hidden:first-child { margin-top: var(--sp-2); }
+.check.check-hidden { color: var(--ink-2); }
+.check-hidden .mark.neutral .i { stroke-width: 2; }
+
+/* ---------- Help, privacy, delete (profile screen) ---------- */
+.o-help { margin-bottom: var(--sp-4); }
+a.item { color: var(--ink); text-decoration: none; }
+.o-help .item .chev { color: var(--ink-2); }
+.item.danger b { color: var(--ko); }
+.item.danger .fav-ic { background: var(--ko-soft); color: var(--ko); }
+.btn.danger { background: var(--ko); border-color: var(--ko); color: #fff; }
+.btn.danger:active { filter: brightness(.92); }
+.btn[disabled][aria-busy], dialog[aria-busy] .btn.danger { cursor: progress; }
+
+/* Confirmation: a bottom sheet on phones (thumb reach), a centred card on large screens. */
+.confirm { padding: 0; border: 0; background: transparent; color: var(--ink); overflow: visible; }
+.confirm:modal { width: 100%; max-width: 100%; max-height: 100%; margin: auto 0 0; }
+.confirm::backdrop { background: rgba(30, 26, 22, .45); }
+.cf-panel { max-height: calc(100dvh - var(--safe-t) - 24px); overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--sp-5) calc(var(--sp-4) + var(--safe-r)) calc(var(--sp-4) + var(--safe-b)) calc(var(--sp-4) + var(--safe-l));
+  border-radius: var(--r-l) var(--r-l) 0 0; background: var(--ground); box-shadow: var(--shadow-2); }
+.confirm[open] .cf-panel { animation: cf-up .32s var(--ease); }
+@keyframes cf-up { from { transform: translateY(32px); opacity: 0; } }
+.cf-panel .title { margin-top: 0; }
+.cf-body p { margin: var(--sp-3) 0 0; }
+.cf-err { margin: var(--sp-3) 0 0; font-weight: 700; }
+.cf-err:empty { display: none; }
+.cf-actions { margin-top: var(--sp-2); }
+@media (min-width: 600px) {
+  .confirm:modal { width: min(440px, calc(100% - 32px)); margin: auto; }
+  .cf-panel { border-radius: var(--r-l); padding: var(--sp-5); box-shadow: var(--shadow-1); }
+}
+
+/* ---------- No map (library offline on first launch, or no WebGL) ---------- */
+body.no-map #map { background: var(--raised); }
+body.no-map #chips, body.no-map #map-tools { display: none; }
+.map-off { position: absolute; top: calc(var(--safe-t) + 16px); left: calc(16px + var(--safe-l)); right: calc(16px + var(--safe-r)); max-width: 420px; margin: 0 auto;
+  padding: var(--sp-4); border-radius: var(--r-m); background: var(--surface); box-shadow: var(--shadow-1); text-align: center; }
+.map-off p { margin: 0 0 var(--sp-3); }
+@media (min-width: 1024px) { .map-off { left: 460px; } }
+
+/* ---------- iOS app shell (and phones generally) ---------- */
+/* Notch and home indicator, also in landscape (left / right insets). */
+#chips { padding-left: calc(8px + var(--safe-l)); padding-right: calc(8px + var(--safe-r)); }
+#map-tools { right: calc(12px + var(--safe-r)); }
+.snap { left: calc(12px + var(--safe-l)); }
+#toast { left: calc(16px + var(--safe-l)); right: calc(16px + var(--safe-r)); }
+/* The map credits fold into an "i" button left of the locate button, instead of under it. */
+.maplibregl-ctrl-bottom-right { right: calc(68px + var(--safe-r)); }
+@media (orientation: landscape) and (max-height: 540px) {
+  #chips { left: calc(min(400px, 50vw) + 20px + var(--safe-l)); padding-left: 0; }
+  .snap { left: auto; right: calc(76px + var(--safe-r)); }
+}
+@media (min-width: 1024px) {
+  #chips { padding: 0; }
+  #map-tools { right: 16px; }
+  .snap { left: 452px; }
+  .maplibregl-ctrl-bottom-right { right: 0; }
+}
+/* Controls are not text: no selection on a long press. Content (names, sentences) stays selectable. */
+button, .chip, .fab, .snap, #grip, .r-add, .lchip, .wchip, .mark, .i, .ts-seg span, .when-seg span { -webkit-user-select: none; user-select: none; }
+/* In the app: no link preview / image callout on a long press over UI chrome, no rubber band on the page itself. */
+html.native :is(button, a.item, a.btn, .chip, .fab, .snap, #map, #grip, img) { -webkit-touch-callout: none; }
+html.native, html.native body { overscroll-behavior: none; }
+textarea { font: inherit; color: inherit; }
+
+/* Home: the recorded sample trip. Secondary to search and the shortcuts: outlined, no shadow. */
+.home-demo { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 56px; margin: var(--sp-3) 0 0; padding: 6px var(--sp-3);
+  border: 1px solid var(--line-2); border-radius: var(--r-m); background: transparent; color: var(--ink); text-align: left; }
+.home-demo:active { background: var(--raised); }
+.home-demo:focus-visible { outline-offset: 2px; border-radius: var(--r-m); }
+.home-demo-ic { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 11px; background: var(--brand-soft); color: var(--brand); }
+.home-demo-ic .i { width: 20px; height: 20px; }
+.home-demo .t { flex: 1; min-width: 0; line-height: 1.25; }
+.home-demo b { display: block; font-size: var(--t-body); font-weight: 700; }
+.home-demo small { display: block; font-size: var(--t-meta); color: var(--ink-2); }
+.home-demo .chev { color: var(--ink-2); }
+@media (hover: hover) { .home-demo:hover { background: var(--raised); } }
+/* Landscape phone: the Report pill sits bottom right too, so the credits button goes above it. */
+@media (orientation: landscape) and (max-height: 540px) { .maplibregl-ctrl-bottom-right { bottom: 60px; } }
+/* Larger text: a two-line pill reads better with a card radius than a capsule. */
+html:is([data-text="2"], [data-text="3"]) .rec-line { border-radius: var(--r-s); align-items: flex-start; }
+html:is([data-text="2"], [data-text="3"]) .rec-line .i { margin-top: .2em; }
+/* Rows inside a rounded list: the focus ring sits inside the row (the list clips anything outside). */
+.list .item:focus-visible { outline-offset: -3px; border-radius: var(--r-m); }
