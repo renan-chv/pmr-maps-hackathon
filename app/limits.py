@@ -69,8 +69,8 @@ def agent_budget(today: Optional[str] = None) -> None:
     if _day["date"] != today:
         _day.update(date=today, agent=0)
     if int(_day["agent"]) >= AGENT_DAILY_LIMIT:
-        raise HTTPException(429, "The assistant has answered a lot of questions today. "
-                                 "Trip planning and the map still work; the assistant is back tomorrow.")
+        raise HTTPException(429, "L'assistant a répondu à beaucoup de questions aujourd'hui. "
+                                 "Les trajets et la carte marchent toujours ; l'assistant revient demain.")
     _day["agent"] = int(_day["agent"]) + 1
 
 

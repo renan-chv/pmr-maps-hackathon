@@ -1,6 +1,6 @@
-"""Errors the front can act on: a plain-English `detail` plus a stable machine-readable `code`.
+"""Errors the front can act on: a plain-French `detail` plus a stable machine-readable `code`.
 
-    {"detail": "No step-free trip found by IDFM for this time. Try another time.", "code": "no_route"}
+    {"detail": "IDFM ne trouve aucun trajet sans marche à cette heure-là. Essayez une autre heure.", "code": "no_route"}
 
 ApiError is an HTTPException, so `except HTTPException` keeps catching it; main.py turns it into that JSON.
 Never put an upstream body, a stack trace or a key in `detail`: it is shown to the user as is.

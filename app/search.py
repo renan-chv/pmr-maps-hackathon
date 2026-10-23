@@ -54,11 +54,11 @@ def api_places_search(q: str = Query(..., min_length=3, max_length=100),
     try:
         data = sources.in_background(key, lambda: sources.cached(key, 3600, load)).result(timeout=SEARCH_BUDGET_S)
     except FutureTimeout:
-        raise ApiError(503, "Place search is slow right now. Try again in a moment.", "upstream",
+        raise ApiError(503, "La recherche de lieux est lente en ce moment. Réessayez dans un instant.", "upstream",
                        headers={"Retry-After": "5"})
     except Exception as e:
         logging.warning("acceslibre search unavailable: %s", type(e).__name__)
-        raise ApiError(503, "Place search is not answering right now. Try again in a moment.", "upstream",
+        raise ApiError(503, "La recherche de lieux ne répond pas pour l'instant. Réessayez dans un instant.", "upstream",
                        headers={"Retry-After": "30"})
     out = []
     for r in data["rows"]:

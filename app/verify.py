@@ -170,22 +170,49 @@ def _mentions(row: dict, tokens: List[str]) -> bool:
     return any(re.search(rf"(?<![\w]){re.escape(t)}(?![\w])", text, re.I) for t in tokens)
 
 
-# English labels for the community report categories (keys are the API values, kept in French).
+# Labels of the community report categories shown in the app (keys are the API values).
 REPORT_LABELS = {
-    "escalier": "stairs", "marche": "step", "travaux": "roadworks", "trottoir_encombre": "blocked sidewalk",
-    "trottoir_etroit": "narrow sidewalk", "bordure_haute": "high curb", "pente": "steep slope",
-    "ascenseur_panne": "elevator out of order", "escalator_panne": "escalator out of order",
-    "rampe": "ramp problem", "autre": "other problem",
+    "escalier": "escalier", "marche": "marche", "travaux": "travaux", "trottoir_encombre": "trottoir encombré",
+    "trottoir_etroit": "trottoir étroit", "bordure_haute": "bordure haute", "pente": "pente forte",
+    "ascenseur_panne": "ascenseur en panne", "escalator_panne": "escalator en panne",
+    "rampe": "problème de rampe", "autre": "autre problème",
 }
+NB = "\u00a0"  # no-break space, before « : ; ? ! » and inside « »
 
 
-def _count(n: int, noun: str) -> str:
-    return f"{n} {noun}" + ("" if n == 1 else "s")
+def _count(n: int, noun: str, plural: Optional[str] = None) -> str:
+    """"1 ascenseur", "2 ascenseurs", "0 panne" (French: singular up to 1), "3 feux" with plural="feux"."""
+    return f"{n} {noun if n <= 1 else (plural or noun + 's')}"
+
+
+def _num(x: float) -> str:
+    """11.2 -> "11,2", 1200 -> "1 200" (French separators)."""
+    if isinstance(x, float) and not x.is_integer():
+        return f"{x:g}".replace(".", ",")
+    return f"{round(x):,}".replace(",", NB)
+
+
+def _lc(s: str) -> str:
+    """"Construction ou réhabilitation" -> "construction ou réhabilitation"; "RER A" stays."""
+    return s[0].lower() + s[1:] if len(s) > 1 and s[0].isupper() and s[1].islower() else s
+
+
+_MONTHS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
+           "novembre", "décembre")
+
+
+def date_fr(s: Optional[str]) -> str:
+    """"2026-12-31" -> "31 décembre 2026", "2026-11-01" -> "1er novembre 2026"; anything else unchanged."""
+    m = re.match(r"(\d{4})-(\d\d)-(\d\d)", s or "")
+    if not m or not 1 <= int(m.group(2)) <= 12:
+        return s or ""
+    day = int(m.group(3))
+    return f"{'1er' if day == 1 else day} {_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
 
 def _of(part: list, whole: list) -> str:
-    """"1 of 3 elevators", "1 of 1 elevator"."""
-    return f"{len(part)} of {_count(len(whole), 'elevator')}"
+    """"1 ascenseur sur 3", "2 ascenseurs sur 3"."""
+    return f"{_count(len(part), 'ascenseur')} sur {len(whole)}"
 
 
 def _since(stamp: Optional[str]) -> str:
@@ -195,7 +222,7 @@ def _since(stamp: Optional[str]) -> str:
         d = datetime.fromisoformat(stamp)
     except ValueError:
         return ""
-    return f" (reported {d:%b} {d.day} at {d:%H:%M})"
+    return f" (signalé le {d:%d/%m} à {d:%H:%M})"
 
 
 def _at_most_genant(e: str) -> str:
@@ -310,39 +337,43 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
     up = [r for r in relevant if r.get("liftstatus") == "available"]
     down = [r for r in relevant if r.get("liftstatus") == "notavailable"]
     def label(plural: bool) -> str:
-        noun = "elevators" if plural else "elevator"
-        return f"Line {code} {noun} at {station}" if code else f"{noun.capitalize()} at {station}"
+        noun = "Ascenseurs" if plural else "Ascenseur"
+        return f"{noun} ligne {code} à {station}" if code else f"{noun} à {station}"
 
-    base = {"kind": "lift", "source": "IDFM – Elevator status", "fetched_at": fetched_at,
+    base = {"kind": "lift", "source": "IDFM – État des ascenseurs", "fetched_at": fetched_at,
             "station": station, "zdcid": (relevant[0].get("zdcid") if relevant else None),
             "lift_ids": [r.get("liftid") for r in relevant]}
     rel = _worst_reliability(relevant, reliability)
     if rel:
         base.update(reliability=rel["availability"], reliability_window_days=rel["window_days"],
                     reliability_outages=rel.get("outages"), reliability_source=rel["source"])
-    rel_text = (f" History: working {round(rel['availability'] * 100)}% of the time from 6 am to 9 pm "
-                f"over the last {rel['window_days']:g} days, {_count(rel.get('outages', 0), 'outage')}.") if rel else ""
+    outages = rel.get("outages", 0) if rel else 0
+    rel_text = (f" Historique{NB}: en service {round(rel['availability'] * 100)}{NB}% du temps de 6{NB}h à 21{NB}h "
+                f"sur les {_num(float(rel['window_days']))} derniers jours, "
+                f"{_count(outages, 'panne') if outages else 'aucune panne'}.") if rel else ""
 
     full = profiles.effect("ascenseur_panne", profile)
     if not relevant:
         eff = _at_most_genant(full)
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": "ascenseur_panne", "effect": eff,
-                "label": f"Elevators at {station}", "message": "No elevator data for this station"}
+                "label": f"Ascenseurs à {station}", "message": "Aucune donnée d'ascenseur pour cette station"}
     conf = 5 if matched_line else 3  # 3: we could not tell which lift serves this line
     reported = [r for r in down if r.get("reported")]
     if reported:
         # a live user report overrides older official data: say so, with the report's own confidence
-        base["source"] = "Roulib report, newer than the IDFM data"
+        base["source"] = "Signalement Roulib, plus récent que l'info IDFM"
         conf = max(r["report_confidence"] for r in reported)
-        rel_text = (f" Reported out of order by a user after the latest official update "
-                    f"(IDFM: \"{'working' if reported[0].get('liftstatus_official') == 'available' else 'unknown'}\").") + rel_text
+        official = "en service" if reported[0].get("liftstatus_official") == "available" else "inconnu"
+        rel_text = (f" Signalé en panne par un utilisateur après la dernière mise à jour officielle "
+                    f"(IDFM{NB}: «{NB}{official}{NB}»).") + rel_text
     if down and not up:
         since = _since(min((r.get("liftstateupdate") or "") for r in down) or None)
         unknown = len(relevant) - len(down)
-        extra = f", {unknown} with unknown status" if unknown else ""
+        extra = f", {unknown} à l'état inconnu" if unknown else ""
         return {**base, "status": "en_panne", "confidence": conf, "obstacle": "ascenseur_panne", "effect": full,
                 "label": label(False),
-                "message": f"{_of(down, relevant)} out of order{since}{extra}, none confirmed working.{rel_text}"}
+                "message": (f"L'ascenseur est en panne{since}.{rel_text}" if len(relevant) == 1 else
+                            f"{_of(down, relevant)} en panne{since}{extra}, aucun en service confirmé.{rel_text}")}
     nearby = _nearby_lift_reports(reports, lon, lat, relevant, now)
     if nearby and not down:
         # a photo, voice or text report of a broken elevator here, newer than the official data,
@@ -351,25 +382,25 @@ def lift_check(lon: float, lat: float, station: str, mode: Optional[str], code: 
         at = _as_dt(r["created_at"]).astimezone(PARIS)
         return {**base, "status": "signale", "confidence": _report_confidence(r, now), "obstacle": "ascenseur_panne",
                 "effect": _at_most_genant(full), "label": label(True),
-                "source": "Roulib report (photo, voice or text), newer than the IDFM data",
-                "message": f"A user reported a broken elevator here at {at:%H:%M}, after the latest official update. "
-                           f"Check before you go.{rel_text}", "report_id": r.get("id")}
+                "source": "Signalement Roulib (photo, voix ou texte), plus récent que l'info IDFM",
+                "message": f"Un utilisateur a signalé un ascenseur en panne ici à {at:%H:%M}, après la dernière mise à "
+                           f"jour officielle. Vérifiez avant de partir.{rel_text}", "report_id": r.get("id")}
     if down:
         eff = _at_most_genant(full)
         return {**base, "status": "partiel", "confidence": conf, "obstacle": "ascenseur_panne", "effect": eff,
                 "label": label(True),
-                "message": f"{_of(down, relevant)} out of order: check that yours is working.{rel_text}"}
+                "message": f"{_of(down, relevant)} en panne{NB}: vérifiez que le vôtre fonctionne.{rel_text}"}
     if not up:
         eff = _at_most_genant(full)
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": "ascenseur_panne", "effect": eff,
-                "label": label(True), "message": "Elevator status unknown"}
+                "label": label(True), "message": "État des ascenseurs inconnu"}
     if rel and rel["availability"] < UNRELIABLE_BELOW:
         return {**base, "status": "ok", "confidence": conf, "obstacle": "ascenseur_panne",
                 "effect": _at_most_genant(full), "label": label(True),
-                "message": f"{_count(len(up), 'elevator')} working, but often out of order: have a Plan B ready.{rel_text}"}
+                "message": f"{_count(len(up), 'ascenseur')} en service, mais souvent en panne{NB}: prévoyez un plan B.{rel_text}"}
     return {**base, "status": "ok", "confidence": conf, "obstacle": None, "effect": "sans_effet",
             "label": label(True),
-            "message": f"{_count(len(up), 'elevator')} working.{rel_text}"}
+            "message": f"{_count(len(up), 'ascenseur')} en service.{rel_text}"}
 
 
 # --- Walking steps -------------------------------------------------------------
@@ -402,8 +433,8 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
         if _crosses(f.get("geometry"), line, f.get("_bbox")):
             out.append({"kind": "stairs", "status": "obstacle", "confidence": 3, "obstacle": "escalier",
                         "effect": profiles.effect("escalier", profile),
-                        "source": "Ville de Paris – Stepped streets", "fetched_at": None,
-                        "label": "Stepped street", "message": "The only way through is by steps"})
+                        "source": "Ville de Paris – Voies en escalier", "fetched_at": None,
+                        "label": "Rue en escalier", "message": "Passage uniquement par des marches"})
     for r in reports:
         if r.get("lon") is None or point_to_line_m([r["lon"], r["lat"]], line) > 30:
             continue
@@ -412,8 +443,8 @@ def walk_checks(line: List[List[float]], profile: str, works: Iterable[dict] = (
             continue
         out.append({"kind": "report", "status": "obstacle", "confidence": _report_confidence(r, now),
                     "obstacle": obstacle, "effect": profiles.effect(obstacle, profile),
-                    "source": "Roulib community report", "fetched_at": str(r.get("created_at") or ""),
-                    "label": f"Reported: {REPORT_LABELS.get(r.get('categorie') or '', (r.get('categorie') or 'obstacle').replace('_', ' '))}",
+                    "source": "Signalement de la communauté Roulib", "fetched_at": str(r.get("created_at") or ""),
+                    "label": f"Signalé{NB}: {REPORT_LABELS.get(r.get('categorie') or '', (r.get('categorie') or 'obstacle').replace('_', ' '))}",
                     "message": r.get("description") or "", "report_id": r.get("id")})
     length = line_length_m(line) if len(line) > 1 else 0.0
     walk = long_walk_check(length, profile)
@@ -428,9 +459,9 @@ def stairs_unknown_check(profile: str) -> Optional[dict]:
     if full == "sans_effet":
         return None
     return {"kind": "stairs", "status": "inconnu", "confidence": 1, "obstacle": "escalier",
-            "effect": _at_most_genant(full), "source": "Ville de Paris – Stepped streets", "fetched_at": None,
-            "label": "Stepped streets", "message": "Stepped-street data is unavailable right now: "
-                                                   "this walk could not be checked for steps."}
+            "effect": _at_most_genant(full), "source": "Ville de Paris – Voies en escalier", "fetched_at": None,
+            "label": "Rues en escalier", "message": f"Les données des rues en escalier sont indisponibles pour l'instant{NB}: "
+                                                    "les marches n'ont pas pu être vérifiées sur ce trajet."}
 
 
 def works_summary(crossed: List[dict], profile: str, fetched_at: Optional[str] = None) -> Optional[dict]:
@@ -443,15 +474,15 @@ def works_summary(crossed: List[dict], profile: str, fetched_at: Optional[str] =
         return None
     n = len(crossed)
     first = crossed[0].get("properties") or {}
-    what = first.get("summary") or "Roadworks"
-    until = f" until {first['end']}" if first.get("end") else ""
+    what = _lc(first.get("summary") or "Travaux")
+    until = f", jusqu'au {date_fr(first['end'])}" if first.get("end") else ""
     return {"kind": "works", "status": "info", "confidence": 5, "obstacle": None, "effect": "sans_effet",
-            "count": n, "source": "Ville de Paris – Roadworks in Paris", "fetched_at": fetched_at,
-            "label": "Roadworks on the sidewalk",
-            "message": (f"Roadworks on the sidewalk along this walk ({what}{until}); usually passable, "
-                        "the sidewalk may be narrower." if n == 1 else
-                        f"{n} roadworks on the sidewalk along this walk; usually passable, the sidewalk may be "
-                        f"narrower. First one: {what}{until}.")}
+            "count": n, "source": "Ville de Paris – Chantiers à Paris", "fetched_at": fetched_at,
+            "label": "Travaux sur le trottoir",
+            "message": (f"Un chantier sur le trottoir le long de ce trajet ({what}{until}){NB}; en général on passe, "
+                        "mais le trottoir peut être plus étroit." if n == 1 else
+                        f"{n} chantiers sur le trottoir le long de ce trajet{NB}; en général on passe, mais le trottoir "
+                        f"peut être plus étroit. Le premier{NB}: {what}{until}.")}
 
 
 def long_walk_check(length: float, profile: str) -> Optional[dict]:
@@ -462,12 +493,13 @@ def long_walk_check(length: float, profile: str) -> Optional[dict]:
         return None
     word = profiles.walk_word(profile)
     limit = profiles.LONG_WALK_BLOCKING_M.get(profiles.normalize(profile))
-    advice = (f"more than {limit:,} m, too far for this profile." if eff == "bloquant"
-              else "plan a rest on the way.")
+    advice = (f"plus de {_num(limit)}{NB}m, c'est trop loin pour ce profil." if eff == "bloquant"
+              else "prévoyez une pause en chemin.")
     # Computed by Roulib from the route: no live data behind it, hence no confidence level.
+    # The label starts with "Long trajet": the app turns a blocking one into "Trop loin à pied / en fauteuil".
     return {"kind": "walk", "status": "obstacle", "confidence": None, "obstacle": "long_trajet_pied",
-            "effect": eff, "source": "Roulib calculation", "fetched_at": None, "length_m": round(length),
-            "label": "Long walk", "message": f"{round(length):,} m to {word}: {advice}"}
+            "effect": eff, "source": "Calcul Roulib", "fetched_at": None, "length_m": round(length),
+            "label": f"Long trajet {word}", "message": f"{_num(round(length))}{NB}m {word}{NB}: {advice}"}
 
 
 # --- Visually impaired travellers ------------------------------------------------
@@ -485,8 +517,8 @@ _ARRTYPE = (("métro", "metro"), ("metro", "metro"), ("rer", "rail"), ("train", 
             ("noctilien", "bus"))
 _SNCF_MODES = ("rer", "train", "transilien", "ter")
 LV_SRC = {
-    "stop": "IDFM – Stop register", "line": "IDFM – Line register", "assist": "SNCF – Assistance in stations",
-    "equip": "SNCF – Accessibility equipment in stations", "lights": "Ville de Paris – Audible pedestrian signals",
+    "stop": "IDFM – Référentiel des arrêts", "line": "IDFM – Référentiel des lignes", "assist": "SNCF – Assistance en gare",
+    "equip": "SNCF – Équipements d'accessibilité en gare", "lights": "Ville de Paris – Feux piétons sonores",
 }
 _lv_cache: Dict[tuple, Tuple[list, dict]] = {}
 
@@ -612,33 +644,33 @@ def station_audio_check(lon: float, lat: float, station: str, mode: Optional[str
                         idx: dict, profile: str) -> dict:
     """Spoken (and displayed) next-departure information at the stop, from IDFM, else from the SNCF list."""
     obstacle = "pas_annonce_sonore"
-    base = {"kind": "audio", "station": station, "label": f"Audio announcements at {station}",
+    base = {"kind": "audio", "station": station, "label": f"Annonces sonores à {station}",
             "source": LV_SRC["stop"], "fetched_at": idx["at"].get("stop_signals")}
     rows = _stop_rows(idx, lon, lat, mode, stop_point_id) if idx["stops"] is not None else []
     audio = _combine([r.get("arraudiblesignals") for r in rows])
     visual = _combine([r.get("arrvisualsigns") for r in rows])
-    screens = {"true": " Departure screens too.", "partial": " Departure screens on part of the station.",
-               "false": " No departure screens."}.get(visual, "")
+    screens = {"true": " Écrans des prochains départs aussi.", "partial": " Écrans des prochains départs sur une partie de la gare.",
+               "false": " Pas d'écran des prochains départs."}.get(visual, "")
     if audio == "unknown" and (mode or "").lower().startswith(_SNCF_MODES):
         listed = _sncf_listed(idx, _sncf_stations(idx, lon, lat))
         if "Information sonore en gare et/ou sur les quais" in listed:
             return {**base, "status": "ok", "confidence": 3, "obstacle": None, "effect": "sans_effet",
                     "source": LV_SRC["equip"], "fetched_at": idx["at"].get("sncf_equipment"),
-                    "message": "SNCF lists audio announcements in the station or on the platforms."}
+                    "message": "La SNCF indique des annonces sonores en gare ou sur les quais."}
     if audio == "true":
         return {**base, "status": "ok", "confidence": 3, "obstacle": None, "effect": "sans_effet",
-                "message": "Next departures are announced aloud at this stop." + screens}
+                "message": "Les prochains départs sont annoncés à voix haute à cet arrêt." + screens}
     if audio == "false":
         return {**base, "status": "absent", "confidence": 3, "obstacle": obstacle,
                 "effect": _at_most_genant(profiles.effect(obstacle, profile)),
-                "message": "No audio announcements at this stop, according to IDFM: ask staff or other travellers." + screens}
+                "message": f"Pas d'annonce sonore à cet arrêt, selon IDFM{NB}: demandez au personnel ou à d'autres voyageurs." + screens}
     if audio == "partial":
         return {**base, "status": "partiel", "confidence": 3, "obstacle": obstacle,
                 "effect": _at_most_genant(profiles.effect(obstacle, profile)),
-                "message": "Audio announcements on part of this station only, according to IDFM." + screens}
-    why = "IDFM data unavailable right now." if idx["stops"] is None else "IDFM has no information for this stop yet."
+                "message": "Annonces sonores sur une partie de la gare seulement, selon IDFM." + screens}
+    why = "Données IDFM indisponibles pour l'instant." if idx["stops"] is None else "IDFM n'a pas encore d'information pour cet arrêt."
     return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
-            "message": f"Not known whether departures are announced aloud. {why}"}
+            "message": f"On ne sait pas si les départs sont annoncés à voix haute. {why}"}
 
 
 def _line_id(section: dict) -> Optional[str]:
@@ -659,17 +691,17 @@ def onboard_audio_check(line_id: Optional[str], mode: Optional[str], code: Optio
     if value not in ("true", "false", "partial"):
         return None
     obstacle = "pas_annonce_sonore"
-    base = {"kind": "audio", "label": f"On-board announcements, {mode or 'line'} {code or ''}".strip(),
+    base = {"kind": "audio", "label": f"Annonces à bord, {mode or 'ligne'} {code or ''}".strip(),
             "source": LV_SRC["line"], "fetched_at": idx["at"].get("line_signals"), "confidence": 3, "at": "board"}
     if value == "true":
         return {**base, "status": "ok", "obstacle": None, "effect": "sans_effet",
-                "message": "The next stop is announced aloud on board."}
+                "message": "Le prochain arrêt est annoncé à voix haute à bord."}
     eff = _at_most_genant(profiles.effect(obstacle, profile))
     if value == "partial":
         return {**base, "status": "partiel", "obstacle": obstacle, "effect": eff,
-                "message": "Only some vehicles of this line announce the next stop aloud: count the stops or ask the driver."}
+                "message": f"Seuls certains véhicules de cette ligne annoncent le prochain arrêt à voix haute{NB}: comptez les arrêts ou demandez au conducteur."}
     return {**base, "status": "absent", "obstacle": obstacle, "effect": eff,
-            "message": "The next stop is not announced aloud on this line, according to IDFM: count the stops or ask the driver."}
+            "message": f"Le prochain arrêt n'est pas annoncé à voix haute sur cette ligne, selon IDFM{NB}: comptez les arrêts ou demandez au conducteur."}
 
 
 def assistance_checks(lon: float, lat: float, station: str, mode: Optional[str], idx: dict,
@@ -683,21 +715,21 @@ def assistance_checks(lon: float, lat: float, station: str, mode: Optional[str],
     sncf = stations[0]
     day = sources_weekday(now)
     today = sncf.get(f"horaires_jour_nominal_{day}")
-    hours = ("from the first to the last train" if sncf.get("premierauderniertrain")
-             else f"today {today}" if today else None)
-    how = "book ahead or ask on the spot" if "SPONTANE" in (sncf.get("typepriseencharge") or "") else "book ahead"
-    free = "free, " if sncf.get("typetarification") == "GRATUIT" else ""
-    out = [{"kind": "assistance", "station": station, "label": f"Staff assistance at {station}",
+    hours = ("du premier au dernier train" if sncf.get("premierauderniertrain")
+             else f"aujourd'hui {today}" if today else None)
+    how = "réservez à l'avance ou demandez sur place" if "SPONTANE" in (sncf.get("typepriseencharge") or "") else "réservez à l'avance"
+    free = "gratuit, " if sncf.get("typetarification") == "GRATUIT" else ""
+    out = [{"kind": "assistance", "station": station, "label": f"Assistance en gare à {station}",
             "status": "ok" if hours else "inconnu", "confidence": 3, "obstacle": None,
             "effect": "sans_effet", "source": LV_SRC["assist"], "fetched_at": idx["at"].get("sncf_assistance"),
-            "message": f"SNCF staff can guide you to your train ({free}{how}), {hours}." if hours
-            else f"SNCF staff can guide you to your train ({free}{how}), but not on this day of the week."}]
+            "message": f"Le personnel SNCF peut vous accompagner jusqu'à votre train ({free}{how}), {hours}." if hours
+            else f"Le personnel SNCF peut vous accompagner jusqu'à votre train ({free}{how}), mais pas ce jour de la semaine."}]
     listed = _sncf_listed(idx, stations)
     if "Bande d'éveil de vigilance sur les quais" in listed:
-        out.append({"kind": "tactile", "station": station, "label": f"Warning strips at {station}",
+        out.append({"kind": "tactile", "station": station, "label": f"Bandes d'éveil à {station}",
                     "status": "ok", "confidence": 3, "obstacle": None, "effect": "sans_effet",
                     "source": LV_SRC["equip"], "fetched_at": idx["at"].get("sncf_equipment"),
-                    "message": "Tactile warning strips along the platform edges."})
+                    "message": "Bandes d'éveil de vigilance le long des quais."})
     return out
 
 
@@ -708,19 +740,19 @@ def sources_weekday(now: datetime) -> str:
 
 def crossing_check(line: List[List[float]], idx: dict, profile: str) -> Optional[dict]:
     """Traffic lights along the walk and how many have an audible signal (répétiteur sonore, Paris only)."""
-    base = {"kind": "crossings", "label": "Crossings with sound", "source": LV_SRC["lights"],
+    base = {"kind": "crossings", "label": "Feux piétons sonores", "source": LV_SRC["lights"],
             "fetched_at": idx["at"].get("sound_modules"), "confidence": 3}
     if len(line) < 2:
         return None
     if idx["lights"] is None:
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
-                "message": "Traffic signal data from the City of Paris is unavailable right now."}
+                "message": "Les données des feux de la Ville de Paris sont indisponibles pour l'instant."}
     # Paris has about 19,000 signalised junctions: none within 300 m means we are outside the mapped area
     # (La Défense is inside any simple bounding box of Paris, hence this test rather than a box).
     if not any(dist_m(p[0], p[1], x, y) <= COVERAGE_M
                for p in line for x, y, _ in _grid_near(idx["lights"], p[0], p[1], COVERAGE_M)):
         return {**base, "status": "inconnu", "confidence": 1, "obstacle": None, "effect": "sans_effet",
-                "message": "Audible traffic signals are only mapped inside Paris."}
+                "message": "Les feux piétons sonores ne sont recensés que dans Paris."}
     # Segment by segment, only the grid cells around that segment: the bounding box of a long diagonal walk
     # holds thousands of lights, and testing each against every segment took seconds per walk.
     pad = 0.0003
@@ -735,18 +767,18 @@ def crossing_check(line: List[List[float]], idx: dict, profile: str) -> Optional
         return None  # no traffic light along this walk: nothing to say
     audible = near & idx["sound"]
     n, a = len(near), len(audible)
-    remote = "with the universal remote (the standard blind-user remote)"
+    remote = "avec la télécommande universelle des personnes aveugles et malvoyantes"
     if a == n:
         return {**base, "status": "ok", "obstacle": None, "effect": "sans_effet",
-                "message": f"{'The crossing' if n == 1 else f'All {n} crossings'} on this walk "
-                           f"{'has' if n == 1 else 'have'} sound {remote}."}
+                "message": f"{'Le feu piéton de ce trajet est sonore' if n == 1 else f'Les {n} feux piétons de ce trajet sont sonores'} "
+                           f"{remote}."}
     obstacle = "feu_sans_son"
     silent = n - a
-    with_sound = f"; {a} {'has' if a == 1 else 'have'} sound {remote}" if a else ""
+    with_sound = f"{NB}; {a} {'est sonore' if a == 1 else 'sont sonores'} {remote}" if a else ""
     return {**base, "status": "partiel" if audible else "absent", "obstacle": obstacle,
-            "label": "Crossings without sound", "effect": _at_most_genant(profiles.effect(obstacle, profile)),
-            "message": f"{_count(silent, 'crossing')} without sound on this walk{with_sound}. "
-                       f"At a silent one, cross with other people or ask for help."}
+            "label": "Feux piétons sans son", "effect": _at_most_genant(profiles.effect(obstacle, profile)),
+            "message": f"{_count(silent, 'feu', 'feux')} sans son sur ce trajet{with_sound}. "
+                       f"À un feu muet, traversez avec d'autres personnes ou demandez de l'aide."}
 
 
 # --- Journeys ------------------------------------------------------------------
@@ -851,7 +883,7 @@ def verify_journey(j: dict, profile: str, lifts_rows: List[dict], lifts_fetched_
         "verdict": verdict,
         "confidence": min(lift_conf) if lift_conf else 3,
         "blocked_at": (blocking.get("station") or blocking["label"]) if blocking else None,
-        # What blocks and where, for a readable title: "Stepped street" after "Bastille".
+        # What blocks and where, for a readable title: "Rue en escalier" after "Bastille".
         "blocked_reason": blocking["label"] if blocking else None,
         "blocked_near": (blocking.get("station") or blocking_step.get("from")) if blocking else None,
         "steps": steps,

@@ -4,7 +4,7 @@
 // - API GETs: network first (4 s), fall back to the last answer. Payloads carry their own fetched_at,
 //   so the UI keeps showing how old the data is. Live journeys and POSTs are never served from cache.
 // - Report photos (/api/reports/{id}/thumb): they never change, cache first, capped.
-const V = "roulib-v3";
+const V = "roulib-v4";  // v4: French UI (old cached English answers dropped)
 // native.js does nothing in a browser, but index.html loads it: cached so an offline reload has no failed script.
 const SHELL = ["/", "/static/style.css", "/static/app.js", "/static/profiles.js", "/static/native.js", "/static/manifest.webmanifest", "/static/icon.svg"];
 const TILE_MAX = 400, API_MAX = 200, IMG_MAX = 80;

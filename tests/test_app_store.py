@@ -122,14 +122,14 @@ def test_prim_no_solution_is_a_404_no_route(live):
     assert r.status_code == 404
     body = r.json()
     assert body["code"] == "no_route" and body["reason"] == "no_solution"
-    assert body["detail"] == "No step-free trip found by IDFM for this time. Try another time."
-    assert "context" not in r.text and "PRIM answered" not in r.text  # nothing of the upstream body
+    assert body["detail"] == "IDFM ne trouve aucun trajet sans marche à cette heure-là. Essayez une autre heure."
+    assert "context" not in r.text and "PRIM a répondu" not in r.text and "PRIM answered" not in r.text  # nothing of the upstream body
     assert r.headers["access-control-allow-origin"] == "capacitor://localhost"
 
 
 def test_no_solution_for_a_profile_that_can_take_stairs_does_not_say_step_free(live):
     body = journey(profile="malvoyant").json()
-    assert body["code"] == "no_route" and "step-free" not in body["detail"]
+    assert body["code"] == "no_route" and "sans marche" not in body["detail"]
 
 
 @pytest.mark.parametrize("error_id", ["no_origin", "no_destination", "no_origin_nor_destination", "date_out_of_bounds"])
@@ -158,7 +158,7 @@ def test_other_upstream_failures_are_503_upstream_in_plain_words(live, answer):
     assert r.status_code == 503
     body = r.json()
     assert body["code"] == "upstream" and set(body) == {"detail", "code"}
-    assert "Try again" in body["detail"]
+    assert "Réessayez" in body["detail"]
     for leak in ("stack trace", "Invalid key", "quota", "internal_error", "refused", "test-key"):
         assert leak not in r.text
 
@@ -336,7 +336,7 @@ def test_normal_descriptions_pass(text):
 def test_offensive_report_is_a_422_before_any_database_call(monkeypatch):
     monkeypatch.setattr(db, "DATABASE_URL", None)  # would be a 503 if the database were reached
     r = client.post("/api/reports", json={**REPORT, "description": "Putain de connard de chantier"})
-    assert r.status_code == 422 and r.json()["code"] == "offensive" and "can't publish" in r.json()["detail"]
+    assert r.status_code == 422 and r.json()["code"] == "offensive" and "ne pouvons pas publier" in r.json()["detail"]
 
 
 # --- Accounts and moderation on the in-memory database ------------------------------------

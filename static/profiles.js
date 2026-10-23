@@ -2,15 +2,16 @@
 // sent as ?profile= with every /api/journey call. Keys match app/profiles.py.
 "use strict";
 
+// label: the tile; short: after "Profil :" and in « … »; who: after a verb ("Rien ne bloque en fauteuil manuel").
 const PMR_PROFILES = [
-  { key: "manuel", label: "Manual wheelchair", short: "manual wheelchair", ic: "p-manuel" },
-  { key: "electrique", label: "Power wheelchair", short: "power wheelchair", ic: "p-electrique" },
-  { key: "poussette", label: "Stroller", short: "stroller", ic: "p-poussette" },
-  { key: "deambulateur", label: "Walker or cane", short: "walker", ic: "p-deambulateur" },
-  { key: "malvoyant", label: "Visually impaired", short: "visually impaired traveler", ic: "p-malvoyant" },
+  { key: "manuel", label: "Fauteuil manuel", short: "fauteuil manuel", who: "en fauteuil manuel", ic: "p-manuel" },
+  { key: "electrique", label: "Fauteuil électrique", short: "fauteuil électrique", who: "en fauteuil électrique", ic: "p-electrique" },
+  { key: "poussette", label: "Poussette", short: "poussette", who: "avec une poussette", ic: "p-poussette" },
+  { key: "deambulateur", label: "Déambulateur ou canne", short: "déambulateur", who: "avec un déambulateur ou une canne", ic: "p-deambulateur" },
+  { key: "malvoyant", label: "Malvoyant", short: "malvoyance", who: "pour une personne malvoyante", ic: "p-malvoyant" },
   // Walks without difficulty: sees the same map and reports obstacles for everyone else.
-  { key: "valide", label: "Able-bodied: I help the community", short: "community helper", ic: "p-valide",
-    sub: "Report broken elevators and blocked sidewalks so wheelchair users know before they go." },
+  { key: "valide", label: "Sans difficulté : j'aide la communauté", short: "sans difficulté", who: "", ic: "p-valide",
+    sub: "Signalez les ascenseurs en panne et les trottoirs bloqués, pour que les personnes en fauteuil le sachent avant de partir." },
 ];
 
 // Tiles of the profile screen, as radios (one tab stop: the chosen one, else the first). Used by app.js and,
@@ -38,7 +39,7 @@ const Profile = (() => {
       // Light account (chantier B). Optional: the app works without it.
       if (!read("pmr_user_id")) {
         fetch((window.ROULIB_API || "") + "/api/users", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ display_name: (name || "").trim() || "Anonymous", profile: key }) })
+          body: JSON.stringify({ display_name: (name || "").trim() || "Anonyme", profile: key }) })
           .then((r) => (r.ok ? r.json() : null)).then((d) => {
             if (!d || !d.id) return;
             write("pmr_user_id", String(d.id));
@@ -46,7 +47,7 @@ const Profile = (() => {
           }).catch(() => {});
       }
     },
-    // "Delete my data": every pmr_* key (profile, first name, account id and token, hidden people, flags).
+    // "Supprimer mes données": every pmr_* key (profile, first name, account id and token, hidden people, flags).
     clear() {
       try { Object.keys(localStorage).filter((k) => k.startsWith("pmr_")).forEach((k) => localStorage.removeItem(k)); } catch {}
     },

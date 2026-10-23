@@ -11,12 +11,12 @@ Profile = Literal["manuel", "electrique", "poussette", "deambulateur", "malvoyan
 Effect = Literal["bloquant", "genant", "sans_effet"]
 
 PROFILES: Dict[str, str] = {
-    "manuel": "Manual wheelchair",
-    "electrique": "Power wheelchair",
-    "poussette": "Stroller",
-    "deambulateur": "Walker or cane",
-    "malvoyant": "Visually impaired",
-    "valide": "No mobility difficulty",  # walks without difficulty: mostly here to report obstacles for others
+    "manuel": "Fauteuil roulant manuel",
+    "electrique": "Fauteuil roulant électrique",
+    "poussette": "Poussette",
+    "deambulateur": "Déambulateur ou canne",
+    "malvoyant": "Malvoyant",
+    "valide": "Sans difficulté de mobilité",  # walks without difficulty: mostly here to report obstacles for others
 }
 DEFAULT_PROFILE = "manuel"
 
@@ -84,8 +84,8 @@ def effect(obstacle: str, profile: str, walk_m: float | None = None) -> Effect:
 
 
 def walk_word(profile: str) -> str:
-    """"roll" for wheelchairs, "walk" for everyone else: "479 m to roll"."""
-    return "roll" if normalize(profile) in ("manuel", "electrique") else "walk"
+    """"en fauteuil" for wheelchairs, "à pied" for everyone else: "479 m en fauteuil"."""
+    return "en fauteuil" if normalize(profile) in ("manuel", "electrique") else "à pied"
 
 
 def navitia_params(profile: str) -> List[Tuple[str, Union[str, int, float]]]:

@@ -50,8 +50,8 @@ def test_demo_journey_is_checked_and_cited(monkeypatch):
     assert any(s["source"] for s in out["sources"])
     # the tool result sent back to the model carries the snapshot time and the demo mode
     tool_result = fake.requests[1]["messages"][-1]["content"][0]["content"]
-    assert "lifts_fetched_at" in tool_result and "demo" in tool_result
-    assert "DEMO MODE" in fake.requests[0]["system"]
+    assert "lifts_fetched_at" in tool_result and "démo" in tool_result
+    assert "MODE DÉMO" in fake.requests[0]["system"]
 
 
 def test_lift_status_demo_finds_outage(monkeypatch):
@@ -62,7 +62,7 @@ def test_lift_status_demo_finds_outage(monkeypatch):
 
 def test_unknown_station_is_not_called_accessible():
     res = agent.lift_status("Gare imaginaire du Nord-Ouest", replay="demo")
-    assert res["found"] is False and "Do not conclude" in res["note"]
+    assert res["found"] is False and "Ne pas conclure" in res["note"]
 
 
 def test_tool_error_is_returned_to_model_not_crash(monkeypatch):

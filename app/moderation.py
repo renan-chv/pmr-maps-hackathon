@@ -58,5 +58,5 @@ def is_offensive(text: str) -> bool:
     return False
 
 
-OFFENSIVE_DETAIL = ("Your description contains words we can't publish. "
-                    "Describe the obstacle without them and send it again.")
+OFFENSIVE_DETAIL = ("Votre description contient des mots que nous ne pouvons pas publier. "
+                    "Décrivez l'obstacle sans ces mots, puis renvoyez-le.")

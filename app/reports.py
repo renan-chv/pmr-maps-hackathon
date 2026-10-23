@@ -18,7 +18,7 @@ Routes used by the map (static/app.js, static/profiles.js, static/report.js):
 A report flagged by HIDE_AFTER_FLAGS different people is hidden from the map and from the journey engine.
 Deleting an account deletes the profile and every report it made (photo thumbnails live in the report row).
 The description is stored in user_reports.message: the journey engine (main._reports) reads it there.
-Every input is checked here and refused with a 400 in plain English; without a database the routes answer 503.
+Every input is checked here and refused with a 400 in plain French; without a database the routes answer 503.
 """
 from __future__ import annotations
 
@@ -63,11 +63,11 @@ def _user_id(v: Any) -> Optional[int]:
     try:
         n = int(str(v).strip())
     except ValueError:
-        raise ValueError("user_id must be a number")
+        raise ValueError("user_id doit être un nombre")
     if n <= 0:
-        raise ValueError("user_id must be a positive number")
+        raise ValueError("user_id doit être un nombre positif")
     if n > MAX_ID:
-        raise ValueError("user_id is too large")
+        raise ValueError("user_id est trop grand")
     return n
 
 
@@ -85,7 +85,7 @@ class NewUser(BaseModel):
     @classmethod
     def _profile(cls, v):
         if v is not None and v not in profiles.PROFILES:
-            raise ValueError(f"profile must be one of: {', '.join(profiles.PROFILES)}")
+            raise ValueError(f"profile doit être l'un de : {', '.join(profiles.PROFILES)}")
         return v
 
 
@@ -107,35 +107,35 @@ class NewReport(BaseModel):
     @classmethod
     def _categorie(cls, v):
         if v not in CATEGORIES:
-            raise ValueError(f"categorie must be one of: {', '.join(CATEGORIES)}")
+            raise ValueError(f"categorie doit être l'une de : {', '.join(CATEGORIES)}")
         return v
 
     @field_validator("gravite")
     @classmethod
     def _gravite(cls, v):
         if v not in GRAVITES:
-            raise ValueError(f"gravite must be one of: {', '.join(GRAVITES)}")
+            raise ValueError(f"gravite doit être l'une de : {', '.join(GRAVITES)}")
         return v
 
     @field_validator("confiance")
     @classmethod
     def _confiance(cls, v):
         if v is not None and not 0 <= v <= 1:
-            raise ValueError("confiance must be between 0 and 1")
+            raise ValueError("confiance doit être entre 0 et 1")
         return v
 
     @field_validator("lat")
     @classmethod
     def _lat(cls, v):
         if not LAT_RANGE[0] <= v <= LAT_RANGE[1]:
-            raise ValueError(f"lat must be between {LAT_RANGE[0]} and {LAT_RANGE[1]} (Île-de-France)")
+            raise ValueError(f"lat doit être entre {LAT_RANGE[0]} et {LAT_RANGE[1]} (Île-de-France)")
         return v
 
     @field_validator("lon")
     @classmethod
     def _lon(cls, v):
         if not LON_RANGE[0] <= v <= LON_RANGE[1]:
-            raise ValueError(f"lon must be between {LON_RANGE[0]} and {LON_RANGE[1]} (Île-de-France)")
+            raise ValueError(f"lon doit être entre {LON_RANGE[0]} et {LON_RANGE[1]} (Île-de-France)")
         return v
 
     @field_validator("description", mode="before")
@@ -152,7 +152,7 @@ class NewReport(BaseModel):
     @classmethod
     def _target_type(cls, v):
         if v is not None and v not in TARGET_TYPES:
-            raise ValueError(f"target_type must be one of: {', '.join(TARGET_TYPES)}")
+            raise ValueError(f"target_type doit être l'un de : {', '.join(TARGET_TYPES)}")
         return v
 
     @field_validator("target_id", mode="before")
@@ -167,9 +167,9 @@ class NewReport(BaseModel):
             return None
         if not isinstance(v, str) or not v.startswith(("data:image/jpeg;base64,", "data:image/png;base64,",
                                                        "data:image/webp;base64,")):
-            raise ValueError("photo_thumb must be a data:image/jpeg;base64,… image")
+            raise ValueError("photo_thumb doit être une image data:image/jpeg;base64,…")
         if len(v) > MAX_THUMB_BYTES:
-            raise ValueError("photo_thumb too large (300 KB maximum)")
+            raise ValueError("photo_thumb trop lourde (300 Ko maximum)")
         return v
 
 
@@ -199,29 +199,29 @@ class Flag(BaseModel):
         if v in (None, ""):
             return None
         if not isinstance(v, str):
-            raise ValueError("reason must be text")
+            raise ValueError("reason doit être du texte")
         return v
 
 
 def parse(model: type, payload: Any):
     """Validate a JSON body and answer 400 (not FastAPI's 422) with a readable message."""
     if not isinstance(payload, dict):
-        raise HTTPException(400, "the request body must be a JSON object")
+        raise HTTPException(400, "le corps de la requête doit être un objet JSON")
     try:
         return model.model_validate(payload)
     except ValidationError as e:
         msgs = []
         for err in e.errors():
-            field = ".".join(str(p) for p in err.get("loc", ())) or "request"
+            field = ".".join(str(p) for p in err.get("loc", ())) or "requête"
             if err.get("type") == "value_error":
                 msgs.append(str(err.get("msg", "")).removeprefix("Value error, "))
             elif err.get("type") == "missing":
-                msgs.append(f"{field} missing")
+                msgs.append(f"{field} manquant")
             elif err.get("type") == "string_too_long":
-                msgs.append(f"{field} too long ({err.get('ctx', {}).get('max_length')} characters maximum)")
+                msgs.append(f"{field} trop long ({err.get('ctx', {}).get('max_length')} caractères maximum)")
             else:
-                msgs.append(f"{field} invalid")
-        raise HTTPException(400, "; ".join(msgs))
+                msgs.append(f"{field} invalide")
+        raise HTTPException(400, " ; ".join(msgs))
 
 
 # --- Database helpers -------------------------------------------------------------
@@ -232,7 +232,7 @@ def _run(fn: Callable):
     fn must be safe to run twice (the retry): each statement on its own is atomic (autocommit).
     """
     if not db.enabled():
-        raise HTTPException(503, "database not configured (DATABASE_URL): reports unavailable")
+        raise HTTPException(503, "base de données non configurée (DATABASE_URL) : signalements indisponibles")
     import psycopg
     for attempt in (1, 2):
         try:
@@ -241,17 +241,17 @@ def _run(fn: Callable):
         except psycopg.OperationalError:
             if attempt == 2:
                 log.exception("database unreachable")
-                raise HTTPException(503, "database unreachable, try again in a moment")
+                raise HTTPException(503, "base de données injoignable, réessayez dans un instant")
             try:
                 db.conn().close()
             except Exception:
                 pass
         except psycopg.DataError as e:  # a value PostgreSQL refuses (out of range, bad text): the caller's input
             log.warning("database refused a value: %s", type(e).__name__)
-            raise HTTPException(400, "a value in the request is out of range")
+            raise HTTPException(400, "une valeur de la requête est hors limites")
         except psycopg.Error:
             log.exception("database error")
-            raise HTTPException(503, "database error, try again in a moment")
+            raise HTTPException(503, "erreur de base de données, réessayez dans un instant")
 
 
 def token_hash(token: str) -> str:
@@ -325,7 +325,7 @@ def confidence(row: dict, now: Optional[datetime] = None) -> int:
 
 @router.post("/api/users")
 def create_user(request: Request, payload: Any = Body(None)):
-    limits.check("user", request, "too many profiles created from this connection today: try again tomorrow")
+    limits.check("user", request, "trop de profils créés depuis cette connexion aujourd'hui : réessayez demain")
     u = parse(NewUser, payload or {})
     token = secrets.token_urlsafe(24)  # given once; only its hash is stored
 
@@ -341,7 +341,7 @@ def create_user(request: Request, payload: Any = Body(None)):
 def delete_user(request: Request, user_id: int = Path(..., ge=1, le=MAX_ID),
                 x_user_token: Optional[str] = Header(None)):
     """Delete an account (App Store guideline 5.1.1(v)): the profile and every report it made."""
-    limits.check("delete_user", request, "too many attempts in a row: try again later")
+    limits.check("delete_user", request, "trop d'essais d'affilée : réessayez plus tard")
 
     def go(cur):
         cur.execute("SELECT token_hash FROM user_profile WHERE id = %s", (user_id,))
@@ -359,16 +359,16 @@ def delete_user(request: Request, user_id: int = Path(..., ge=1, le=MAX_ID),
 
     outcome = _run(go)
     if outcome == "unknown":
-        raise ApiError(404, "This profile does not exist (it may already be deleted).", "not_found")
+        raise ApiError(404, "Ce profil n'existe pas (il est peut-être déjà supprimé).", "not_found")
     if outcome == "forbidden":
-        raise ApiError(403, "Wrong or missing deletion key for this profile.", "forbidden")
+        raise ApiError(403, "Clé de suppression absente ou incorrecte pour ce profil.", "forbidden")
     log.info("user %s deleted with their reports", user_id)
     return {"deleted": True}
 
 
 @router.post("/api/reports")
 def create_report(request: Request, payload: Any = Body(None)):
-    limits.check("report", request, "too many reports sent in a row: try again in an hour")
+    limits.check("report", request, "trop de signalements envoyés d'affilée : réessayez dans une heure")
     r = parse(NewReport, payload)
     if moderation.is_offensive(r.description):
         raise ApiError(422, moderation.OFFENSIVE_DETAIL, "offensive")
@@ -389,7 +389,7 @@ def create_report(request: Request, payload: Any = Body(None)):
 
 @router.post("/api/reports/{report_id}/confirm")
 def confirm_report(request: Request, report_id: int = Path(..., ge=1, le=MAX_ID), payload: Any = Body(None)):
-    limits.check("confirm", request, "too many confirmations in a row: try again later")
+    limits.check("confirm", request, "trop de confirmations d'affilée : réessayez plus tard")
     parse(Confirm, payload or {})  # user_id accepted for later use (one vote per person)
 
     def go(cur):
@@ -400,7 +400,7 @@ def confirm_report(request: Request, report_id: int = Path(..., ge=1, le=MAX_ID)
 
     n = _run(go)
     if n is None:
-        raise HTTPException(404, "report not found")
+        raise HTTPException(404, "signalement introuvable")
     return {"confirmations": n}
 
 
@@ -409,7 +409,7 @@ def flag_report(request: Request, report_id: int = Path(..., ge=1, le=MAX_ID), p
                 x_user_token: Optional[str] = Header(None)):
     """Report offensive or wrong content (App Store guideline 1.2). One flag per person and report:
     per profile when X-User-Token proves user_id (a user_id alone is not trusted), else per connection."""
-    limits.check("flag", request, "too many reports flagged in a row: try again later")
+    limits.check("flag", request, "trop de signalements de contenu d'affilée : réessayez plus tard")
     f = parse(Flag, payload or {})
     ip = limits.client_key(request)
 
@@ -426,7 +426,7 @@ def flag_report(request: Request, report_id: int = Path(..., ge=1, le=MAX_ID), p
 
     n = _run(go)
     if n is None:
-        raise HTTPException(404, "report not found")
+        raise HTTPException(404, "signalement introuvable")
     log.info("report %s flagged (%d flags)", report_id, n)
     return {"flags": n, "hidden": n >= HIDE_AFTER_FLAGS}
 
@@ -436,9 +436,9 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
     try:
         x1, y1, x2, y2 = [float(v) for v in bbox.split(",")]
     except ValueError:
-        raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat")
+        raise HTTPException(400, "bbox doit être minLon,minLat,maxLon,maxLat")
     if x1 > x2 or y1 > y2:
-        raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat (min before max)")
+        raise HTTPException(400, "bbox doit être minLon,minLat,maxLon,maxLat (min avant max)")
 
     def go(cur):
         salt = _author_salt(cur)
@@ -467,7 +467,7 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
                           "author": author_of(r["user_id"], salt),
                       }})
     return {"type": "FeatureCollection", "features": feats,
-            "meta": {"source": "Roulib community reports", "count": len(feats)}}
+            "meta": {"source": "Signalements de la communauté Roulib", "count": len(feats)}}
 
 
 THUMB_CACHE = "public, max-age=604800, s-maxage=86400, immutable"  # a report's photo never changes; the edge
@@ -501,7 +501,7 @@ def report_thumb(report_id: int = Path(..., ge=1, le=MAX_ID)):
 
     img = decode_thumb(_run(go))
     if img is None:
-        raise HTTPException(404, "no photo for this report")
+        raise HTTPException(404, "pas de photo pour ce signalement")
     media, raw = img
     return Response(raw, media_type=media, headers={"Cache-Control": THUMB_CACHE})
 
@@ -513,26 +513,26 @@ def report_thumb(report_id: int = Path(..., ge=1, le=MAX_ID)):
 ANALYZE_MODEL = os.getenv("REPORTS_MODEL", "claude-sonnet-5-5")  # set REPORTS_MODEL=claude-haiku-5-5 if > 3 s
 MAX_IMAGE_BYTES = 4 * 1024 * 1024        # the screen sends a 1024 px JPEG (~150 Ko); this is a safety cap
 
-PROMPT = """You help wheelchair users report obstacles in the streets and stations of the Paris region \
-(Île-de-France). Look at the photo and always fill in the card by calling the `fiche` tool, with no text around it.
+PROMPT = """Tu aides des personnes en fauteuil roulant à signaler les obstacles dans la rue et les gares en \
+Île-de-France. Regarde la photo et remplis toujours la fiche en appelant l'outil `fiche`, sans texte autour.
 
-Categories (use these exact keys):
-- escalier: several steps; marche: a single step or ledge; bordure_haute: curb with no curb cut
-- travaux: roadworks, hoarding, trench; trottoir_encombre: something blocking the way (scooters, bins, car, cafe terrace)
-- trottoir_etroit: passage narrower than about 90 cm; pente: steep slope or cross slope
-- ascenseur_panne / escalator_panne: machine stopped, barrier or "out of order" sign
-- rampe: access ramp (useful info, not an obstacle); autre: nothing clear or not an obstacle
+Catégories (utilise exactement ces clés) :
+- escalier : plusieurs marches ; marche : une seule marche ou un ressaut ; bordure_haute : trottoir sans bateau
+- travaux : chantier, palissade, tranchée ; trottoir_encombre : objet qui bloque (trottinettes, poubelles, voiture, terrasse)
+- trottoir_etroit : passage de moins de 90 cm environ ; pente : pente forte ou dévers
+- ascenseur_panne / escalator_panne : appareil à l'arrêt, barrière ou affiche « hors service »
+- rampe : rampe d'accès (info utile, pas un obstacle) ; autre : rien de clair ou pas un obstacle
 
-Severity for a wheelchair (gravite): bloquant (impossible to get through alone), genant (difficult passage or detour), \
-info (no obstacle). temporaire = true for roadworks, objects, breakdowns; false for stairs, steps, curbs, slopes.
+Gravité pour un fauteuil roulant : bloquant (impossible de passer seul), genant (passage difficile ou détour), \
+info (pas d'obstacle). temporaire = true pour travaux, objets, pannes ; false pour escaliers, marches, bordures, pentes.
 
-Description: one sentence in English, 120 characters maximum, concrete ("Three steps with no ramp in front of the entrance"). \
-Never describe people, faces or license plates. If the photo shows no obstacle or is blurry, \
-set categorie=autre, gravite=info and a low confiance. confiance = your certainty between 0 and 1."""
+Description : une phrase en français, 120 caractères maximum, concrète (« Trois marches sans rampe devant l'entrée »). \
+Ne décris jamais les personnes, visages ou plaques d'immatriculation. Si la photo ne montre pas d'obstacle ou est floue, \
+mets categorie=autre, gravite=info et une confiance basse. confiance = ta certitude entre 0 et 1."""
 
 FICHE_TOOL = {
     "name": "fiche",
-    "description": "Obstacle report card suggested to the user, who confirms or corrects it.",
+    "description": "Fiche de signalement d'obstacle proposée à l'utilisateur, qui la valide ou la corrige.",
     "strict": True,
     "input_schema": {
         "type": "object",
@@ -541,8 +541,8 @@ FICHE_TOOL = {
             "categorie": {"type": "string", "enum": list(CATEGORIES)},
             "temporaire": {"type": "boolean"},
             "gravite": {"type": "string", "enum": list(GRAVITES)},
-            "description": {"type": "string", "description": "One sentence in English, 120 characters maximum."},
-            "confiance": {"type": "number", "description": "Certainty between 0 and 1."},
+            "description": {"type": "string", "description": "Une phrase en français, 120 caractères maximum."},
+            "confiance": {"type": "number", "description": "Certitude entre 0 et 1."},
         },
         "required": ["categorie", "temporaire", "gravite", "description", "confiance"],
     },
@@ -603,7 +603,7 @@ def analyser(image_base64: str, media_type: str = "image/jpeg") -> Fiche:
         tools=[FICHE_TOOL], tool_choice={"type": "auto"}, output_config={"effort": "low"},
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_base64}},
-            {"type": "text", "text": "What obstacle do you see in this photo? Fill in the card."},
+            {"type": "text", "text": "Quel obstacle vois-tu sur cette photo ? Remplis la fiche."},
         ]}],
     )
     for block in msg.content:
@@ -615,24 +615,24 @@ def analyser(image_base64: str, media_type: str = "image/jpeg") -> Fiche:
 @router.post("/api/reports/analyze")
 def analyze_photo(request: Request, payload: Any = Body(None)):
     if not isinstance(payload, dict) or not isinstance(payload.get("image_base64"), str):
-        raise HTTPException(400, "image_base64 missing (base64 JPEG, without the data: prefix)")
+        raise HTTPException(400, "image_base64 manquant (JPEG en base64, sans le préfixe data:)")
     b64 = payload["image_base64"].strip()
     if b64.startswith("data:"):
         b64 = b64.split(",", 1)[-1]  # tolerate the prefix anyway
     if len(b64) > MAX_IMAGE_BYTES * 4 // 3 + 4:
-        raise HTTPException(400, "photo too large (4 MB maximum)")
+        raise HTTPException(400, "photo trop lourde (4 Mo maximum)")
     try:
         raw = base64.b64decode(b64, validate=True)
     except (binascii.Error, ValueError):
-        raise HTTPException(400, "image_base64 is not valid base64")
+        raise HTTPException(400, "image_base64 n'est pas du base64 valide")
     media_type = _media_type(raw)
     if not media_type:
-        raise HTTPException(400, "the photo must be a JPEG, PNG or WebP image")
+        raise HTTPException(400, "la photo doit être une image JPEG, PNG ou WebP")
     for k, (lo, hi) in (("lat", LAT_RANGE), ("lon", LON_RANGE)):
         v = payload.get(k)
         if v is not None and (not isinstance(v, (int, float)) or not lo <= v <= hi):
-            raise HTTPException(400, f"{k} must be between {lo} and {hi} (Île-de-France)")
-    limits.check("analyze", request, "too many photos analyzed in a row: try again in a few minutes")
+            raise HTTPException(400, f"{k} doit être entre {lo} et {hi} (Île-de-France)")
+    limits.check("analyze", request, "trop de photos analysées d'affilée : réessayez dans quelques minutes")
 
     started = time.perf_counter()
     if not os.getenv("ANTHROPIC_API_KEY"):

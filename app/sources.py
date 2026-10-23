@@ -40,37 +40,37 @@ PLACES_WARM_BBOX = os.getenv("PLACES_WARM_BBOX", "")
 
 SOURCES = {
     "lifts": {
-        "name": "IDFM – Elevator status",
+        "name": "IDFM – État des ascenseurs",
         "url": "https://data.iledefrance.fr/explore/dataset/etat-des-ascenseurs/",
         "license": "Licence Mobilité",
     },
     "lifts_sncf": {
-        "name": "SNCF Gares & Connexions – Status of station elevators and escalators",
+        "name": "SNCF Gares & Connexions – État des équipements d'élévatique en gare",
         "url": "https://ressources.data.sncf.com/explore/dataset/etat-fonctionnement-elevatique-gare/",
         "license": "ODbL",
     },
     "stations": {
-        "name": "IDFM – Stop register",
+        "name": "IDFM – Référentiel des arrêts",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/arrets/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "train_stations": {
-        "name": "IDFM – Station accessibility",
+        "name": "IDFM – Accessibilité en gare",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/accessibilite-en-gare/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "works": {
-        "name": "Ville de Paris – Roadworks in Paris",
+        "name": "Ville de Paris – Chantiers à Paris",
         "url": "https://opendata.paris.fr/explore/dataset/chantiers-a-paris/",
         "license": "ODbL",
     },
     "stairs": {
-        "name": "Ville de Paris – Street map, stepped streets",
+        "name": "Ville de Paris – Plan de voirie, voies en escalier",
         "url": "https://opendata.paris.fr/explore/dataset/plan-de-voirie-voies-en-escalier/",
         "license": "ODbL",
     },
     "places": {
-        "name": "Acceslibre – Accessibility of public venues (data.gouv.fr export)",
+        "name": "Acceslibre – Accessibilité des ERP (export data.gouv.fr)",
         "url": "https://www.data.gouv.fr/fr/datasets/60a528e8b656ce01b4c0c0a6/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
@@ -429,35 +429,18 @@ def warm_up() -> None:
             log.exception("warm-up failed for places (%s)", PLACES_WARM_BBOX)
 
 
-# City of Paris roadworks types (chantier_synthese), shown in the English UI.
-_WORKS_EN = {
-    "Construction ou réhabilitation d’immeuble": "Building construction or renovation",
-    "Travaux sur réseau électrique": "Electricity network works",
-    "Travaux sur réseau de gaz": "Gas network works",
-    "Aménagement ou entretien de l’espace public": "Public space works",
-    "Travaux sur édifice public (VdP*)": "Public building works",
-    "Aménagement de voirie (VdP*)": "Street redesign",
-    "Travaux sur réseau de transport public": "Public transport works",
-    "Travaux sur réseau de chauffage urbain": "District heating works",
-    "Travaux sur réseau d’assainissement": "Sewer works",
-    "Travaux sur réseau de climatisation": "District cooling works",
-    "Travaux sur réseau d’eau": "Water network works",
-    "Travaux sur mobiliers urbains": "Street furniture works",
-    "Travaux sur réseau d’éclairage public ou signalisation lumineuse tricolore": "Street lighting or traffic light works",
-    "Travaux sur réseau télécom": "Telecom network works",
-    "Espaces verts – Végétalisation de l’espace public": "Greening works",
-    "Espaces verts – Entretien des plantations": "Planting maintenance",
-    "Espaces verts – Emprise pour cantonnement ou stockage": "Site storage area",
-    "Aménagement de l’espace public": "Public space works",
-    "Aménagements de voirie pour la sécurité (ralentisseurs, passages surélevés, …)": "Road safety works (speed bumps, raised crossings)",
-    "Travaux sur station Vélib": "Vélib station works",
-    "Espaces verts – Travaux sur clôtures": "Fence works",
+# City of Paris roadworks types (chantier_synthese) are shown as published, in a few cases shortened.
+_WORKS_SHORT = {
+    "Travaux sur réseau d’éclairage public ou signalisation lumineuse tricolore": "Travaux sur l'éclairage public ou les feux",
+    "Aménagements de voirie pour la sécurité (ralentisseurs, passages surélevés, …)": "Aménagement de voirie pour la sécurité",
+    "Espaces verts – Emprise pour cantonnement ou stockage": "Zone de stockage de chantier",
 }
 
 
-def works_en(summary: Optional[str]) -> str:
-    """English label of a roadworks type; unknown types keep the original text."""
-    return _WORKS_EN.get((summary or "").strip(), summary or "Roadworks")
+def works_label(summary: Optional[str]) -> str:
+    """Roadworks type as the app shows it: the City's own words, without its internal "(VdP*)" mark."""
+    s = (summary or "").strip()
+    return _WORKS_SHORT.get(s) or re.sub(r"\s*\(VdP\*\)$", "", s) or "Travaux"
 
 
 # IDF bounding box, used to drop homonyms elsewhere in France.
@@ -472,23 +455,23 @@ def _in_idf(lon: float, lat: float) -> bool:
 # ranked around the user like Google Maps. Public instance, fair use: self-host it for production.
 PHOTON = os.environ.get("PHOTON_URL", "https://photon.komoot.io/api/")
 PARIS_CENTER = (2.3522, 48.8566)  # not PARIS: that name is the opendata.paris.fr URL above
-# OSM tags -> short English category shown under the name.
+# OSM tags -> short category shown under the name (app.js GENERIC_SUB lists the generic ones).
 _OSM_LABEL = {
-    "restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "fast_food": "Fast food", "pub": "Pub",
-    "hospital": "Hospital", "clinic": "Clinic", "doctors": "Doctor", "pharmacy": "Pharmacy", "dentist": "Dentist",
-    "supermarket": "Supermarket", "convenience": "Shop", "bakery": "Bakery", "museum": "Museum",
-    "school": "School", "university": "University", "library": "Library", "theatre": "Theatre", "cinema": "Cinema",
-    "townhall": "Town hall", "post_office": "Post office", "park": "Park", "attraction": "Attraction",
-    "hotel": "Hotel", "place_of_worship": "Place of worship", "station": "Station", "stop": "Station",
-    "tram_stop": "Tram stop", "bus_stop": "Bus stop", "house": "Address", "street": "Street",
-    "suburb": "Neighbourhood", "city": "City", "town": "Town", "village": "Village", "tower": "Landmark",
+    "restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "fast_food": "Restauration rapide", "pub": "Pub",
+    "hospital": "Hôpital", "clinic": "Clinique", "doctors": "Médecin", "pharmacy": "Pharmacie", "dentist": "Dentiste",
+    "supermarket": "Supermarché", "convenience": "Épicerie", "bakery": "Boulangerie", "museum": "Musée",
+    "school": "École", "university": "Université", "library": "Bibliothèque", "theatre": "Théâtre", "cinema": "Cinéma",
+    "townhall": "Mairie", "post_office": "Bureau de poste", "park": "Parc", "attraction": "Attraction",
+    "hotel": "Hôtel", "place_of_worship": "Lieu de culte", "station": "Station", "stop": "Station",
+    "tram_stop": "Arrêt de tram", "bus_stop": "Arrêt de bus", "house": "Adresse", "street": "Rue",
+    "suburb": "Quartier", "city": "Ville", "town": "Ville", "village": "Village", "tower": "Monument",
 }
 # Tag key when the value is not listed above: the subtitle always says what the result is.
 _OSM_KEY_LABEL = {
-    "tourism": "Sight", "historic": "Monument", "man_made": "Landmark", "amenity": "Place", "shop": "Shop",
-    "craft": "Shop", "office": "Office", "building": "Building", "leisure": "Leisure", "healthcare": "Health",
-    "railway": "Station", "public_transport": "Station", "highway": "Street", "aeroway": "Airport",
-    "place": "Area", "boundary": "Area", "landuse": "Area", "natural": "Nature", "waterway": "Water",
+    "tourism": "Site touristique", "historic": "Monument", "man_made": "Monument", "amenity": "Lieu", "shop": "Commerce",
+    "craft": "Commerce", "office": "Bureau", "building": "Bâtiment", "leisure": "Loisirs", "healthcare": "Santé",
+    "railway": "Station", "public_transport": "Station", "highway": "Rue", "aeroway": "Aéroport",
+    "place": "Secteur", "boundary": "Secteur", "landuse": "Secteur", "natural": "Nature", "waterway": "Cours d'eau",
 }
 # Noise for a trip destination: bike docks, parkings, bus stops duplicate better results.
 _OSM_SKIP = {"bicycle_rental", "parking", "parking_entrance", "charging_station", "vending_machine",
@@ -515,12 +498,12 @@ def _photon_item(f: dict) -> Optional[dict]:
     is_address = pr.get("osm_value") in ("house", "street") or (not pr.get("name") and street)
     if is_address:
         label = street or pr.get("name") or ""
-        kind = "Street" if pr.get("osm_value") == "street" and not pr.get("housenumber") else "Address"
+        kind = "Rue" if pr.get("osm_value") == "street" and not pr.get("housenumber") else "Adresse"
         return {"kind": "address", "label": label, "sub": " · ".join(x for x in (kind, _area(pr)) if x),
                 "lon": lon, "lat": lat}
     cat = (_OSM_LABEL.get(pr.get("osm_value"))
-           or {"city": "City", "district": "Neighbourhood", "locality": "Area"}.get(pr.get("type"))
-           or _OSM_KEY_LABEL.get(pr.get("osm_key"), "Place"))
+           or {"city": "Ville", "district": "Quartier", "locality": "Secteur"}.get(pr.get("type"))
+           or _OSM_KEY_LABEL.get(pr.get("osm_key"), "Lieu"))
     where = ", ".join(x for x in (street, _area(pr) or pr.get("city")) if x)
     return {"kind": "place", "label": pr.get("name") or street, "sub": " · ".join(x for x in (cat, where) if x),
             "lon": lon, "lat": lat}
@@ -632,32 +615,32 @@ def _suggest_ign(q: str, limit: int = 6) -> List[dict]:
 
 SOURCES.update({
     "stop_signals": {
-        "name": "IDFM – Stop register (audio and visual information)",
+        "name": "IDFM – Référentiel des arrêts (information sonore et visuelle)",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/arrets/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "line_signals": {
-        "name": "IDFM – Line register (on-board announcements)",
+        "name": "IDFM – Référentiel des lignes (annonces à bord)",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/referentiel-des-lignes/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "sncf_assistance": {
-        "name": "SNCF – Assistance for disabled travellers in stations",
+        "name": "SNCF – Service d'assistance aux voyageurs handicapés en gare",
         "url": "https://data.iledefrance.fr/explore/dataset/service-d-assistance-voyageur-handicape-en-gare-sncf/",
         "license": "ODbL",
     },
     "sncf_equipment": {
-        "name": "SNCF – Accessibility equipment in stations",
+        "name": "SNCF – Équipements d'accessibilité en gare",
         "url": "https://data.iledefrance.fr/explore/dataset/equipements-accessibilite-en-gare/",
         "license": "ODbL",
     },
     "crossing_lights": {
-        "name": "Ville de Paris – Traffic lights (pedestrian signals)",
+        "name": "Ville de Paris – Signalisation tricolore (feux piétons)",
         "url": "https://opendata.paris.fr/explore/dataset/signalisation-tricolore/",
         "license": "ODbL",
     },
     "sound_modules": {
-        "name": "Ville de Paris – Audible pedestrian signals",
+        "name": "Ville de Paris – Modules sonores des passages piétons",
         "url": "https://opendata.paris.fr/explore/dataset/modules-sonores-passages-pietons/",
         "license": "ODbL",
     },

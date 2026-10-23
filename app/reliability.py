@@ -22,7 +22,7 @@ from .sources import cached
 
 log = logging.getLogger("reliability")
 DISPOTRAINS = "https://dispotrains.membrives.fr/app/Elevator/{id}"
-SOURCE = "Dispotrains (IDFM status history)"
+SOURCE = "Dispotrains (historique des états IDFM)"
 _pool = ThreadPoolExecutor(max_workers=8)
 _client = httpx.Client(timeout=httpx.Timeout(6, connect=4), headers={"User-Agent": "pmr-maps-hackathon"})
 

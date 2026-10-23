@@ -45,7 +45,7 @@ def anthropic_client():
     global _client
     if _client is None:
         if not os.getenv("ANTHROPIC_API_KEY"):
-            raise HTTPException(503, "ANTHROPIC_API_KEY missing: assistant unavailable")
+            raise HTTPException(503, "ANTHROPIC_API_KEY manquante : assistant indisponible")
         import anthropic
         _client = anthropic.Anthropic(timeout=CLAUDE_TIMEOUT_S, max_retries=1)
     return _client
@@ -88,7 +88,7 @@ def _get(path: str, **params) -> dict:
             detail = r.json().get("detail")
         except ValueError:
             detail = r.text[:200]
-        raise ToolError(f"{path} answered {r.status_code}: {detail}")
+        raise ToolError(f"{path} a répondu {r.status_code} : {detail}")
     return r.json()
 
 
@@ -119,26 +119,26 @@ def check_journey(origin: str, destination: str, profile: str, replay: Optional[
         "profile": data.get("profile"), "itineraries": its,
         "baseline_navitia_seul": data.get("baseline"),
         "source": data.get("source"), "lifts_fetched_at": lifts_at, "lifts_age_min": _age_min(lifts_at),
-        "mode": "recorded snapshot (demo)" if replay == "demo" else "live",
+        "mode": "relevé enregistré (démo)" if replay == "demo" else "direct",
     }
 
 
 def lift_status(station: str, replay: Optional[str] = None) -> dict:
     if replay == "demo":
         snap = json.loads((FIXTURES / "lifts_demo.json").read_text())
-        rows, fetched_at, src = snap["rows"], snap.get("fetched_at"), "IDFM, recorded snapshot (demo)"
+        rows, fetched_at, src = snap["rows"], snap.get("fetched_at"), "IDFM, relevé enregistré (démo)"
     else:
         feats = _get("/api/lifts")
         rows = [dict(f["properties"], liftstatus=f["properties"].get("status"), zdcname=f["properties"].get("station"),
                      liftsituation=f["properties"].get("situation"), liftreason=f["properties"].get("reason"),
                      liftdirection=f["properties"].get("direction"), liftstateupdate=f["properties"].get("source_update"))
                 for f in feats.get("features", [])]
-        fetched_at, src = (feats.get("meta") or {}).get("fetched_at"), "IDFM, elevator status"
+        fetched_at, src = (feats.get("meta") or {}).get("fetched_at"), "IDFM, état des ascenseurs"
     q = _norm(station)
     match = [r for r in rows if q and (q in _norm(r.get("zdcname")) or _norm(r.get("zdcname")) in q)]
     if not match:
         return {"station": station, "found": False, "source": src, "fetched_at": fetched_at,
-                "note": "No IDFM elevator found for this name. Do not conclude that the station is accessible."}
+                "note": "Aucun ascenseur IDFM trouvé pour ce nom. Ne pas conclure que la gare est accessible."}
     rel: Dict[str, Any] = {}
     if replay == "demo":
         try:
@@ -160,7 +160,7 @@ def lift_status(station: str, replay: Optional[str] = None) -> dict:
     return {"station": station, "found": True, "count": len(match),
             "not_available": sum(l["status"] != "available" for l in lifts), "lifts": lifts,
             "source": src, "fetched_at": fetched_at, "age_min": _age_min(fetched_at),
-            "note": "IDFM updates the status ~3 times a day: beyond a few hours old, say \"to be checked\"."}
+            "note": "IDFM met à jour l'état ~3 fois par jour : au-delà de quelques heures, dire « à vérifier »."}
 
 
 def find_places(near: str, name: Optional[str] = None, kind: Optional[str] = None, radius_m: int = 300) -> dict:
@@ -181,7 +181,7 @@ def find_places(near: str, name: Optional[str] = None, kind: Optional[str] = Non
     out.sort(key=lambda p: rank.get(str(p["wheelchair"]), 2))
     meta = data.get("meta") or {}
     return {"near": where.get("label"), "count": len(out), "places": out[:8],
-            "legend": "wheelchair: true = accessible, partial = with difficulty, false = no, unknown = incomplete listing",
+            "legend": "wheelchair: true = accessible, partial = avec difficulté, false = non, unknown = fiche incomplète",
             "source": "Acceslibre (data.gouv.fr)", "fetched_at": meta.get("fetched_at"), "stale": meta.get("stale")}
 
 
@@ -192,55 +192,56 @@ def save_report(lat: float, lon: float, categorie: str, gravite: str, temporaire
             "confiance": 0.5, "source": "agent"}
     r = api().post("/api/reports", json=body)
     if r.status_code == 404:
-        raise ToolError("The report service is not online yet: report NOT saved.")
+        raise ToolError("Le service de signalements n'est pas encore en ligne : signalement NON enregistré.")
     if r.status_code >= 400:
-        raise ToolError(f"/api/reports answered {r.status_code}: {r.text[:200]}")
-    return {"saved": True, "report": r.json(), "note": "Confidence level 2 until someone confirms it."}
+        raise ToolError(f"/api/reports a répondu {r.status_code} : {r.text[:200]}")
+    return {"saved": True, "report": r.json(), "note": "Niveau de confiance 2 tant que personne ne confirme."}
 
 
 PROFILE_ENUM = list(profiles.PROFILES)
 TOOLS = [
     {"name": "check_journey",
-     "description": "Plans and checks a public transport journey in the Paris region (Île-de-France) for a mobility "
-                    "profile: verdict per step (passe = clear / risque = at risk / bloque = blocked), checks "
-                    "(elevators, sidewalk works, stairs, community reports) with source and time, Plan B, and what "
-                    "Navitia alone suggests. Use it for any \"can I get from A to B\" question.",
+     "description": "Calcule et vérifie un trajet en transports en Île-de-France pour un profil de mobilité : "
+                    "verdict (passe/risque/bloque) par étape, contrôles (ascenseurs, chantiers, escaliers, "
+                    "signalements) avec source et heure, plan B, et ce que propose Navitia seul. "
+                    "À utiliser pour toute question « est-ce que je peux aller de A à B ».",
      "input_schema": {"type": "object", "properties": {
-         "origin": {"type": "string", "description": "Departure: address, place or station (e.g. \"Gare de Lyon, Paris\")"},
-         "destination": {"type": "string", "description": "Arrival: address, place or station"},
+         "origin": {"type": "string", "description": "Départ : adresse, lieu ou gare (ex. « Gare de Lyon, Paris »)"},
+         "destination": {"type": "string", "description": "Arrivée : adresse, lieu ou gare"},
          "profile": {"type": "string", "enum": PROFILE_ENUM}},
          "required": ["origin", "destination", "profile"]}},
     {"name": "lift_status",
-     "description": "Current status of the elevators of a station (IDFM): working, out of order, unknown, "
-                    "with the time it was published and the historical reliability (share of time working).",
+     "description": "État actuel des ascenseurs d'une gare ou station (IDFM) : en service, en panne, inconnu, "
+                    "avec l'heure de publication et la fiabilité historique (part du temps en service).",
      "input_schema": {"type": "object", "properties": {
-         "station": {"type": "string", "description": "Station name, e.g. \"Châtelet - Les Halles\""}},
+         "station": {"type": "string", "description": "Nom de la gare ou station, ex. « Châtelet - Les Halles »"}},
          "required": ["station"]}},
     {"name": "find_places",
-     "description": "Venues listed in Acceslibre (restaurants, shops…) around an address, with the wheelchair "
-                    "verdict (entrance, door, steps) and accessible toilets.",
+     "description": "Lieux recensés dans Acceslibre (restaurants, commerces…) autour d'une adresse, avec le verdict "
+                    "fauteuil (entrée, porte, marches) et les toilettes adaptées.",
      "input_schema": {"type": "object", "properties": {
-         "near": {"type": "string", "description": "Address or place to search around"},
-         "name": {"type": "string", "description": "Optional: name of the venue you are looking for"},
-         "kind": {"type": "string", "enum": ["food", "shop"], "description": "Optional: food = restaurants and cafes"},
-         "radius_m": {"type": "integer", "description": "Radius in meters (100 to 600, 300 by default)"}},
+         "near": {"type": "string", "description": "Adresse ou lieu autour duquel chercher"},
+         "name": {"type": "string", "description": "Optionnel : nom du lieu recherché"},
+         "kind": {"type": "string", "enum": ["food", "shop"], "description": "Optionnel : food = restauration"},
+         "radius_m": {"type": "integer", "description": "Rayon en mètres (100 à 600, 300 par défaut)"}},
          "required": ["near"]}},
     {"name": "save_report",
-     "description": "Saves an obstacle report described by the user (stairs, roadworks, elevator out of order…). "
-                    "Only use it when the user explicitly reports an obstacle AND their position is known.",
+     "description": "Enregistre un signalement d'obstacle décrit par l'utilisateur (escalier, travaux, ascenseur "
+                    "en panne…). Ne l'utiliser que si l'utilisateur signale explicitement un obstacle ET qu'on "
+                    "connaît sa position.",
      "input_schema": {"type": "object", "properties": {
          "lat": {"type": "number"}, "lon": {"type": "number"},
          "categorie": {"type": "string", "enum": ["escalier", "marche", "travaux", "trottoir_encombre",
                                                   "trottoir_etroit", "bordure_haute", "pente", "ascenseur_panne",
                                                   "escalator_panne", "rampe", "autre"],
-                       "description": "escalier = stairs, marche = single step, travaux = roadworks, "
-                                      "trottoir_encombre = blocked sidewalk, trottoir_etroit = narrow sidewalk, "
-                                      "bordure_haute = high curb, pente = steep slope, ascenseur_panne = elevator "
-                                      "out of order, escalator_panne = escalator out of order, rampe = ramp, autre = other"},
+                       "description": "escalier = plusieurs marches, marche = une seule marche, travaux = chantier, "
+                                      "trottoir_encombre = trottoir encombré, trottoir_etroit = trottoir étroit, "
+                                      "bordure_haute = trottoir sans bateau, pente = pente forte, ascenseur_panne = "
+                                      "ascenseur en panne, escalator_panne = escalator en panne, rampe = rampe, autre = autre"},
          "gravite": {"type": "string", "enum": ["bloquant", "genant", "info"],
-                     "description": "bloquant = blocking, genant = difficult, info = for information"},
+                     "description": "bloquant = impossible de passer, genant = difficile, info = pour information"},
          "temporaire": {"type": "boolean"},
-         "description": {"type": "string", "description": "One short sentence in English"}},
+         "description": {"type": "string", "description": "Une phrase courte en français"}},
          "required": ["lat", "lon", "categorie", "gravite", "temporaire", "description"]}},
 ]
 _IMPL = {"check_journey": check_journey, "lift_status": lift_status,
@@ -248,38 +249,38 @@ _IMPL = {"check_journey": check_journey, "lift_status": lift_status,
 
 
 def system_prompt(profile: str, replay: Optional[str], tools: bool) -> str:
-    now = datetime.now(PARIS).strftime("%A %d/%m/%Y %H:%M")
+    _now = datetime.now(PARIS)
+    now = f"{('lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche')[_now.weekday()]} {_now:%d/%m/%Y %H:%M}"
     base = (
-        f"You are the Roulib assistant. It is {now} (Paris time). "
-        f"User profile: {profiles.PROFILES.get(profile, profile)} (code \"{profile}\"), "
-        "unless the question mentions another one. "
-        "Always answer in English, as if speaking (the answer is read aloud): short sentences, no tables, "
-        "no markdown, 6 sentences maximum.\n"
-        "Structure: 1) the verdict first (\"You can make it\", \"It's risky\", \"Blocked at …\"), "
-        "2) the risky step and why, 3) the Plan B if there is one, "
-        "4) the sources with their time, for example \"elevators: IDFM, info from 9:30 am\".\n"
+        f"Tu es l'assistant de Roulib. Nous sommes le {now} (heure de Paris). "
+        f"Profil de l'utilisateur : {profiles.PROFILES.get(profile, profile)} (code « {profile} »), "
+        "sauf s'il en indique un autre dans sa question. "
+        "Tu réponds toujours en français, en vouvoyant l'utilisateur, à l'oral (la réponse est lue à voix haute) : "
+        "phrases courtes, pas de tableau, pas de markdown, 6 phrases maximum.\n"
+        "Structure : 1) le verdict en premier (« Ça passe », « C'est risqué », « Bloqué à … »), "
+        "2) l'étape à risque et pourquoi, 3) le plan B s'il existe, "
+        "4) les sources avec leur heure, par exemple « ascenseurs : IDFM, info de 9 h 30 ».\n"
     )
     if not tools:
-        return base + "You have no access to any live data."
+        return base + "Tu n'as accès à aucune donnée en direct."
     rules = (
-        "Rules:\n"
-        "- Never say a place or a journey is accessible unless a tool confirms it. "
-        "If the information is missing, say \"I don't know\" and what should be checked.\n"
-        "- Every fact cites its source and its time. If a piece of data is more than 3 hours old (field age_min or "
-        "lifts_age_min > 180), say \"info from <time>, to be checked\".\n"
-        "- The data is about right now. If the question is about later (tomorrow at 10 am…), say so: "
-        "the status may change by then; rely on the historical reliability of the elevators, with the figure "
-        "given by the tool (field reliability, e.g. \"working 88% of the time over 11 days\"), and suggest checking "
-        "again before leaving.\n"
-        "- Confidence levels: 5 official live data, 4 confirmed report, 3 official static data, 2 single "
-        "report, 1 unknown (never presented as accessible).\n"
-        "- Compare with what a regular app suggests (baseline_navitia_seul) when it changes the verdict.\n"
-        "- One journey question = one call to check_journey; use lift_status to detail a station.\n"
-        "- Place and station names stay as they are (in French).\n"
+        "Règles :\n"
+        "- Tu ne dis jamais qu'un lieu ou un trajet est accessible sans un outil qui le confirme. "
+        "Si l'info manque, dis « je ne sais pas » et ce qu'il faudrait vérifier.\n"
+        "- Chaque fait cite sa source et son heure. Si une donnée a plus de 3 heures (champ age_min ou "
+        "lifts_age_min > 180), dis « info de <heure>, à vérifier ».\n"
+        "- Les données sont celles de maintenant. Si la question porte sur plus tard (demain 10 h…), dis-le : "
+        "l'état peut changer d'ici là ; appuie-toi sur la fiabilité historique des ascenseurs, avec le chiffre "
+        "donné par l'outil (champ reliability, ex. « en service 88 % du temps sur 11 jours »), et propose de "
+        "revérifier avant de partir.\n"
+        "- Niveaux de confiance : 5 officiel en direct, 4 signalement confirmé, 3 officiel fixe, 2 un seul "
+        "signalement, 1 inconnu (jamais présenté comme accessible).\n"
+        "- Compare avec ce que propose une appli classique (baseline_navitia_seul) quand ça change le verdict.\n"
+        "- Une seule question de trajet = un appel à check_journey ; utilise lift_status pour détailler une gare.\n"
     )
     if replay == "demo":
-        rules += ("- DEMO MODE: the data comes from a real snapshot recorded on 10/22/2026 around 11 am. "
-                  "Say it once (\"snapshot from 11 am\"). The demo journey is set by the server.\n")
+        rules += ("- MODE DÉMO : les données viennent d'un relevé réel enregistré le 22/10/2026 vers 11 h. "
+                  "Dis-le une fois (« relevé de 11 h »). Le trajet de démo est fixé par le serveur.\n")
     return base + rules
 
 
@@ -292,7 +293,7 @@ class AgentIn(BaseModel):
     replay: Optional[Literal["demo"]] = None
     config: Literal["full", "no_tools"] = "full"
     history: List[dict] = Field(default_factory=list, max_length=MAX_HISTORY,
-                                description="Previous turns [{role, content}] (text)")
+                                description="Tours précédents [{role, content}] (texte)")
 
 
 def _verdict_from(trace: List[dict]) -> Optional[str]:
@@ -342,7 +343,7 @@ def _log_run(body: AgentIn, trace, answer, verdict, latency_ms, usage) -> Option
 
 def run_agent(body: AgentIn) -> dict:
     if body.profile not in profiles.PROFILES:
-        raise HTTPException(400, f"profile must be one of: {', '.join(profiles.PROFILES)}")
+        raise HTTPException(400, f"profile doit être l'un de : {', '.join(profiles.PROFILES)}")
     client = anthropic_client()
     use_tools = body.config == "full"
     messages: List[dict] = [{"role": m["role"], "content": m["content"][:MAX_HISTORY_CHARS]} for m in body.history
@@ -364,7 +365,7 @@ def run_agent(body: AgentIn) -> dict:
             resp = client.messages.create(**kwargs)
         except Exception as e:  # overloaded, timeout, network: say so in words, never a 500
             log.warning("Claude call failed: %s", type(e).__name__)
-            raise ApiError(503, "The assistant is not answering right now. Trip planning and the map still work.",
+            raise ApiError(503, "L'assistant ne répond pas pour l'instant. Les trajets et la carte marchent toujours.",
                            "upstream", headers={"Retry-After": "30"})
         usage["input_tokens"] += getattr(resp.usage, "input_tokens", 0) or 0
         usage["output_tokens"] += getattr(resp.usage, "output_tokens", 0) or 0
@@ -372,8 +373,8 @@ def run_agent(body: AgentIn) -> dict:
         calls = [b for b in resp.content if b.type == "tool_use"]
         if resp.stop_reason != "tool_use" or not calls:
             answer = "\n".join(texts).strip() or (
-                "I can't answer that question." if resp.stop_reason == "refusal"
-                else "I couldn't put an answer together. Try again with the departure and arrival.")
+                "Je ne peux pas répondre à cette question." if resp.stop_reason == "refusal"
+                else "Je n'ai pas réussi à formuler une réponse. Réessayez en précisant le départ et l'arrivée.")
             break
         messages.append({"role": "assistant", "content": resp.content})
         results = []
@@ -397,7 +398,7 @@ def run_agent(body: AgentIn) -> dict:
                             "content": json.dumps(result, ensure_ascii=False, default=str)[:20000]})
         messages.append({"role": "user", "content": results})
     else:
-        answer = "I couldn't reach a conclusion in time. Try again with the departure and arrival."
+        answer = "Je n'ai pas réussi à conclure à temps. Réessayez en précisant le départ et l'arrivée."
     latency_ms = round((time.monotonic() - t0) * 1000)
     verdict = _verdict_from(trace) if use_tools else None
     run_id = _log_run(body, trace, answer, verdict, latency_ms, usage)
@@ -411,6 +412,6 @@ def run_agent(body: AgentIn) -> dict:
 
 @router.post("/api/agent")
 def api_agent(body: AgentIn, request: Request):
-    limits.check("agent", request, "Too many questions in a row: try again in an hour.")
+    limits.check("agent", request, "Trop de questions d'affilée : réessayez dans une heure.")
     limits.agent_budget()
     return run_agent(body)

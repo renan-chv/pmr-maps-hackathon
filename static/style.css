@@ -190,7 +190,8 @@ body.dragging :is(#sheet, #map-tools, .snap, .maplibregl-ctrl-bottom-right, .map
 .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin: var(--sp-4) 0; }
 
 /* ---------- Filters ---------- */
-.filters { display: flex; gap: var(--sp-2); margin: var(--sp-3) calc(-1 * var(--sp-4)) var(--sp-4); padding: 0 var(--sp-4); overflow-x: auto; scrollbar-width: none; }
+/* Filters wrap: every one stays in sight (French labels are longer, nothing hides past the edge). */
+.filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-4); }
 .filters::-webkit-scrollbar { display: none; }
 .fchip { flex: none; }
 .filters:empty { display: none; }
