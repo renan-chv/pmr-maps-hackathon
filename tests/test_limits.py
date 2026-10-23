@@ -39,7 +39,7 @@ def test_agent_daily_budget_resets_the_next_day(monkeypatch):
     limits.agent_budget("2026-10-22")
     with pytest.raises(HTTPException) as e:
         limits.agent_budget("2026-10-22")
-    assert e.value.status_code == 429 and "tomorrow" in e.value.detail
+    assert e.value.status_code == 429 and "demain" in e.value.detail
     limits.agent_budget("2026-10-23")
 
 

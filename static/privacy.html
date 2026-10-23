@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fff9f1">
+  <title>Roulib – Politique de confidentialité</title>
+  <style>
+    :root { --ground:#fff9f1; --ink:#1c1a17; --ink2:#5a524a; --blue:#3d3bd6; --line:#e8dfd3; }
+    @media (prefers-color-scheme: dark) { :root { --ground:#171512; --ink:#f4efe8; --ink2:#c4bbb0; --blue:#a9a8ff; --line:#38322b; } }
+    * { box-sizing:border-box; }
+    html { -webkit-text-size-adjust:100%; }
+    body { margin:0; background:var(--ground); color:var(--ink); font:17px/1.55 "Atkinson Hyperlegible Next", -apple-system, system-ui, sans-serif;
+      padding:calc(24px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left)); }
+    main { max-width:680px; margin:0 auto; }
+    .back { display:inline-flex; align-items:center; min-height:44px; color:var(--blue); font-weight:700; text-decoration:none; }
+    h1 { font-size:32px; line-height:1.15; margin:12px 0 4px; letter-spacing:-.01em; }
+    h2 { font-size:21px; margin:32px 0 8px; }
+    p, li { color:var(--ink2); }
+    strong { color:var(--ink); }
+    ul { padding-left:22px; }
+    li { margin:6px 0; }
+    a { color:var(--blue); }
+    .date { margin:0 0 24px; }
+    .box { border:1px solid var(--line); border-radius:16px; padding:4px 18px; }
+  </style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">‹ Retour à Roulib</a>
+  <h1>Politique de confidentialité</h1>
+  <p class="date">Mise à jour : 23 octobre 2026</p>
+
+  <div class="box">
+    <p><strong>En bref :</strong> pas de compte avec mot de passe, pas de publicité, pas de pistage, aucune revente de données. Roulib n'utilise que ce qui sert à vérifier votre trajet, et vous pouvez effacer à tout moment ce que vous avez partagé, depuis l'app (Profil › Supprimer mes données).</p>
+  </div>
+
+  <h2>Qui sommes-nous</h2>
+  <p>Roulib est développée par une petite équipe, née au hackathon Future Founders à Paris. Pour toute question sur vos données, ouvrez une demande sur <a href="https://github.com/renan-chv/pmr-maps-hackathon/issues">github.com/renan-chv/pmr-maps-hackathon/issues</a>.</p>
+
+  <h2>Ce qui reste sur votre téléphone</h2>
+  <ul>
+    <li>Votre profil de mobilité (par exemple fauteuil manuel), votre prénom si vous l'avez indiqué, vos adresses Maison et Travail, vos réglages d'affichage et les personnes dont vous avez choisi de masquer les signalements.</li>
+  </ul>
+
+  <h2>Ce qui est envoyé à notre serveur, et pourquoi</h2>
+  <ul>
+    <li><strong>Votre position et votre destination</strong>, uniquement quand vous cherchez un trajet ou des lieux autour de vous, pour calculer et vérifier le trajet. Nous n'enregistrons pas vos trajets ; les journaux techniques de l'hébergeur gardent les requêtes peu de temps, pour la sécurité et le dépannage.</li>
+    <li><strong>Votre profil</strong> : un numéro aléatoire, le profil de mobilité choisi et votre prénom si vous l'avez tapé. Il sert à compter les confirmations d'un signalement.</li>
+    <li><strong>Vos signalements</strong> : la photo (réduite), la description, le lieu et l'heure. Ils sont visibles par les autres utilisateurs de Roulib autour de ce lieu : évitez d'y montrer le visage de quelqu'un ou des informations personnelles.</li>
+    <li><strong>Les questions posées à l'assistant</strong> et ses réponses, conservées pour mesurer et améliorer la qualité des réponses.</li>
+  </ul>
+
+  <h2>Les services sur lesquels nous nous appuyons</h2>
+  <ul>
+    <li>Hébergement : Aiven, dans l'Union européenne.</li>
+    <li>Fond de carte : OpenFreeMap (votre téléphone télécharge directement les tuiles de la carte, comme toute app de cartes).</li>
+    <li>Données publiques, interrogées par notre serveur sans rien qui vous identifie : Île-de-France Mobilités (trajets et ascenseurs), Ville de Paris (travaux), Acceslibre (accessibilité des lieux), Wikimedia Commons (photos des lieux).</li>
+    <li>Analyse par IA : quand vous joignez une photo à un signalement ou posez une question à l'assistant, le contenu est envoyé à Anthropic pour décrire l'obstacle ou rédiger la réponse. Anthropic ne s'en sert pas pour entraîner ses modèles.</li>
+  </ul>
+
+  <h2>Combien de temps nous les gardons</h2>
+  <ul>
+    <li>Les signalements restent visibles tant qu'ils sont utiles. Ils sont retirés quand vous supprimez vos données, ou quand d'autres utilisateurs les signalent comme inappropriés.</li>
+    <li>Votre profil est gardé jusqu'à ce que vous le supprimiez.</li>
+  </ul>
+
+  <h2>Vos droits</h2>
+  <p>Le RGPD vous permet d'accéder à vos données, de les corriger ou de les effacer. Le plus simple est dans l'app : <strong>Profil › Supprimer mes données</strong> efface votre profil et tous vos signalements. Vous pouvez aussi nous écrire à l'adresse ci-dessus, ou saisir la CNIL (cnil.fr).</p>
+
+  <h2>Enfants</h2>
+  <p>Roulib ne s'adresse pas aux enfants de moins de 13 ans et ne collecte pas sciemment leurs données.</p>
+
+  <h2>Changements</h2>
+  <p>Si cette politique change, la date en haut change aussi, et nous le signalerons dans l'app quand le changement compte.</p>
+</main>
+</body>
+</html>

@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 
 from fastapi.testclient import TestClient
 
-from app import agent
+from app import agent, main
 from app.main import app
 
 
@@ -31,6 +31,8 @@ def text(t):
 def run(monkeypatch, script, **body):
     fake = FakeClaude(script)
     monkeypatch.setattr(agent, "_client", fake)
+    # No download of the Paris roadworks and stairs layers (minutes when opendata.paris.fr is slow).
+    monkeypatch.setattr(main, "_layer", lambda name: ([], None))
     r = TestClient(app).post("/api/agent", json=body)
     return r, fake
 
@@ -48,8 +50,8 @@ def test_demo_journey_is_checked_and_cited(monkeypatch):
     assert any(s["source"] for s in out["sources"])
     # the tool result sent back to the model carries the snapshot time and the demo mode
     tool_result = fake.requests[1]["messages"][-1]["content"][0]["content"]
-    assert "lifts_fetched_at" in tool_result and "demo" in tool_result
-    assert "DEMO MODE" in fake.requests[0]["system"]
+    assert "lifts_fetched_at" in tool_result and "démo" in tool_result
+    assert "MODE DÉMO" in fake.requests[0]["system"]
 
 
 def test_lift_status_demo_finds_outage(monkeypatch):
@@ -60,7 +62,7 @@ def test_lift_status_demo_finds_outage(monkeypatch):
 
 def test_unknown_station_is_not_called_accessible():
     res = agent.lift_status("Gare imaginaire du Nord-Ouest", replay="demo")
-    assert res["found"] is False and "Do not conclude" in res["note"]
+    assert res["found"] is False and "Ne pas conclure" in res["note"]
 
 
 def test_tool_error_is_returned_to_model_not_crash(monkeypatch):
@@ -84,3 +86,27 @@ def test_no_tools_baseline(monkeypatch):
 def test_bad_profile(monkeypatch):
     r, _ = run(monkeypatch, [], message="test", profile="trottinette")
     assert r.status_code in (400, 422)
+
+
+def test_claude_failure_is_a_503_in_words(monkeypatch):
+    class Down:
+        messages = None
+
+        def __init__(self):
+            self.messages = self
+
+        def create(self, **kwargs):
+            raise RuntimeError("overloaded_error")
+    monkeypatch.setattr(agent, "_client", Down())
+    r = TestClient(app).post("/api/agent", json={"message": "Is Bastille accessible?"})
+    assert r.status_code == 503 and r.json()["code"] == "upstream" and "overloaded" not in r.text
+
+
+def test_history_is_bounded(monkeypatch):
+    r, fake = run(monkeypatch, [text("ok")], message="hello there",
+                  history=[{"role": "user", "content": "x" * 50000}, {"role": "assistant", "content": ""}])
+    assert r.status_code == 200
+    sent = fake.requests[0]["messages"]
+    assert len(sent[0]["content"]) == agent.MAX_HISTORY_CHARS and all(m["content"] for m in sent)
+    r, _ = run(monkeypatch, [], message="hello", history=[{"role": "user", "content": "a"}] * 50)
+    assert r.status_code == 422

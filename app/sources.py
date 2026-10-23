@@ -5,6 +5,7 @@ so the UI (and later the agent) can always show source + freshness.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -13,7 +14,8 @@ import os
 import threading
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -22,6 +24,7 @@ import httpx
 
 log = logging.getLogger("sources")
 CACHE_DIR = Path(os.getenv("CACHE_DIR", "/tmp/pmr-cache"))
+SERVERLESS = bool(os.getenv("VERCEL"))  # functions freeze between requests: no background refresh there
 
 IDF_REGION = "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets"
 IDFM = "https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets"
@@ -37,37 +40,37 @@ PLACES_WARM_BBOX = os.getenv("PLACES_WARM_BBOX", "")
 
 SOURCES = {
     "lifts": {
-        "name": "IDFM – Elevator status",
+        "name": "IDFM – État des ascenseurs",
         "url": "https://data.iledefrance.fr/explore/dataset/etat-des-ascenseurs/",
         "license": "Licence Mobilité",
     },
     "lifts_sncf": {
-        "name": "SNCF Gares & Connexions – Status of station elevators and escalators",
+        "name": "SNCF Gares & Connexions – État des équipements d'élévatique en gare",
         "url": "https://ressources.data.sncf.com/explore/dataset/etat-fonctionnement-elevatique-gare/",
         "license": "ODbL",
     },
     "stations": {
-        "name": "IDFM – Stop register",
+        "name": "IDFM – Référentiel des arrêts",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/arrets/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "train_stations": {
-        "name": "IDFM – Station accessibility",
+        "name": "IDFM – Accessibilité en gare",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/accessibilite-en-gare/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "works": {
-        "name": "Ville de Paris – Roadworks in Paris",
+        "name": "Ville de Paris – Chantiers à Paris",
         "url": "https://opendata.paris.fr/explore/dataset/chantiers-a-paris/",
         "license": "ODbL",
     },
     "stairs": {
-        "name": "Ville de Paris – Street map, stepped streets",
+        "name": "Ville de Paris – Plan de voirie, voies en escalier",
         "url": "https://opendata.paris.fr/explore/dataset/plan-de-voirie-voies-en-escalier/",
         "license": "ODbL",
     },
     "places": {
-        "name": "Acceslibre – Accessibility of public venues (data.gouv.fr export)",
+        "name": "Acceslibre – Accessibilité des ERP (export data.gouv.fr)",
         "url": "https://www.data.gouv.fr/fr/datasets/60a528e8b656ce01b4c0c0a6/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
@@ -82,8 +85,20 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+_SAFE_KEY = re.compile(r"[A-Za-z0-9_.:()-]{1,120}")
+
+
 def _disk(key: str) -> Path:
-    return CACHE_DIR / f"{key}.json"
+    # Keys can carry user text (a search query): hash anything that is not a plain file name.
+    name = key if _SAFE_KEY.fullmatch(key) and ".." not in key else "h_" + hashlib.sha1(key.encode()).hexdigest()
+    return CACHE_DIR / f"{name}.json"
+
+
+def _read_disk(key: str) -> Any:
+    try:
+        return json.loads(_disk(key).read_text()) if _disk(key).exists() else None
+    except (OSError, ValueError):
+        return None
 
 
 def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
@@ -92,10 +107,25 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
     The last good payload is also written to disk. If the upstream API fails,
     we serve the last known version flagged with "stale": True so the UI can
     say how old it is instead of showing nothing.
+
+    Expired but in memory: answered at once (its fetched_at says how old it is) while a background refresh
+    runs. A slow upstream (Paris roadworks export: minutes at times) then never blocks a journey. ttl=0 forces.
     """
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < ttl:
         return hit[1]
+    if hit and ttl > 0 and not SERVERLESS:
+        in_background(f"refresh:{key}", lambda: _load(key, ttl, fn))
+        value = hit[1]
+        if isinstance(value, dict) and not value.get("stale") and time.time() - hit[0] > 2 * ttl + 60:
+            # the refreshes keep failing: say so, as the blocking path does (same object every time after this)
+            value = {**value, "stale": True}
+            _cache[key] = (hit[0], value)
+        return value
+    return _load(key, ttl, fn)
+
+
+def _load(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
     with _locks.setdefault(key, threading.Lock()):
         hit = _cache.get(key)
         if hit and time.time() - hit[0] < ttl:
@@ -104,9 +134,9 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
             value = fn()
         except Exception as e:
             stale = hit[1] if hit else None
-            if stale is None and _disk(key).exists():
-                stale = json.loads(_disk(key).read_text())
             if stale is None:
+                stale = _read_disk(key)
+            if not isinstance(stale, dict):
                 raise
             log.warning("%s: upstream failed (%s), serving stale data from %s", key, e, stale.get("fetched_at"))
             return {**stale, "stale": True, "error": str(e)}
@@ -119,11 +149,29 @@ def cached(key: str, ttl: int, fn: Callable[[], Any]) -> Any:
         return value
 
 
-def _get_json(url: str, params: dict, label: str) -> Any:
+_bg_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="bg")
+places_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="places")  # slow tiles never starve the layers
+_inflight: Dict[str, Future] = {}
+_inflight_lock = threading.Lock()
+
+
+def in_background(key: str, fn: Callable[[], Any], pool: Optional[ThreadPoolExecutor] = None) -> Future:
+    """Run fn in a worker thread, once per key at a time. A caller that stops waiting (time budget) leaves it
+    running: the result lands in the cache and the next request gets it at once."""
+    with _inflight_lock:
+        fut = _inflight.get(key)
+        if fut is None:
+            fut = (pool or _bg_pool).submit(fn)
+            _inflight[key] = fut
+            fut.add_done_callback(lambda _f: _inflight.pop(key, None))
+    return fut
+
+
+def _get_json(url: str, params: dict, label: str, timeout: Optional[float] = None) -> Any:
     for attempt in range(3):
         try:
             t0 = time.time()
-            r = _client.get(url, params=params)
+            r = _client.get(url, params=params, timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT)
             r.raise_for_status()
             body = r.json()
             log.info("%s: %.1fs", label, time.time() - t0)
@@ -301,6 +349,7 @@ def stairs() -> dict:
 # --- Places: restaurants, shops… (Acceslibre) -----------------------------
 
 PLACE_TILE = 0.01  # degrees, about 730 m x 1.1 km in Paris
+ACCESLIBRE_TIMEOUT_S = 45  # per page; the tabular API is slow but should not hold a worker for minutes
 PLACE_COLUMNS = ",".join([
     "id", "name", "activite", "numero", "voie", "postal_code", "commune", "longitude", "latitude",
     "stationnement_pmr", "stationnement_ext_pmr",
@@ -331,10 +380,11 @@ def places_tile(tx: int, ty: int) -> dict:
             "latitude__greater": f"{ty * PLACE_TILE:.4f}", "latitude__less": f"{(ty + 1) * PLACE_TILE:.4f}",
         }
         label = f"acceslibre {tx},{ty}"
-        first = _get_json(ACCESLIBRE, {**base, "page": 1}, label)
+        first = _get_json(ACCESLIBRE, {**base, "page": 1}, label, timeout=ACCESLIBRE_TIMEOUT_S)
         rows = first["data"]
         pages = min(-(-first["meta"]["total"] // 200), 15)  # at most 3000 places per tile
-        more = _tile_pool.map(lambda p: _get_json(ACCESLIBRE, {**base, "page": p}, label)["data"], range(2, pages + 1))
+        more = _tile_pool.map(lambda p: _get_json(ACCESLIBRE, {**base, "page": p}, label,
+                                                  timeout=ACCESLIBRE_TIMEOUT_S)["data"], range(2, pages + 1))
         for chunk in more:
             rows += chunk
         return {"fetched_at": now_iso(), "rows": rows}
@@ -369,41 +419,28 @@ def warm_up() -> None:
     if PLACES_WARM_BBOX:
         try:
             tiles = place_tiles(*[float(v) for v in PLACES_WARM_BBOX.split(",")])
-            list(_tile_pool.map(lambda xy: places_tile(*xy), tiles))
+            # Not on _tile_pool: places_tile queues its pages there, and waiting on them from inside the same
+            # pool deadlocks once every worker holds a tile.
+            for f in [in_background(f"places_{tx}_{ty}", lambda tx=tx, ty=ty: places_tile(tx, ty), places_pool)
+                      for tx, ty in tiles]:
+                f.result()
             log.info("places warm-up: %d tiles", len(tiles))
         except Exception:
             log.exception("warm-up failed for places (%s)", PLACES_WARM_BBOX)
 
 
-# City of Paris roadworks types (chantier_synthese), shown in the English UI.
-_WORKS_EN = {
-    "Construction ou réhabilitation d’immeuble": "Building construction or renovation",
-    "Travaux sur réseau électrique": "Electricity network works",
-    "Travaux sur réseau de gaz": "Gas network works",
-    "Aménagement ou entretien de l’espace public": "Public space works",
-    "Travaux sur édifice public (VdP*)": "Public building works",
-    "Aménagement de voirie (VdP*)": "Street redesign",
-    "Travaux sur réseau de transport public": "Public transport works",
-    "Travaux sur réseau de chauffage urbain": "District heating works",
-    "Travaux sur réseau d’assainissement": "Sewer works",
-    "Travaux sur réseau de climatisation": "District cooling works",
-    "Travaux sur réseau d’eau": "Water network works",
-    "Travaux sur mobiliers urbains": "Street furniture works",
-    "Travaux sur réseau d’éclairage public ou signalisation lumineuse tricolore": "Street lighting or traffic light works",
-    "Travaux sur réseau télécom": "Telecom network works",
-    "Espaces verts – Végétalisation de l’espace public": "Greening works",
-    "Espaces verts – Entretien des plantations": "Planting maintenance",
-    "Espaces verts – Emprise pour cantonnement ou stockage": "Site storage area",
-    "Aménagement de l’espace public": "Public space works",
-    "Aménagements de voirie pour la sécurité (ralentisseurs, passages surélevés, …)": "Road safety works (speed bumps, raised crossings)",
-    "Travaux sur station Vélib": "Vélib station works",
-    "Espaces verts – Travaux sur clôtures": "Fence works",
+# City of Paris roadworks types (chantier_synthese) are shown as published, in a few cases shortened.
+_WORKS_SHORT = {
+    "Travaux sur réseau d’éclairage public ou signalisation lumineuse tricolore": "Travaux sur l'éclairage public ou les feux",
+    "Aménagements de voirie pour la sécurité (ralentisseurs, passages surélevés, …)": "Aménagement de voirie pour la sécurité",
+    "Espaces verts – Emprise pour cantonnement ou stockage": "Zone de stockage de chantier",
 }
 
 
-def works_en(summary: Optional[str]) -> str:
-    """English label of a roadworks type; unknown types keep the original text."""
-    return _WORKS_EN.get((summary or "").strip(), summary or "Roadworks")
+def works_label(summary: Optional[str]) -> str:
+    """Roadworks type as the app shows it: the City's own words, without its internal "(VdP*)" mark."""
+    s = (summary or "").strip()
+    return _WORKS_SHORT.get(s) or re.sub(r"\s*\(VdP\*\)$", "", s) or "Travaux"
 
 
 # IDF bounding box, used to drop homonyms elsewhere in France.
@@ -418,23 +455,23 @@ def _in_idf(lon: float, lat: float) -> bool:
 # ranked around the user like Google Maps. Public instance, fair use: self-host it for production.
 PHOTON = os.environ.get("PHOTON_URL", "https://photon.komoot.io/api/")
 PARIS_CENTER = (2.3522, 48.8566)  # not PARIS: that name is the opendata.paris.fr URL above
-# OSM tags -> short English category shown under the name.
+# OSM tags -> short category shown under the name (app.js GENERIC_SUB lists the generic ones).
 _OSM_LABEL = {
-    "restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "fast_food": "Fast food", "pub": "Pub",
-    "hospital": "Hospital", "clinic": "Clinic", "doctors": "Doctor", "pharmacy": "Pharmacy", "dentist": "Dentist",
-    "supermarket": "Supermarket", "convenience": "Shop", "bakery": "Bakery", "museum": "Museum",
-    "school": "School", "university": "University", "library": "Library", "theatre": "Theatre", "cinema": "Cinema",
-    "townhall": "Town hall", "post_office": "Post office", "park": "Park", "attraction": "Attraction",
-    "hotel": "Hotel", "place_of_worship": "Place of worship", "station": "Station", "stop": "Station",
-    "tram_stop": "Tram stop", "bus_stop": "Bus stop", "house": "Address", "street": "Street",
-    "suburb": "Neighbourhood", "city": "City", "town": "Town", "village": "Village", "tower": "Landmark",
+    "restaurant": "Restaurant", "cafe": "Café", "bar": "Bar", "fast_food": "Restauration rapide", "pub": "Pub",
+    "hospital": "Hôpital", "clinic": "Clinique", "doctors": "Médecin", "pharmacy": "Pharmacie", "dentist": "Dentiste",
+    "supermarket": "Supermarché", "convenience": "Épicerie", "bakery": "Boulangerie", "museum": "Musée",
+    "school": "École", "university": "Université", "library": "Bibliothèque", "theatre": "Théâtre", "cinema": "Cinéma",
+    "townhall": "Mairie", "post_office": "Bureau de poste", "park": "Parc", "attraction": "Attraction",
+    "hotel": "Hôtel", "place_of_worship": "Lieu de culte", "station": "Station", "stop": "Station",
+    "tram_stop": "Arrêt de tram", "bus_stop": "Arrêt de bus", "house": "Adresse", "street": "Rue",
+    "suburb": "Quartier", "city": "Ville", "town": "Ville", "village": "Village", "tower": "Monument",
 }
 # Tag key when the value is not listed above: the subtitle always says what the result is.
 _OSM_KEY_LABEL = {
-    "tourism": "Sight", "historic": "Monument", "man_made": "Landmark", "amenity": "Place", "shop": "Shop",
-    "craft": "Shop", "office": "Office", "building": "Building", "leisure": "Leisure", "healthcare": "Health",
-    "railway": "Station", "public_transport": "Station", "highway": "Street", "aeroway": "Airport",
-    "place": "Area", "boundary": "Area", "landuse": "Area", "natural": "Nature", "waterway": "Water",
+    "tourism": "Site touristique", "historic": "Monument", "man_made": "Monument", "amenity": "Lieu", "shop": "Commerce",
+    "craft": "Commerce", "office": "Bureau", "building": "Bâtiment", "leisure": "Loisirs", "healthcare": "Santé",
+    "railway": "Station", "public_transport": "Station", "highway": "Rue", "aeroway": "Aéroport",
+    "place": "Secteur", "boundary": "Secteur", "landuse": "Secteur", "natural": "Nature", "waterway": "Cours d'eau",
 }
 # Noise for a trip destination: bike docks, parkings, bus stops duplicate better results.
 _OSM_SKIP = {"bicycle_rental", "parking", "parking_entrance", "charging_station", "vending_machine",
@@ -461,12 +498,12 @@ def _photon_item(f: dict) -> Optional[dict]:
     is_address = pr.get("osm_value") in ("house", "street") or (not pr.get("name") and street)
     if is_address:
         label = street or pr.get("name") or ""
-        kind = "Street" if pr.get("osm_value") == "street" and not pr.get("housenumber") else "Address"
+        kind = "Rue" if pr.get("osm_value") == "street" and not pr.get("housenumber") else "Adresse"
         return {"kind": "address", "label": label, "sub": " · ".join(x for x in (kind, _area(pr)) if x),
                 "lon": lon, "lat": lat}
     cat = (_OSM_LABEL.get(pr.get("osm_value"))
-           or {"city": "City", "district": "Neighbourhood", "locality": "Area"}.get(pr.get("type"))
-           or _OSM_KEY_LABEL.get(pr.get("osm_key"), "Place"))
+           or {"city": "Ville", "district": "Quartier", "locality": "Secteur"}.get(pr.get("type"))
+           or _OSM_KEY_LABEL.get(pr.get("osm_key"), "Lieu"))
     where = ", ".join(x for x in (street, _area(pr) or pr.get("city")) if x)
     return {"kind": "place", "label": pr.get("name") or street, "sub": " · ".join(x for x in (cat, where) if x),
             "lon": lon, "lat": lat}
@@ -578,32 +615,32 @@ def _suggest_ign(q: str, limit: int = 6) -> List[dict]:
 
 SOURCES.update({
     "stop_signals": {
-        "name": "IDFM – Stop register (audio and visual information)",
+        "name": "IDFM – Référentiel des arrêts (information sonore et visuelle)",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/arrets/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "line_signals": {
-        "name": "IDFM – Line register (on-board announcements)",
+        "name": "IDFM – Référentiel des lignes (annonces à bord)",
         "url": "https://data.iledefrance-mobilites.fr/explore/dataset/referentiel-des-lignes/",
         "license": "Licence Ouverte v2.0 (Etalab)",
     },
     "sncf_assistance": {
-        "name": "SNCF – Assistance for disabled travellers in stations",
+        "name": "SNCF – Service d'assistance aux voyageurs handicapés en gare",
         "url": "https://data.iledefrance.fr/explore/dataset/service-d-assistance-voyageur-handicape-en-gare-sncf/",
         "license": "ODbL",
     },
     "sncf_equipment": {
-        "name": "SNCF – Accessibility equipment in stations",
+        "name": "SNCF – Équipements d'accessibilité en gare",
         "url": "https://data.iledefrance.fr/explore/dataset/equipements-accessibilite-en-gare/",
         "license": "ODbL",
     },
     "crossing_lights": {
-        "name": "Ville de Paris – Traffic lights (pedestrian signals)",
+        "name": "Ville de Paris – Signalisation tricolore (feux piétons)",
         "url": "https://opendata.paris.fr/explore/dataset/signalisation-tricolore/",
         "license": "ODbL",
     },
     "sound_modules": {
-        "name": "Ville de Paris – Audible pedestrian signals",
+        "name": "Ville de Paris – Modules sonores des passages piétons",
         "url": "https://opendata.paris.fr/explore/dataset/modules-sonores-passages-pietons/",
         "license": "ODbL",
     },
@@ -671,13 +708,20 @@ def sound_modules() -> dict:
     return cached("sound_modules", 86400, load)
 
 
-def low_vision() -> Dict[str, Optional[dict]]:
-    """Every layer of the visually impaired checks. A layer that cannot be loaded is None: checked as unknown."""
+def low_vision(budget_s: Optional[float] = None) -> Dict[str, Optional[dict]]:
+    """Every layer of the visually impaired checks, loaded in parallel. A layer that cannot be loaded (or, with
+    budget_s, is not ready in time: it keeps loading in the background) is None: checked as unknown."""
+    fns = (stop_signals, line_signals, sncf_assistance, sncf_equipment, crossing_lights, sound_modules)
+    futures = {fn.__name__: in_background(f"lv_{fn.__name__}", fn) for fn in fns}
+    deadline = None if budget_s is None else time.monotonic() + budget_s
     out: Dict[str, Optional[dict]] = {}
-    for fn in (stop_signals, line_signals, sncf_assistance, sncf_equipment, crossing_lights, sound_modules):
+    for name, fut in futures.items():
         try:
-            out[fn.__name__] = fn()
+            out[name] = fut.result(timeout=None if deadline is None else max(0.0, deadline - time.monotonic()))
+        except FutureTimeout:
+            log.warning("%s still loading, visually impaired checks degrade to unknown for now", name)
+            out[name] = None
         except Exception:
-            log.exception("%s unavailable, visually impaired checks degrade to unknown", fn.__name__)
-            out[fn.__name__] = None
+            log.exception("%s unavailable, visually impaired checks degrade to unknown", name)
+            out[name] = None
     return out

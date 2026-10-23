@@ -36,7 +36,7 @@ def test_parse_when_tolerates_a_few_minutes_in_the_past():
     assert main._parse_when("2026-10-22T14:00", NOW) is not None
     with pytest.raises(HTTPException) as e:
         main._parse_when("2026-10-22T13:00", NOW)
-    assert e.value.status_code == 400 and "past" in e.value.detail
+    assert e.value.status_code == 400 and "passée" in e.value.detail
 
 
 def test_parse_when_rejects_more_than_30_days_ahead():
@@ -50,8 +50,8 @@ def test_time_note_only_for_a_later_trip():
     assert main._time_note(None, NOW) is None
     assert main._time_note(NOW + timedelta(minutes=5), NOW) is None
     note = main._time_note(datetime(2026, 10, 22, 18, 30, tzinfo=main.PARIS_TZ), NOW)
-    assert note == "Elevator status is from now (14:05); it may change by 18:30."
-    assert "on Fri 23 Oct" in main._time_note(datetime(2026, 10, 23, 9, 0, tzinfo=main.PARIS_TZ), NOW)
+    assert note == "L'état des ascenseurs est celui de maintenant (14:05)\u00a0: il peut changer d'ici 18:30."
+    assert "d'ici 09:00 le 23 octobre" in main._time_note(datetime(2026, 10, 23, 9, 0, tzinfo=main.PARIS_TZ), NOW)
 
 
 class FakeResp:
@@ -59,7 +59,7 @@ class FakeResp:
     text = ""
 
     def json(self):
-        return {"journeys": []}
+        return {"journeys": [{"sections": []}]}  # an empty list is a "no_route" now (tests/test_app_store.py)
 
 
 def capture_params(monkeypatch):
@@ -128,7 +128,7 @@ def test_api_journey_rejects_bad_when(client):
     r = client.get("/api/journey", params={"from": "a", "to": "b", "when": "soon"})
     assert r.status_code == 400
     r = client.get("/api/journey", params={"from": "a", "to": "b", "when": "2020-01-01T10:00"})
-    assert r.status_code == 400 and "past" in r.json()["detail"]
+    assert r.status_code == 400 and "passée" in r.json()["detail"]
 
 
 def test_api_journey_passes_time_to_main_and_plan_b(client, monkeypatch):
@@ -145,7 +145,7 @@ def test_api_journey_passes_time_to_main_and_plan_b(client, monkeypatch):
     assert all(w == when and arr is True for _, w, arr in seen)
     d = r.json()
     assert d["when"] == when.strftime("%Y-%m-%dT%H:%M") and d["arrive"] is True
-    assert d["time_note"].startswith("Elevator status is from now (")
+    assert d["time_note"].startswith("L'état des ascenseurs est celui de maintenant (")
 
 
 def test_api_journey_leave_now_has_no_note(client, monkeypatch):
