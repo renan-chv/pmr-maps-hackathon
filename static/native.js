@@ -47,5 +47,7 @@
 
   // Status bar matches the light ground; the splash screen hides once the page is drawn.
   P.StatusBar && P.StatusBar.setStyle({ style: "LIGHT" }).catch(() => {});
-  window.addEventListener("load", () => P.SplashScreen && P.SplashScreen.hide().catch(() => {}));
+  // Hide the launch screen as soon as the first screen is painted, not after every map script and font has loaded.
+  const hideSplash = () => requestAnimationFrame(() => requestAnimationFrame(() => P.SplashScreen && P.SplashScreen.hide({ fadeOutDuration: 180 }).catch(() => {})));
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", hideSplash, { once: true }); else hideSplash();
 })();
