@@ -48,4 +48,13 @@ swap(FONTS, "/static/vendor/fonts.css");
 html = html.replace(/\s*<link rel="preconnect" href="https:\/\/(unpkg\.com|fonts\.googleapis\.com|fonts\.gstatic\.com)"[^>]*>/g, "");
 html = html.replace(/\s*<link rel="manifest"[^>]*>/, "");
 await writeFile(join(WWW, "index.html"), html);
+
+// Dev only: ROULIB_API=http://localhost:8099 npm run build points the bundled app at a local backend.
+// Release builds keep the hosted backend written in static/native.js.
+if (process.env.ROULIB_API) {
+  const f = join(WWW, "static", "native.js");
+  const js = (await readFile(f, "utf8")).replace(/window\.ROULIB_API = "[^"]+"/, `window.ROULIB_API = ${JSON.stringify(process.env.ROULIB_API)}`);
+  await writeFile(f, js);
+  console.log(`API -> ${process.env.ROULIB_API} (dev build, do not ship)`);
+}
 console.log(`www built: ${urls.length} font files vendored`);

@@ -25,7 +25,7 @@ L'adresse du backend est dans `static/native.js` (`window.ROULIB_API`). Pour la 
 - `ITSAppUsesNonExemptEncryption = false` : uniquement du HTTPS standard, aucune déclaration d'export à faire.
 - Manifeste de confidentialité `PrivacyInfo.xcprivacy` : aucun pistage, données déclarées ci-dessous.
 - Fonctions natives (règle 4.2, pas un simple site emballé) : position native, retour haptique, navigateur intégré, barre d'état, écran de lancement, interface et cartes hors ligne.
-- Suppression du compte (règle 5.1.1(v)) : Profil › Delete my data.
+- Suppression du compte (règle 5.1.1(v)) : Profil › Supprimer mes données.
 - Contenus publiés par les utilisateurs (règle 1.2) : signaler un contenu, masquer une personne, filtre de mots, masquage automatique après signalements.
 - Politique de confidentialité : `static/privacy.html`, servie par le backend à `/static/privacy.html`.
 
@@ -33,42 +33,41 @@ L'adresse du backend est dans `static/native.js` (`window.ROULIB_API`). Pour la 
 
 1. **Apple Developer Program** (99 €/an) : https://developer.apple.com/programs/enroll/. Compte 24 à 48 h de validation.
 2. Dans Xcode : `npx cap open ios`, puis la cible **App** › Signing & Capabilities › choisis ton équipe (Team). La signature automatique crée les certificats.
-3. Sur **App Store Connect** (https://appstoreconnect.apple.com) : My Apps › + › New App. Plateforme iOS, nom « Roulib » (s'il est pris : « Roulib – Accessible trips »), langue principale English, bundle ID `fr.roulib.app`, SKU `roulib-ios-1`.
+3. Sur **App Store Connect** (https://appstoreconnect.apple.com) : My Apps › + › New App. Plateforme iOS, nom « Roulib » (s'il est pris : « Roulib – Accessible trips »), langue principale **Français**, bundle ID `fr.roulib.app`, SKU `roulib-ios-1`.
 4. Dans Xcode : choisis l'appareil « Any iOS Device (arm64) », puis Product › **Archive** › Distribute App › App Store Connect › Upload.
 5. Remplis la fiche avec les textes ci-dessous, ajoute les captures d'écran (iPhone 6,9" : 1320 × 2868, au moins 3) et envoie en review.
 
-## Fiche App Store (à copier)
+## Fiche App Store (à copier) – langue principale : français
 
-**Name** : Roulib
-**Subtitle** (30 car.) : Step-free trips, checked live
-**Category** : Navigation (secondaire : Travel)
-**Age rating** : 4+ (contenus utilisateurs modérés)
-**Privacy Policy URL** : https://01a1630f-d719-7e22-99af-faa332f9258b-8080.eur-1.aiven.app/static/privacy.html
-**Support URL** : https://github.com/renan-chv/pmr-maps-hackathon/issues
+**Nom** : Roulib
+**Sous-titre** (30 car.) : Trajets sans marche, vérifiés
+**Catégorie** : Navigation (secondaire : Voyages)
+**Classification** : 4+ (contenus des utilisateurs modérés)
+**URL de la politique de confidentialité** : https://01a1630f-d719-7e22-99af-faa332f9258b-8080.eur-1.aiven.app/static/privacy.html
+**URL d'assistance** : https://github.com/renan-chv/pmr-maps-hackathon/issues
 
-**Promotional text** :
-Before you leave, know if your trip really works: every lift, roadwork and step on the way, checked live for your wheelchair, walker or pushchair.
+**Texte promotionnel** :
+Avant de partir, sachez si votre trajet passe vraiment : chaque ascenseur, chaque chantier et chaque marche sur le chemin, vérifiés en direct pour votre fauteuil, votre déambulateur ou votre poussette.
 
 **Description** :
-Roulib checks every step of a public-transport trip in Paris and Île-de-France, from your door to the door of your destination, for the way you move.
+Roulib vérifie chaque étape d'un trajet en transports en commun à Paris et en Île-de-France, de votre porte à la porte de votre destination, selon votre façon de vous déplacer.
 
-• Choose your profile once: manual or power wheelchair, walker or cane, pushchair, low vision.
-• Search a station, a place or an address. Roulib checks each step of the trip against live data: lift status from Île-de-France Mobilités, roadworks on sidewalks from the City of Paris, stairs, and the accessibility of your destination from Acceslibre.
-• A lift is out of order? You know before you leave, with the reason and a Plan B in one tap.
-• Every check shows its source and how fresh it is. Unknown is never shown as accessible.
-• Stations: live lifts and how often they fail.
-• Places: step-free entrance, door width and adapted toilets for restaurants and shops nearby.
-• Community: spot a broken lift or a blocked sidewalk? Report it in seconds with a photo, your voice or a few words. Everyone on the route is warned.
+• Choisissez votre profil une fois : fauteuil manuel ou électrique, déambulateur ou canne, poussette, malvoyance.
+• Cherchez une gare, un lieu ou une adresse. Roulib vérifie chaque étape avec des données en direct : état des ascenseurs d'Île-de-France Mobilités, travaux sur les trottoirs de la Ville de Paris, escaliers, et accessibilité de votre destination grâce à Acceslibre.
+• Un ascenseur en panne ? Vous le savez avant de partir, avec la raison et un plan B en un geste.
+• Chaque vérification indique sa source et sa fraîcheur. Une information inconnue n'est jamais présentée comme accessible.
+• Gares : ascenseurs en direct, et leur fiabilité.
+• Lieux : entrée de plain-pied, largeur de porte et toilettes adaptées pour les restaurants et commerces autour de vous.
+• Communauté : un ascenseur en panne, un trottoir bloqué ? Signalez-le en quelques secondes, en photo, à la voix ou en quelques mots. Tout le monde sur le trajet est prévenu.
 
-No account with a password, no ads, no tracking.
+Pas de compte avec mot de passe, pas de publicité, pas de pistage.
 
-**Keywords** (100 car.) :
-wheelchair,accessible,lift,elevator,metro,RER,Paris,PMR,handicap,step-free,mobility,pushchair,transit
+**Mots-clés** (100 car.) :
+fauteuil,PMR,accessible,ascenseur,métro,RER,Paris,handicap,poussette,mobilité réduite,trajet,sans marche
 
-**Version française** (à ajouter en localisation fr-FR) :
-- Nom : Roulib
-- Sous-titre : Trajets sans marche, vérifiés
-- Mots-clés : fauteuil,PMR,accessible,ascenseur,métro,RER,Paris,handicap,poussette,mobilité réduite,trajet
+**Version anglaise** (localisation en-US, facultative) :
+- Name : Roulib – Subtitle : Step-free trips, checked live
+- Keywords : wheelchair,accessible,lift,elevator,metro,RER,Paris,step-free,mobility,pushchair,transit
 
 ## Confidentialité dans App Store Connect (App Privacy)
 
@@ -83,7 +82,7 @@ Tout le reste : **non collecté**.
 
 ## Notes pour la review (App Review Information › Notes)
 
-Roulib works for public transport in Paris and Île-de-France (France). Live trip checks need a start and a destination in that area. To see the full flow from anywhere, tap the search bar and use "See a sample trip (recorded)": it opens a real trip recorded on 22 October 2026, clearly labelled "Recorded example, not live". No login is needed. Community reports can be flagged ("Report as inappropriate") and hidden per author; a report with two flags is removed automatically. Account and data deletion: Profile › Delete my data.
+Roulib works for public transport in Paris and Île-de-France (France). Live trip checks need a start and a destination in that area. To see the full flow from anywhere, use "Voir un trajet d'exemple (enregistré)" ("See a sample trip, recorded") on the home screen: it opens a real trip recorded on 22 October 2026, clearly labelled as a recorded example, not live. The app is in French. No login is needed. Community reports can be flagged ("Signaler comme inapproprié") and hidden per author ("Masquer les signalements de cette personne"); a report with two flags is removed automatically. Account and data deletion: Profil › Supprimer mes données.
 
 ## Avant chaque nouvelle version
 

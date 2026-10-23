@@ -5,7 +5,7 @@
 	<key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
+	<string>fr</string>
 	<key>CFBundleDisplayName</key>
 	<string>Roulib</string>
 	<key>CFBundleExecutable</key>
@@ -26,16 +26,21 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a photo of an obstacle, like a broken lift or a blocked sidewalk, to warn other people on the route.</string>
+	<string>Prenez en photo un obstacle, comme un ascenseur en panne ou un trottoir bloqué, pour prévenir les personnes qui passent par là.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Roulib uses your location to plan step-free trips from where you are and to show lifts, places and roadworks near you.</string>
+	<string>Roulib utilise votre position pour préparer des trajets sans marche depuis l'endroit où vous êtes, et pour afficher les ascenseurs, les lieux et les travaux autour de vous.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Describe an obstacle by voice instead of typing.</string>
+	<string>Décrivez un obstacle à la voix plutôt qu'en tapant.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Choose a photo of an obstacle to attach to your report.</string>
+	<string>Choisissez une photo de l'obstacle à joindre à votre signalement.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Your voice description is turned into text so you don't have to type.</string>
+	<string>Votre description à la voix est transformée en texte, pour vous éviter de taper.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
