@@ -110,7 +110,10 @@ def test_full_flow(database):
     f = next(f for f in feats if f["properties"]["id"] == rid)
     assert f["geometry"]["coordinates"] == [SQUARE[0], SQUARE[1]]
     p = f["properties"]
-    assert (p["categorie"], p["gravite"], p["description"], p["photo_thumb"]) == ("escalier", "bloquant", "Escalier sans rampe", thumb)
+    assert (p["categorie"], p["gravite"], p["description"]) == ("escalier", "bloquant", "Escalier sans rampe")
+    assert "photo_thumb" not in p and p["photo_url"] == f"/api/reports/{rid}/thumb"
+    img = client.get(p["photo_url"])
+    assert img.status_code == 200 and img.headers["content-type"] == "image/jpeg" and img.content.startswith(b"\xff\xd8\xff")
     assert p["is_demo"] is False and p["confirmations"] == 1 and p["confidence"] == 2 and p["created_at"]
 
     assert client.post(f"/api/reports/{rid}/confirm", json={"user_id": str(uid)}).json() == {"confirmations": 2}

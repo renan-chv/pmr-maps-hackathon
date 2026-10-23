@@ -8,7 +8,9 @@
   <script>try { var t = localStorage.getItem("text") ?? (localStorage.getItem("big") === "1" ? "1" : null), d = document.documentElement;
     /* Phone or browser text at 200 % (root 20 px or more): the "Larger" layouts, at the size the user chose (data-tz) */
     if (parseFloat(getComputedStyle(d).fontSize) >= 20 && !(+t >= 2)) { d.dataset.tz = +t || 0; t = "2"; }
-    if (t) d.dataset.text = t; } catch (e) {}</script>
+    if (t) d.dataset.text = t;
+    /* First launch (no profile yet): the profile screen is the first paint, at full height (style.css, html[data-first]) */
+    if (!localStorage.getItem("pmr_profile") && !/[?&]replay=demo/.test(location.search)) d.dataset.first = "1"; } catch (e) {}</script>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Roulib">
@@ -100,8 +102,8 @@
         <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
         <button id="me-chip" class="me-line home-me" aria-label="Trips checked for your profile. Change profile"><span id="me-ic"></span><span>For: <b id="me-name">your profile</b></span><span class="linkish" aria-hidden="true">Change</span></button>
 
-        <!-- One tap to go: Home, Work, then the last places searched -->
-        <ul class="home-places" id="favs" aria-label="My places"></ul>
+        <!-- One tap to go: Home, Work, then the last places searched. Home and Work are in the page so the row is there on the first paint (app.js fills it). -->
+        <ul class="home-places" id="favs" aria-label="My places"><li class="hp"><button class="hp-go" data-fav="home"><svg class="i " aria-hidden="true"><use href="#i-home"/></svg><span class="t"><b>Home</b><small>Add address</small></span></button></li><li class="hp"><button class="hp-go" data-fav="work"><svg class="i " aria-hidden="true"><use href="#i-work"/></svg><span class="t"><b>Work</b><small>Add address</small></span></button></li></ul>
 
         <ul class="home-acts" aria-label="Around me">
           <li><button class="home-act a-food" data-go="food"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span><span class="t"><b>Restaurants nearby</b><small id="act-food">Step-free entrance</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
@@ -283,8 +285,10 @@
   </svg>
 
   <script src="/static/native.js"></script>
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="/static/profiles.js"></script>
+  <!-- First launch: the profile tiles are drawn now, before the map library (the biggest script) is read. -->
+  <script>try { if (document.documentElement.dataset.first) document.getElementById("ptiles").innerHTML = profileTilesHTML(null); } catch (e) {}</script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

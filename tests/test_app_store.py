@@ -4,6 +4,7 @@ CORS for the native shells, readable trip errors (no raw PRIM body), account del
 moderation of community reports (guideline 1.2: flag, hide, author hash, word filter).
 Database flows run on an in-memory fake (tests/fakedb.py) and, when TEST_DATABASE_URL is set, on PostgreSQL.
 """
+import base64
 import os
 import time
 
@@ -410,6 +411,49 @@ def test_delete_removes_every_report_of_the_user_and_their_thumbnails(fake):
     assert all(thumb != r["photo_thumb"] for r in fake.reports.values())
     assert not [f for f in fake.flags if f["user_id"] == u["id"]]  # their flags are gone too
     assert set(features()) == {kept, anon} and not set(mine) & set(features())
+
+
+def test_report_photos_are_served_on_their_own_and_cached(fake):
+    """The map list carries a photo address, not the photo (up to 300 KB each, up to 500 per list)."""
+    thumb = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+    with_photo, without = new_report(photo_thumb=thumb), new_report()
+    p = features()
+    assert "photo_thumb" not in p[with_photo] and p[with_photo]["photo_url"] == f"/api/reports/{with_photo}/thumb"
+    assert p[without]["photo_url"] is None
+    r = client.get(p[with_photo]["photo_url"])
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert r.content == base64.b64decode(thumb.split(",", 1)[1])
+    assert "max-age=604800" in r.headers["cache-control"] and "immutable" in r.headers["cache-control"]
+    assert client.get(f"/api/reports/{without}/thumb").status_code == 404
+    assert client.get("/api/reports/999/thumb").status_code == 404
+    assert client.get("/api/reports/0/thumb").status_code == 422
+
+
+def test_hidden_or_deleted_reports_no_longer_serve_their_photo(fake):
+    u = new_user()
+    thumb = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+    flagged, mine = new_report(photo_thumb=thumb), new_report(u["id"], photo_thumb=thumb)
+    flag(flagged, "203.0.113.1"); flag(flagged, "198.51.100.2")
+    assert client.get(f"/api/reports/{flagged}/thumb").status_code == 404
+    assert client.get(f"/api/reports/{mine}/thumb").status_code == 200
+    assert client.delete(f"/api/users/{u['id']}", headers={"X-User-Token": u["token"]}).status_code == 200
+    assert client.get(f"/api/reports/{mine}/thumb").status_code == 404
+
+
+def test_unreadable_stored_thumbnails_are_a_404_not_a_500():
+    assert reports.decode_thumb(None) is None
+    assert reports.decode_thumb("https://example.com/x.jpg") is None
+    assert reports.decode_thumb("data:image/jpeg;base64,***") is None
+    assert reports.decode_thumb("data:text/html;base64,PGI+") is None
+    assert reports.decode_thumb("data:image/png;base64,iVBORw0KGgo=")[0] == "image/png"
+
+
+def test_flag_with_the_token_header_counts_once_per_person(fake):
+    """The app sends X-User-Token on flags (static/app.js flagReport): the same person on two connections flags once."""
+    u = new_user()
+    rid = new_report()
+    assert flag(rid, "203.0.113.1", token=u["token"], user_id=str(u["id"])).json()["flags"] == 1
+    assert flag(rid, "198.51.100.7", token=u["token"], user_id=str(u["id"])).json()["flags"] == 1
 
 
 def test_legacy_profile_without_token_cannot_be_deleted_by_anyone(fake):

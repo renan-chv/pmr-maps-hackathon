@@ -8,7 +8,11 @@ Routes used by the map (static/app.js, static/profiles.js, static/report.js):
   POST   /api/reports/{id}/flag    -> {"flags": 1, "hidden": false}  body {"user_id"?, "reason"?}; one flag per
                                       person: per profile when X-User-Token proves user_id, else per connection
   GET    /api/reports?bbox=...     -> GeoJSON FeatureCollection; each feature has "author" (short stable hash, or
-                                      null when anonymous) so a user can hide everything from one author
+                                      null when anonymous) so a user can hide everything from one author, and
+                                      "photo_url" (a path under the API, null without a photo): the list no longer
+                                      carries the images themselves (up to 300 KB each)
+  GET    /api/reports/{id}/thumb   -> the report's photo (image/jpeg...), cached a long time; 404 when there is none
+                                      or the report is hidden by moderation
   POST   /api/reports/analyze      -> the report card Claude proposes from a photo (the user validates it)
 
 A report flagged by HIDE_AFTER_FLAGS different people is hidden from the map and from the journey engine.
@@ -29,7 +33,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Body, Header, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Path, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from . import db, limits, moderation, profiles, verify
@@ -440,7 +444,7 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
         salt = _author_salt(cur)
         cur.execute(
             """SELECT r.id, r.lon, r.lat, r.categorie, r.gravite, r.temporaire, r.message, r.created_at, r.is_demo,
-                      COALESCE(r.confirmations, 1) AS confirmations, r.photo_thumb, r.user_id
+                      COALESCE(r.confirmations, 1) AS confirmations, (r.photo_thumb IS NOT NULL) AS has_photo, r.user_id
                FROM user_reports r
                WHERE r.lon BETWEEN %s AND %s AND r.lat BETWEEN %s AND %s
                  AND (SELECT count(*) FROM report_flags f WHERE f.report_id = r.id) < %s
@@ -459,10 +463,47 @@ def list_reports(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat
                           "temporaire": bool(r["temporaire"]), "description": r["message"] or "",
                           "created_at": created.isoformat() if created else None, "is_demo": bool(r["is_demo"]),
                           "confirmations": r["confirmations"], "confidence": confidence(r, now),
-                          "photo_thumb": r["photo_thumb"], "author": author_of(r["user_id"], salt),
+                          "photo_url": f"/api/reports/{r['id']}/thumb" if r["has_photo"] else None,
+                          "author": author_of(r["user_id"], salt),
                       }})
     return {"type": "FeatureCollection", "features": feats,
             "meta": {"source": "Roulib community reports", "count": len(feats)}}
+
+
+THUMB_CACHE = "public, max-age=604800, s-maxage=86400, immutable"  # a report's photo never changes; the edge
+# keeps it one day only, so a deleted account or a hidden report stops being served from it within a day.
+
+
+def decode_thumb(value: Optional[str]) -> Optional[tuple]:
+    """A stored data:image/...;base64 thumbnail -> (media type, bytes), None when it is missing or unreadable."""
+    if not value or not value.startswith("data:image/") or ";base64," not in value:
+        return None
+    head, b64 = value.split(",", 1)
+    media = head[len("data:"):].split(";", 1)[0]
+    if media not in ("image/jpeg", "image/png", "image/webp"):
+        return None
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    return (media, raw) if raw else None
+
+
+@router.get("/api/reports/{report_id}/thumb")
+def report_thumb(report_id: int = Path(..., ge=1, le=MAX_ID)):
+    """The photo of one report, as an image the phone caches (the map list only says where it is)."""
+    def go(cur):
+        cur.execute("""SELECT r.photo_thumb FROM user_reports r
+                       WHERE r.id = %s AND (SELECT count(*) FROM report_flags f WHERE f.report_id = r.id) < %s""",
+                    (report_id, HIDE_AFTER_FLAGS))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    img = decode_thumb(_run(go))
+    if img is None:
+        raise HTTPException(404, "no photo for this report")
+    media, raw = img
+    return Response(raw, media_type=media, headers={"Cache-Control": THUMB_CACHE})
 
 
 # --- B2: photo analysis by Claude --------------------------------------------------

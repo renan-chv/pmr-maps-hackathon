@@ -92,11 +92,16 @@ class FakeCursor:
             return self._result([(sum(f["report_id"] == p[0] for f in db.flags),)])
         if q.startswith("SELECT r.id, r.lon, r.lat, r.categorie, r.gravite"):  # GET /api/reports
             x1, x2, y1, y2, hide, limit = p
+            assert "r.photo_thumb," not in q, "the map list must not carry the photos themselves"
             cols = ["id", "lon", "lat", "categorie", "gravite", "temporaire", "message", "created_at", "is_demo",
-                    "confirmations", "photo_thumb", "user_id"]
-            rows = [tuple(r[c] for c in cols) for r in db.visible(hide)
+                    "confirmations", "has_photo", "user_id"]
+            rows = [tuple((r["photo_thumb"] is not None) if c == "has_photo" else r[c] for c in cols) for r in db.visible(hide)
                     if x1 <= r["lon"] <= x2 and y1 <= r["lat"] <= y2][:limit]
             return self._result(rows, cols)
+        if q.startswith("SELECT r.photo_thumb FROM user_reports r WHERE r.id"):  # GET /api/reports/{id}/thumb
+            rid, hide = p
+            r = next((x for x in db.visible(hide) if x["id"] == rid), None)
+            return self._result([(r["photo_thumb"],)] if r else [])
         if q.startswith("SELECT r.id, r.lon, r.lat, r.categorie, r.temporaire"):  # main._reports
             hide = p[-1]
             box = p[:-1]

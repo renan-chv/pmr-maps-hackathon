@@ -27,7 +27,15 @@ const store = {
 };
 const icon = (name, cls = "") => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const mark = (st, cls = "") => `<span class="mark ${st} ${cls}" aria-hidden="true">${icon(st)}</span>`;
-const isPhone = () => window.matchMedia("(max-width: 1023px) and (not ((orientation: landscape) and (max-height: 540px)))").matches;
+// One MediaQueryList each, read many times per gesture (matchMedia() parses its query on every call).
+const PHONE_MQ = window.matchMedia("(max-width: 1023px) and (not ((orientation: landscape) and (max-height: 540px)))");
+const isPhone = () => PHONE_MQ.matches;
+const MOTION_MQ = window.matchMedia("(prefers-reduced-motion: reduce)");
+// iOS only applies :active (the pressed look of every button) when a touch listener exists: one passive, empty one.
+document.addEventListener("touchstart", () => {}, { passive: true });
+// Work that can wait (big map layers, prefetches): when the phone is idle, never in the middle of a gesture or a first paint.
+// Safari has no requestIdleCallback: a short timeout stands in.
+const whenIdle = (fn, timeout = 2000) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout }) : setTimeout(fn, 300));
 
 // In the native iOS/Android shell the page is served from the app bundle: API calls go to the hosted backend.
 const API = window.ROULIB_API || "";
@@ -51,8 +59,15 @@ async function getJSON(url) {
   }
   return body;
 }
-const postJSON = (path, data, method = "POST") => api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+const postJSON = (path, data, method = "POST", headers = {}) => api(path, { method, headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(data) });
 
+// Date formats built once: toLocale*String() with options builds a new formatter on every call (a station sheet
+// formats two dates per elevator).
+const FMT = {
+  dayMonth: new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }),
+  hm: new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }),
+  dayTime: new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+};
 function rel(iso) {
   if (!iso) return "unknown date";
   const d = new Date(iso);
@@ -61,11 +76,11 @@ function rel(iso) {
   if (min < 1) return "just now";
   if (min < 60) return `${min} min ago`;
   if (min < 24 * 60) return `${Math.round(min / 60)} h ago`;
-  return `on ${d.toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`;
+  return `on ${FMT.dayMonth.format(d)}`;
 }
 const ageH = (iso) => { const d = new Date(iso); return isNaN(d) ? Infinity : (Date.now() - d) / 3600000; };
-const hhmm = (iso) => { const d = new Date(iso); return isNaN(d) ? "?" : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); };
-const dayTime = (iso) => { const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString("en-GB", { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); };
+const hhmm = (iso) => { const d = new Date(iso); return isNaN(d) ? "?" : FMT.hm.format(d); };
+const dayTime = (iso) => { const d = new Date(iso); return isNaN(d) ? iso : FMT.dayTime.format(d); };
 
 function distM(a, b) {
   const k = Math.PI / 180, x = (b[0] - a[0]) * k * Math.cos((a[1] + b[1]) * k / 2), y = (b[1] - a[1]) * k;
@@ -90,7 +105,8 @@ const Net = (() => {
     text.textContent = off ? "You're offline. Showing what was loaded." : "Roulib's server isn't answering. Showing what was loaded.";
     btn.hidden = off;
   };
-  const retry = () => { loadLifts(); loadAlerts(); loadReports(); };
+  // In the background (app switched away, screen locked) nothing is retried: it runs again when the app comes back.
+  const retry = () => { if (document.hidden) return; loadLifts(); loadAlerts(); loadReports(true); };
   btn.addEventListener("click", () => {
     btn.disabled = true; btn.textContent = "Trying…";
     retry();
@@ -136,94 +152,143 @@ const safeTop = (() => {
   return () => p.offsetHeight;
 })();
 const Sheet = (() => {
-  const el = $("#sheet"), grip = $("#grip"), body = $("#sheet-body");
+  const el = $("#sheet"), grip = $("#grip"), body = $("#sheet-body"), root = document.documentElement.style;
   const LABEL = { peek: "collapsed", half: "half", full: "full screen" };
-  let snap = "half";
-  const heights = () => {
-    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const ORDER = ["peek", "half", "full"];
+  let snap = "half", cur = 0, full = 0;
+  // Numbers that depend on the viewport, measured on resize, keyboard and text size changes, never during a gesture:
+  // reading layout right after writing the panel height forced a full style and layout pass on every finger move.
+  let H = null, toolsH = 0, chipsBottom = 0;
+  function measure() {
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight, safe = safeTop();
     // Larger text steps: the half sheet opens higher, or it would only show a title and the search bar.
     const big = Number(document.documentElement.dataset.text || 0) >= 2;
-    return { peek: Math.min(big ? 260 : 210, Math.round(vh * 0.3)), half: Math.round(vh * (big ? 0.75 : 0.6)), full: vh - Math.max(76, safeTop() + 28) };
-  };
+    H = { peek: Math.min(big ? 260 : 210, Math.round(vh * 0.3)), half: Math.round(vh * (big ? 0.75 : 0.6)), full: vh - Math.max(76, safe + 28), vh, safe };
+    toolsH = $("#map-tools").offsetHeight; chipsBottom = $("#chips").getBoundingClientRect().bottom;
+  }
+  const heights = () => H || (measure(), H);
   // The sheet keeps its full height and slides with transform (GPU), so the map never relayouts mid-animation.
-  let cur = 0;
-  const root = document.documentElement.style;
-  const apply = (h) => { cur = Math.round(h); root.setProperty("--sheet-h", `${cur}px`); root.setProperty("--sheet-full", `${heights().full}px`); };
+  // At rest, one CSS variable places the sheet and everything that rides on its top edge; the CSS transition animates a change.
+  function commit(h) {
+    cur = Math.round(h);
+    root.setProperty("--sheet-h", `${cur}px`);
+    if (heights().full !== full) { full = heights().full; root.setProperty("--sheet-full", `${full}px`); }
+  }
   function set(name) {
     snap = name;
-    grip.setAttribute("aria-valuetext", LABEL[name]);
-    document.body.classList.toggle("sheet-full", name === "full" && isPhone());
-    apply(isPhone() ? heights()[name] : 0);
-    // Large text, sheet at 75 %: zoom and locate would sit over the map filters, so they hide until there is room.
-    const tools = $("#map-tools"), vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    document.body.classList.toggle("tools-off", isPhone() && vh - cur - 12 - tools.offsetHeight < $("#chips").getBoundingClientRect().bottom + 8);
+    if (grip.getAttribute("aria-valuetext") !== LABEL[name]) grip.setAttribute("aria-valuetext", LABEL[name]);
+    const phone = isPhone();
+    document.body.classList.toggle("sheet-full", name === "full" && phone);
+    commit(phone ? heights()[name] : 0);
+    // Large text, sheet at 75 %: locate would sit over the map filters, so it hides until there is room.
+    document.body.classList.toggle("tools-off", phone && heights().vh - cur - 12 - toolsH < chipsBottom + 8);
   }
-  let startY = 0, startH = 0, moved = false;
+
+  // During a gesture only the sheet and its followers move, by inline transforms written once per frame.
+  // The variable (and the layout that depends on it) changes once, when the finger lifts.
+  let g = null;
+  const frame = () => {
+    g.raf = 0;
+    el.style.transform = `translate3d(0, ${heights().full - g.h}px, 0)`;
+    for (const x of g.els) x.style.transform = `translate3d(0, ${-g.h}px, 0)`;
+  };
+  function begin(y) {
+    g = { h0: cur, h: cur, y, raf: 0, pts: [], snap0: snap,
+      els: [...document.querySelectorAll("#map-tools, #snap, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left")] };
+    document.body.classList.add("dragging");
+  }
+  function move(y, t) {
+    const hs = heights();
+    g.h = Math.max(hs.peek * 0.7, Math.min(hs.full, g.h0 + (g.y - y)));
+    g.pts.push([t, g.h]); if (g.pts.length > 10) g.pts.shift();
+    if (!g.raf) g.raf = requestAnimationFrame(frame);
+  }
+  // Where the sheet settles. A flick (fast release) goes one level its way from where the finger let go; a slower
+  // release goes to the level nearest to where its speed would carry the sheet; a short slow pull still changes level.
+  function target({ h, h0, pts, snap0 }, tEnd) {
+    const hs = heights(), last = pts[pts.length - 1];
+    let v = 0;  // px per ms over the last 100 ms, + = growing; none if the finger rested before lifting
+    if (last && !(tEnd - last[0] > 80)) {
+      const first = pts.find((p) => last[0] - p[0] <= 100) || last;
+      if (last[0] > first[0]) v = (last[1] - first[1]) / (last[0] - first[0]);
+    }
+    if (Math.abs(v) > 0.5 && Math.abs(h - h0) > 12) {
+      const ahead = ORDER.filter((k) => (v > 0 ? hs[k] > h + 8 : hs[k] < h - 8));
+      return ahead.length ? (v > 0 ? ahead[0] : ahead[ahead.length - 1]) : (v > 0 ? "full" : "peek");
+    }
+    const x = h + v * 150, near = ORDER.reduce((a, k) => (Math.abs(hs[k] - x) < Math.abs(hs[a] - x) ? k : a));
+    if (near === snap0 && Math.abs(h - h0) > 40 && !(Math.abs(v) > 0.2 && Math.sign(v) !== Math.sign(h - h0))) {
+      return ORDER[Math.max(0, Math.min(2, ORDER.indexOf(snap0) + Math.sign(h - h0)))];
+    }
+    return near;
+  }
+  function end(tap, t = performance.now()) {
+    if (!g) return;
+    if (g.raf) cancelAnimationFrame(g.raf);
+    const d = g; g = null;
+    // Inline transforms off and the new level in the same frame: the CSS transition starts from where the finger let go.
+    el.style.transform = ""; d.els.forEach((x) => (x.style.transform = ""));
+    document.body.classList.remove("dragging");
+    set(tap ? ORDER[(ORDER.indexOf(d.snap0) + 1) % 3] : target(d, t));
+  }
+
+  // The grip: mouse, pen or finger (a tap goes one level up, from full back to collapsed).
+  let pid = null, moved = false;
   grip.addEventListener("pointerdown", (e) => {
-    if (!isPhone()) return;
-    startY = e.clientY; startH = cur; moved = false;
-    el.classList.add("dragging"); grip.setPointerCapture(e.pointerId);
+    if (!isPhone() || g) return;
+    pid = e.pointerId; moved = false; begin(e.clientY);
+    grip.setPointerCapture(e.pointerId);
   });
   grip.addEventListener("pointermove", (e) => {
-    if (!el.classList.contains("dragging")) return;
-    const dy = startY - e.clientY;
-    if (Math.abs(dy) > 4) moved = true;
-    const hs = heights();
-    apply(Math.max(hs.peek * 0.7, Math.min(hs.full, startH + dy)));
+    if (!g || e.pointerId !== pid) return;
+    if (Math.abs(g.y - e.clientY) > 4) moved = true;
+    move(e.clientY, e.timeStamp || performance.now());
   });
-  const end = () => {
-    if (!el.classList.contains("dragging")) return;
-    el.classList.remove("dragging");
-    if (!moved) return set(snap === "peek" ? "half" : snap === "half" ? "full" : "peek");
-    const h = cur, hs = heights();
-    set(Object.entries(hs).sort((a, b) => Math.abs(a[1] - h) - Math.abs(b[1] - h))[0][0]);
-  };
-  grip.addEventListener("pointerup", end);
-  // Drag from anywhere in the sheet: swipe up to expand before scrolling, pull down from the top to lower it.
+  const up = (e) => { if (pid == null || e.pointerId !== pid) return; pid = null; end(!moved, e.timeStamp || performance.now()); };
+  grip.addEventListener("pointerup", up);
+  grip.addEventListener("pointercancel", up);
+  grip.addEventListener("lostpointercapture", up);
+  // Drag from anywhere else on the sheet (its top band, its content): up to expand before scrolling,
+  // down from the top of the content to lower it. Sideways swipes (rows of places, filters) are left alone.
   let pull = null;
-  body.addEventListener("touchstart", (e) => { if (isPhone()) pull = { y: e.touches[0].clientY, h: cur, on: false }; }, { passive: true });
-  body.addEventListener("touchmove", (e) => {
+  el.addEventListener("touchstart", (e) => {
+    pull = isPhone() && e.touches.length === 1 && !grip.contains(e.target) && !g
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY, on: false, inBody: body.contains(e.target) } : null;
+  }, { passive: true });
+  el.addEventListener("touchmove", (e) => {
     if (!pull) return;
-    const dy = e.touches[0].clientY - pull.y;
+    const t = e.touches[0], dy = t.clientY - pull.y;
     if (!pull.on) {
-      const down = dy > 8 && body.scrollTop <= 0, up = dy < -8 && snap !== "full";
-      if (down || up) { pull.on = true; pull.y = e.touches[0].clientY; el.classList.add("dragging"); }
+      if (Math.abs(t.clientX - pull.x) > Math.abs(dy) && Math.abs(t.clientX - pull.x) > 8) { pull = null; return; }
+      const down = dy > 8 && (!pull.inBody || body.scrollTop <= 0), upw = dy < -8 && snap !== "full";
+      if (down || upw) { pull.on = true; begin(t.clientY); }
       else if (Math.abs(dy) > 8) { pull = null; return; }
       else return;
     }
     e.preventDefault();
-    const hs = heights();
-    apply(Math.max(hs.peek * 0.7, Math.min(hs.full, pull.h - (e.touches[0].clientY - pull.y))));
+    move(t.clientY, e.timeStamp || performance.now());
   }, { passive: false });
   // touchcancel (an incoming call, iOS taking the gesture): same as lifting the finger, the sheet settles on a level.
-  const release = () => {
-    if (pull?.on) {
-      el.classList.remove("dragging");
-      const hs = heights(), moved = cur - pull.h;
-      // A short flick still changes level in its direction.
-      const order = ["peek", "half", "full"], i = order.indexOf(snap);
-      if (Math.abs(moved) > 40 && Math.abs(moved) < 140) set(order[Math.max(0, Math.min(2, i + (moved > 0 ? 1 : -1)))]);
-      else set(Object.entries(hs).sort((x, y) => Math.abs(x[1] - cur) - Math.abs(y[1] - cur))[0][0]);
-    }
-    pull = null;
-  };
-  body.addEventListener("touchend", release);
-  body.addEventListener("touchcancel", release);
-  grip.addEventListener("pointercancel", end);
-  grip.addEventListener("lostpointercapture", end);
+  const release = (e) => { if (pull?.on) end(false, e.timeStamp || performance.now()); pull = null; };
+  el.addEventListener("touchend", release);
+  el.addEventListener("touchcancel", release);
   grip.addEventListener("keydown", (e) => {
-    const order = ["peek", "half", "full"], i = order.indexOf(snap);
-    if (e.key === "ArrowUp") { set(order[Math.min(2, i + 1)]); e.preventDefault(); }
-    if (e.key === "ArrowDown") { set(order[Math.max(0, i - 1)]); e.preventDefault(); }
-    if (e.key === "Enter" || e.key === " ") { set(order[(i + 1) % 3]); e.preventDefault(); }
+    const i = ORDER.indexOf(snap);
+    if (e.key === "ArrowUp") { set(ORDER[Math.min(2, i + 1)]); e.preventDefault(); }
+    if (e.key === "ArrowDown") { set(ORDER[Math.max(0, i - 1)]); e.preventDefault(); }
+    if (e.key === "Enter" || e.key === " ") { set(ORDER[(i + 1) % 3]); e.preventDefault(); }
   });
-  window.addEventListener("resize", () => set(snap));
-  window.visualViewport?.addEventListener("resize", () => set(snap));
+  // Resize, rotation, keyboard (visual viewport), fonts, text size: measured again once per frame at most.
+  let rz = 0;
+  const refresh = () => { if (!rz) rz = requestAnimationFrame(() => { rz = 0; measure(); if (!g) set(snap); }); };
+  window.addEventListener("resize", refresh);
+  window.visualViewport?.addEventListener("resize", refresh);
+  document.fonts?.ready.then(refresh);
   set("half");
   return {
-    set, get: () => snap,
-    padding: () => (isPhone() ? { bottom: heights()[snap === "full" ? "half" : snap] + 20, top: 76 + safeTop(), left: 24, right: 24 }
-      : { left: el.getBoundingClientRect().right + 20, top: 76 + safeTop(), right: 76, bottom: 40 }),
+    set, get: () => snap, refresh,
+    padding: () => (isPhone() ? { bottom: heights()[snap === "full" ? "half" : snap] + 20, top: 76 + heights().safe, left: 24, right: 24 }
+      : { left: el.getBoundingClientRect().right + 20, top: 76 + heights().safe, right: 76, bottom: 40 }),
     scrollTop: () => { body.scrollTop = 0; },
   };
 })();
@@ -305,15 +370,30 @@ const nearestStations = (coord, max = 5, radius = 2000) => [...S.stations.values
 const worksNear = (coord, radius = 150) => S.worksCenters.filter((w) => distM(coord, w.c) <= radius);
 
 // Acceslibre places around a point (the API wants a bbox of at most 16 tiles of 0.01°).
-const placeCache = new Map();
-async function placesAround(coord, dLon = 0.008, dLat = 0.0055) {
+// A partial answer (meta.incomplete: some tiles were still loading on the server) is never kept: it is asked
+// again once, about 4 s later, and `onMore` gets the complete list when it comes.
+const placeCache = new Map(), placeRetry = new Map();
+async function placesAround(coord, dLon = 0.008, dLat = 0.0055, onMore = null) {
   // Snap to the server's 0.01° tiles: nearby positions share one URL, so the browser and the CDN reuse it.
   // Edges sit 0.0001° inside the tile grid so float rounding never adds a neighbour tile server-side.
   const T = 0.01, f = (v) => (Math.floor(v / T) * T + 0.0001).toFixed(4), c = (v) => (Math.ceil(v / T) * T - 0.0001).toFixed(4);
   const bbox = [f(coord[0] - dLon), f(coord[1] - dLat), c(coord[0] + dLon), c(coord[1] + dLat)].join(",");
-  if (!placeCache.has(bbox)) placeCache.set(bbox, getJSON(`/api/places?bbox=${bbox}`).catch((e) => { placeCache.delete(bbox); throw e; }));
+  const ask = () => getJSON(`/api/places?bbox=${bbox}`).then((d) => {
+    if (d.meta?.incomplete) placeCache.delete(bbox);
+    return d;
+  }, (e) => { placeCache.delete(bbox); throw e; });
+  if (!placeCache.has(bbox)) placeCache.set(bbox, ask());
   const d = await placeCache.get(bbox);
   S.meta.places = d.meta;
+  if (d.meta?.incomplete) {
+    if (!placeRetry.has(bbox)) {
+      placeRetry.set(bbox, new Promise((ok) => setTimeout(ok, 4000)).then(() => {
+        const p = ask(); placeCache.set(bbox, p);
+        return p.finally(() => placeRetry.delete(bbox));
+      }));
+    }
+    if (onMore) placeRetry.get(bbox).then((full) => { if ((full.features?.length || 0) > d.features.length) { S.meta.places = full.meta; onMore(full.features); } }).catch(() => {});
+  }
   return d.features;
 }
 
@@ -335,7 +415,7 @@ function createMap(opts) {
 }
 const hasMap = () => !document.body.classList.contains("no-map");
 const map = createMap({
-  container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
+  container: "map",  // the style is set below, edited before MapLibre reads it (baseStyle)
   center: [2.3488, 48.8566], zoom: 12.4, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
   // iPhones render at 3x: capping at 2x divides the GPU work by ~2.25 with no visible loss on a map.
   pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
@@ -353,10 +433,13 @@ map.on("error", (e) => {
 
 const MARK_PATHS = { ok: "m5 12.5 4.5 4.5L19 7.5", ko: "M6 6l12 12M18 6 6 18", warn: "M12 5v9M12 19h.01", unk: "M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01",
   food: "M7 3v18M4 3v5a3 3 0 0 0 6 0V3M18 21V3c-2.5 1.5-4 4.5-4 8h4" };
+// Drawn at 2x, the map's own pixel ratio (pixelRatio above): a 3x image was 2.25 times the pixels for nothing.
+// willReadFrequently keeps the canvas in memory, so getImageData() is not a read back from the GPU.
+const MARK_R = Math.min(Math.max(2, window.devicePixelRatio || 1), 2);
 function markImage(color, glyph, { size = 44, square = false } = {}) {
-  const r = Math.max(2, window.devicePixelRatio || 1), px = size * r, c = document.createElement("canvas");
+  const r = MARK_R, px = size * r, c = document.createElement("canvas");
   c.width = c.height = px;
-  const g = c.getContext("2d"), pad = 2.5 * r;
+  const g = c.getContext("2d", { willReadFrequently: true }), pad = 2.5 * r;
   g.beginPath();
   if (square) g.roundRect(pad, pad, px - 2 * pad, px - 2 * pad, 11 * r); else g.arc(px / 2, px / 2, px / 2 - pad, 0, Math.PI * 2);
   g.fillStyle = color; g.fill(); g.lineWidth = 3 * r; g.strokeStyle = "#fff"; g.stroke();
@@ -365,9 +448,9 @@ function markImage(color, glyph, { size = 44, square = false } = {}) {
   return { image: g.getImageData(0, 0, px, px), pixelRatio: r };
 }
 function hatchImage() {
-  const r = Math.max(2, window.devicePixelRatio || 1), px = 12 * r, c = document.createElement("canvas");
+  const r = MARK_R, px = 12 * r, c = document.createElement("canvas");
   c.width = c.height = px;
-  const g = c.getContext("2d");
+  const g = c.getContext("2d", { willReadFrequently: true });
   g.fillStyle = "rgba(194,65,12,.16)"; g.fillRect(0, 0, px, px);
   g.strokeStyle = "rgba(194,65,12,.85)"; g.lineWidth = 2.2 * r;
   for (const o of [-px, 0, px]) { g.beginPath(); g.moveTo(o, px); g.lineTo(o + px, 0); g.stroke(); }
@@ -377,29 +460,35 @@ const empty = () => ({ type: "FeatureCollection", features: [] });
 
 // The base map's own shop icons and road shields compete with ours: hide them.
 const BASE_CLUTTER = /^(poi_|highway-shield|road_shield)/;
+// The base map's look is written into the style itself, before MapLibre reads it. The same edits made after "load"
+// (about 150 property changes) made it parse and draw every visible tile a second time while the app opened.
+function baseStyle(_prev, next) {
+  // Shop icons, road shields and 3D buildings: gone rather than hidden, so no tile ever lays them out.
+  next.layers = next.layers.filter((l) => !BASE_CLUTTER.test(l.id) && l.type !== "fill-extrusion");
+  for (const l of next.layers) {
+    const paint = () => (l.paint ||= {});
+    // Street numbers, minor street names and the base map's points of interest: only at street level.
+    if (l.type === "symbol" && /housenumber|poi|road_oneway|highway-name-minor|highway_name_other/.test(l.id)) { l.minzoom = 16; l.maxzoom = 24; }
+    // Place names in French (the base style prefers English for districts).
+    if (l.type === "symbol" && l.layout && l.layout["text-field"]) l.layout["text-field"] = ["coalesce", ["get", "name:fr"], ["get", "name"]];
+    // Calm, warm base: white streets on cream, so our markers are what stands out.
+    if (l.type === "line" && /^(road|bridge|tunnel)_/.test(l.id) && !/rail|pattern/.test(l.id)) {
+      const casing = /casing/.test(l.id);
+      paint()["line-color"] = casing ? (/motorway|trunk|primary|secondary|link/.test(l.id) ? "#e2d6c2" : "#e9e1d3") : (/motorway/.test(l.id) ? "#fde9c8" : "#ffffff");
+    }
+    // Quieter ground so our markers carry the screen: flat pale buildings, softer residential areas.
+    if (l.id === "background") paint()["background-color"] = "#f6f0e6";
+    else if (l.type === "fill" && /^building/.test(l.id)) Object.assign(paint(), { "fill-color": "#ebe4d8", "fill-opacity": 0.6 });
+    else if (l.id === "landuse_residential") paint()["fill-opacity"] = 0.25;
+  }
+  return next;
+}
+map.setStyle("https://tiles.openfreemap.org/styles/liberty", { transformStyle: baseStyle });
 
 map.on("load", () => {
   // The credits open folded (an "i" button): unfolded, they ran under the Report and locate buttons.
   const attrib = document.querySelector(".maplibregl-ctrl-attrib");
   attrib?.removeAttribute("open"); attrib?.classList.remove("maplibregl-compact-show");
-  for (const l of map.getStyle().layers) {
-    if (BASE_CLUTTER.test(l.id)) { map.setLayoutProperty(l.id, "visibility", "none"); continue; }
-    if (l.type === "symbol" && /housenumber|poi|road_oneway|highway-name-minor|highway_name_other/.test(l.id)) map.setLayerZoomRange(l.id, 16, 24);
-    // Place names in French (the base style prefers English for districts).
-    if (l.type === "symbol" && l.layout && l.layout["text-field"]) map.setLayoutProperty(l.id, "text-field", ["coalesce", ["get", "name:fr"], ["get", "name"]]);
-    // Calm, warm base: white streets on cream, so our markers are what stands out.
-    if (l.type === "line" && /^(road|bridge|tunnel)_/.test(l.id) && !/rail|pattern/.test(l.id)) {
-      const casing = /casing/.test(l.id);
-      map.setPaintProperty(l.id, "line-color", casing ? (/motorway|trunk|primary|secondary|link/.test(l.id) ? "#e2d6c2" : "#e9e1d3") : (/motorway/.test(l.id) ? "#fde9c8" : "#ffffff"));
-    }
-  }
-  map.setPaintProperty("background", "background-color", "#f6f0e6");
-  // Quieter ground so our markers carry the screen: flat pale buildings, softer residential areas.
-  for (const l of map.getStyle().layers) {
-    if (l.type === "fill-extrusion") map.setLayoutProperty(l.id, "visibility", "none");
-    else if (l.type === "fill" && /^building/.test(l.id)) { map.setPaintProperty(l.id, "fill-color", "#ebe4d8"); map.setPaintProperty(l.id, "fill-opacity", 0.6); }
-    else if (l.id === "landuse_residential") map.setPaintProperty(l.id, "fill-opacity", 0.25);
-  }
   for (const k of ["ok", "warn", "ko", "unk"]) {
     const m = markImage(C[k], k); map.addImage(`st-${k}`, m.image, { pixelRatio: m.pixelRatio });
     const f = markImage(C[k], "food", { size: 36, square: true }); map.addImage(`pl-${k}`, f.image, { pixelRatio: f.pixelRatio });
@@ -476,10 +565,16 @@ map.on("load", () => {
   });
 
   // Elevator data loads with the page, not with the map: it may already be here.
-  if (S.stations.size) map.getSource("stations").setData(stationsGeoJSON());
+  if (S.stations.size) setSource("stations", stationsGeoJSON(), liftsSig);
   if (reportsData.length) renderReports();
-  loadStatic();
-  loadReports();
+  // The credits button shows once the map has drawn (style.css), then the heavy layers load when the phone is idle:
+  // roadworks are 2.3 MB of GeoJSON, and parsing them used to land in the middle of the first frames.
+  map.once("idle", () => {
+    document.body.classList.add("map-ready");
+    whenIdle(() => { loadStatic(); loadReports(); });
+    // Platforms: search and station sheets use them. Small enough to prefetch once the screen is calm.
+    whenIdle(() => ensureQuais(), 5000);
+  });
 });
 
 function quickPopup(e, kind) {
@@ -490,33 +585,51 @@ function quickPopup(e, kind) {
     .addTo(map);
 }
 
-function setPin(coord) { map.getSource("pin")?.setData(coord ? { type: "Feature", geometry: { type: "Point", coordinates: coord } } : empty()); }
-const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// setData sends the whole layer to MapLibre's worker, which indexes it again and redraws: skipped when nothing changed
+// (every return home used to clear the pin, the trip and the restaurants again, every poll re-sent all the stations).
+const sourceSig = new Map();
+function setSource(id, data, sig) {
+  const src = map.getSource(id);
+  if (!src) return false;
+  if (sig !== undefined && sourceSig.get(id) === sig) return false;
+  sourceSig.set(id, sig);
+  src.setData(data);
+  return true;
+}
+function setPin(coord) { setSource("pin", coord ? { type: "Feature", geometry: { type: "Point", coordinates: coord } } : empty(), coord ? coord.join(",") : ""); }
+const reduceMotion = () => MOTION_MQ.matches;
 const flyTo = (coord, zoom = 15.5) => (reduceMotion() ? map.jumpTo({ center: coord, zoom, padding: Sheet.padding() })
   : map.flyTo({ center: coord, zoom, padding: Sheet.padding(), essential: true }));
 function fitTo(coords) {
   if (!hasMap() || !coords.length) return;
   const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
   coords.forEach((c) => b.extend(c));
-  const pad = Sheet.padding(), c = map.getCanvas(), h = c.clientHeight, w = c.clientWidth;
+  // The canvas size from its attributes: clientHeight here, right after a list was drawn, forced a full layout.
+  const pad = Sheet.padding(), c = map.getCanvas(), r = map.getPixelRatio?.() || 1, h = c.height / r, w = c.width / r;
   pad.bottom = Math.min(pad.bottom, h - pad.top - 80); pad.right = Math.min(pad.right, w - pad.left - 80);
   map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 });  // flyTo leaves its padding on the camera; fitBounds would add both
   map.fitBounds(b, { padding: pad, maxZoom: 15.5, animate: !reduceMotion() });
 }
 function showPlacesOnMap(feats) {
   S.places = feats;
-  map.getSource("places")?.setData({ type: "FeatureCollection", features: feats.map((f) => ({ ...f, properties: { id: f.properties.id, st: PLACE_ST[f.properties.wheelchair] } })) });
+  setSource("places", { type: "FeatureCollection", features: feats.map((f) => ({ ...f, properties: { id: f.properties.id, st: PLACE_ST[f.properties.wheelchair] } })) },
+    feats.map((f) => f.properties.id).join(","));
 }
 
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
+// Station statuses as one string: the map layer is only sent again when a status changed (polls every 5 min).
+let liftsSig = "";
+const lastLoad = { lifts: 0, alerts: 0 };  // when each poll last ran (it pauses while the app is in the background)
 async function loadLifts() {
+  lastLoad.lifts = Date.now();
   try {
     const d = await getJSON("/api/lifts");
     buildStations(d);
     S.meta.lifts = d.meta;
-    map.getSource("stations")?.setData(stationsGeoJSON());
+    liftsSig = [...S.stations.values()].map((st) => st.id + st.status).join();
+    setSource("stations", stationsGeoJSON(), liftsSig);
     renderToday();
     renderSources();
   } catch (e) {
@@ -529,8 +642,13 @@ async function loadLifts() {
 const errText = (e) => (e && (e.message || e.status)) || String(e);
 const once = (fn) => { let p = null; return () => (p ||= fn().catch((e) => { p = null; console.warn("load:", errText(e)); })); };
 const ensureQuais = once(async () => {
-  const d = await getJSON("/api/stations"); S.quais = d.features; S.meta.quais = d.meta;
-  map.getSource("quais")?.setData(d); renderSources();
+  const d = await getJSON("/api/stations");
+  // Names normalised once (search looks them up on every keystroke).
+  for (const f of d.features) f._k = norm(f.properties.name || "");
+  S.quais = d.features; S.meta.quais = d.meta;
+  // 3,500 points: sent to the map only when its layer is shown, not on the first search.
+  if (layerOn.quais) setSource("quais", d, "all");
+  renderSources();
 });
 const ensureWorks = once(async () => {
   const d = await getJSON("/api/works"); S.meta.works = d.meta; map.getSource("works")?.setData(d);
@@ -557,26 +675,31 @@ async function loadBus() {
 async function loadPlacesLayer() {
   if (!layerOn.places || map.getZoom() < 14) return;
   // Cover the visible map (the server accepts at most 4x4 tiles of 0.01°, so cap each half-span at 0.015°).
-  const c = map.getCenter(), b = map.getBounds();
+  const c = map.getCenter(), b = map.getBounds(), my = ++loadPlacesLayer.seq;
   const dLon = Math.min((b.getEast() - b.getWest()) / 2, 0.015), dLat = Math.min((b.getNorth() - b.getSouth()) / 2, 0.015);
-  try { showPlacesOnMap((await placesAround([c.lng, c.lat], dLon, dLat)).filter((f) => f.properties.category === "food")); } catch (e) { console.warn("places:", errText(e)); }
+  const food = (fs) => fs.filter((f) => f.properties.category === "food");
+  const put = (fs) => { if (my === loadPlacesLayer.seq && layerOn.places) showPlacesOnMap(food(fs)); };
+  try { put(await placesAround([c.lng, c.lat], dLon, dLat, put)); } catch (e) { console.warn("places:", errText(e)); }
 }
+loadPlacesLayer.seq = 0;
 
 async function loadAlerts() {
+  lastLoad.alerts = Date.now();
   try {
     const d = await getJSON("/api/alerts");
     const ul = $("#alerts");
+    // Polled every minute: the list is only rebuilt when it changed (keeps focus, no re-layout of home).
+    const put = (html) => { if (loadAlerts.html !== html) { loadAlerts.html = html; ul.innerHTML = html; bindOpen(ul); } };
     if (!d.alerts.length) {
-      ul.innerHTML = `<li class="empty-li">Nothing has changed since ${d.poller.last_poll ? hhmm(d.poller.last_poll) : "earlier"}. I check again every 15 minutes.</li>`;
+      put(`<li class="empty-li">Nothing has changed since ${d.poller.last_poll ? hhmm(d.poller.last_poll) : "earlier"}. I check again every 15 minutes.</li>`);
       return;
     }
-    ul.innerHTML = d.alerts.slice(0, 6).map((a) => {
+    put(d.alerts.slice(0, 6).map((a) => {
       const st = a.to === "available" ? "ok" : a.to === "notavailable" ? "ko" : "unk";
       const what = st === "ok" ? "Elevator fixed" : st === "ko" ? "Elevator broke down" : "Status no longer known";
       return `<li><button class="item" data-open="${esc(a.zdcid)}">${mark(st)}<span class="t"><b>${esc(a.station)}</b>` +
         `<small>${what}, ${rel(a.detected_at)}</small></span>${icon("chev-r", "chev")}</button></li>`;
-    }).join("");
-    bindOpen(ul);
+    }).join(""));
   } catch (e) { console.warn("alerts:", errText(e)); }
 }
 
@@ -619,21 +742,21 @@ function renderFavs() {
   const rec = recents().map((r, i) => `<li class="hp"><button class="hp-go" data-recent="${i}">${icon("clock")}<span class="t">` +
     `<b><span class="sr">Recent: </span>${esc(r.label)}</b><small>${esc(recentSub(r))}</small></span></button></li>`);
   const html = [...favs, ...rec].join("");
-  if (ul.innerHTML === html) return;  // re-rendered on every return home: keep focus when nothing changed
+  if (renderFavs.html === html) return;  // re-rendered on every return home: keep focus when nothing changed
+  renderFavs.html = html;
   const hadFocus = ul.contains(document.activeElement);
   ul.innerHTML = html;
   ul.scrollLeft = 0;
-  ul.querySelectorAll("[data-fav]").forEach((b) => b.addEventListener("click", () => {
-    const v = store.json(`fav-${b.dataset.fav}`);
-    if (v) tripTo({ ...v, kind: "fav" }); else askFav(b.dataset.fav);
-  }));
-  ul.querySelectorAll("[data-fav-edit]").forEach((b) => b.addEventListener("click", () => askFav(b.dataset.favEdit)));
-  ul.querySelectorAll("[data-recent]").forEach((b) => b.addEventListener("click", () => {
-    const r = recents()[+b.dataset.recent];
-    if (r) { addRecent(r); tripTo({ ...r, kind: "recent" }); }
-  }));
   if (hadFocus) ul.querySelector("button")?.focus({ preventScroll: true });
 }
+// One listener for the row (index.html already holds Home and Work, so the row is there on the first paint).
+$("#favs").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.favEdit) return askFav(b.dataset.favEdit);
+  if (b.dataset.fav) { const v = store.json(`fav-${b.dataset.fav}`); return v ? tripTo({ ...v, kind: "fav" }) : askFav(b.dataset.fav); }
+  if (b.dataset.recent != null) { const r = recents()[+b.dataset.recent]; if (r) { addRecent(r); tripTo({ ...r, kind: "recent" }); } }
+});
 // A trip to `to` from where the user is (never the start of a previous trip), like Google Maps.
 function tripTo(to) {
   if (!S.myPos) trip.from = null;
@@ -683,7 +806,7 @@ function goHome() {
   // Focus was in the closing sheet (or nowhere): give it back to what opened it, else to the search bar,
   // quietly (no full sheet, no suggestions until the user types), as Google Maps does.
   const lost = $("#sheet").contains(document.activeElement) || document.activeElement === document.body || !document.activeElement;
-  show("home", "half"); setPin(null); map.getSource("trip")?.setData(empty()); map.getSource("trip-ends")?.setData(empty());
+  show("home", "half"); setPin(null); setSource("trip", empty(), ""); setSource("trip-ends", empty(), "");
   if (!layerOn.places) showPlacesOnMap([]);
   history.replaceState(null, "", location.pathname);
   const o = show.opener;
@@ -719,11 +842,14 @@ async function here() {
   return pos;
 }
 
+// Placeholder rows in the shape of the coming list (hidden from screen readers, which hear "Searching…").
+const skeleton = (n = 4, cls = "", say = "Searching…") => `${say ? `<p class="sr">${say}</p>` : ""}<ul class="skel ${cls}" aria-hidden="true">` +
+  `<li><span class="sk-dot"></span><span class="sk-t"><span></span><span></span></span></li>`.repeat(n) + `</ul>`;
 function listView(title, sub) {
   $("#l-title").textContent = title;
   $("#l-sub").textContent = sub || "";
   $("#l-filters").innerHTML = "";
-  $("#l-body").innerHTML = `<p class="muted">Searching…</p>`;
+  $("#l-body").innerHTML = skeleton();
   show("list", "half");
 }
 
@@ -757,13 +883,16 @@ async function openFood() {
   flyTo(foodPos, 15.5);
   // Acceslibre can take a while on a cold area: say so rather than look stuck.
   const here_ = () => !$("#v-list").hidden && $("#l-title").textContent === "Eat nearby";
-  const slow = setTimeout(() => { if (here_() && !foodAll.length) $("#l-body").innerHTML = `<p class="muted loading">Still searching. Acceslibre can take a few seconds the first time</p>`; }, 6000);
+  const slow = setTimeout(() => { if (here_() && !foodAll.length) $("#l-body").innerHTML = `<p class="muted loading">Still searching. Acceslibre can take a few seconds the first time</p>` + skeleton(3, "", ""); }, 6000);
   try {
     foodAll = [];
-    const feats = await placesAround(foodPos);
+    const pos = foodPos;
+    const toFood = (fs) => fs.filter((f) => f.properties.category === "food")
+      .map((f) => ({ f, d: distM(pos, f.geometry.coordinates) })).sort((a, b) => a.d - b.d);
+    // Part of the area was still loading on the server: the rest comes in a few seconds later, in place.
+    const feats = await placesAround(pos, undefined, undefined, (more) => { if (here_() && foodPos === pos) { foodAll = toFood(more); renderFood(); } });
     if (!here_()) return;  // the user moved on: no list, no pins behind their back
-    foodAll = feats.filter((f) => f.properties.category === "food")
-      .map((f) => ({ f, d: distM(foodPos, f.geometry.coordinates) })).sort((a, b) => a.d - b.d);
+    foodAll = toFood(feats);
     renderFood();
   } catch (e) {
     if (!here_()) return;
@@ -775,10 +904,20 @@ async function openFood() {
 function renderFoodFilters() {
   const F = [["ok", "ok", "Step-free"], ["help", "hand", "With a little help"], ["wc", "wc", "Accessible toilets"]];
   $("#l-filters").innerHTML = F.map(([k, ic, label]) => `<button class="fchip" data-f="${k}" aria-pressed="${foodFilters[k]}">${icon(ic)}${label}</button>`).join("");
-  document.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click", () => {
-    foodFilters[b.dataset.f] = !foodFilters[b.dataset.f]; b.setAttribute("aria-pressed", String(foodFilters[b.dataset.f])); renderFood();
-  }));
 }
+// One listener each for the filters and the rows (they are drawn again on every filter tap).
+$("#l-filters").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-f]");
+  if (!b) return;
+  foodFilters[b.dataset.f] = !foodFilters[b.dataset.f]; b.setAttribute("aria-pressed", String(foodFilters[b.dataset.f]));
+  // The pressed state shows at once; the list follows in the next frame.
+  requestAnimationFrame(renderFood);
+});
+let foodShown = [];
+$("#l-body").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-place]");
+  if (b && foodShown[+b.dataset.place]) openAcceslibre(foodShown[+b.dataset.place].f);
+});
 function renderFood() {
   const keep = foodAll.filter(({ f }) => {
     const p = f.properties;
@@ -787,6 +926,7 @@ function renderFood() {
   });
   showPlacesOnMap(keep.map((x) => x.f));
   const total = foodAll.length;
+  foodShown = keep;
   $("#l-sub").textContent = `${plural(keep.length, "place", "places")} out of ${total} around you.`;
   $("#l-body").innerHTML = keep.length
     ? `<ul class="list">${keep.slice(0, 40).map(({ f, d }, i) => {
@@ -796,7 +936,6 @@ function renderFood() {
           `<small>${esc(p.activity || "")}</small></span><span class="end">${fmtDist(d)}${icon("chev-r", "chev")}</span></button></li>`;
       }).join("")}</ul>`
     : `<p class="muted">No place matches these filters. Try removing one.</p>`;
-  document.querySelectorAll("[data-place]").forEach((b) => b.addEventListener("click", () => openAcceslibre(keep[+b.dataset.place].f)));
 }
 
 function acceslibreBlock(p) {
@@ -1207,7 +1346,7 @@ $("#r-send").addEventListener("click", async () => {
       throw Object.assign(new Error(typeof b.detail === "string" ? b.detail : r.status), { status: r.status, code: b.code || b.detail?.code });
     }
     toast("Thank you! It's on the map. Other users can confirm it.");
-    goHome(); loadReports();
+    goHome(); loadReports(true);
   } catch (e) {
     // The report stays filled in: nothing to type again.
     if (e.code === "offensive") { $("#r-text").hidden = false; $("#r-text").focus(); }  // the words to change are there
@@ -1242,7 +1381,9 @@ async function flagReport(btn) {
   const box = btn.closest(".mod"), id = box.dataset.report, label = btn.querySelector("span");
   btn.disabled = true; btn.setAttribute("aria-busy", "true"); label.textContent = "Sending…";
   try {
-    const r = await postJSON(`/api/reports/${encodeURIComponent(id)}/flag`, { user_id: userId() });
+    // The token proves this phone owns user_id: the server then counts one flag per person, not per connection.
+    const token = Profile.token();
+    const r = await postJSON(`/api/reports/${encodeURIComponent(id)}/flag`, { user_id: userId() }, "POST", token ? { "X-User-Token": token } : {});
     if (!r.ok) throw Object.assign(new Error(r.status), { status: r.status });
     const s = idList("pmr_flagged_reports"); s.add(String(id));
     store.set("pmr_flagged_reports", JSON.stringify([...s].slice(-500)));
@@ -1290,19 +1431,26 @@ let reportsData = [], reportsAll = [];
 let reportsApi = true, reportsPause = 0;  // 503 (no database): ask again in 5 minutes, not on every map move
 function renderReports() {
   reportsData = reportsAll.filter((f) => !isBlocked(f.properties.author));
-  map.getSource("reports")?.setData({ type: "FeatureCollection", features: reportsData.map((f, i) => ({ ...f, properties: { i, st: GRAV_ST[f.properties.gravite] || "warn" } })) });
+  const feats = reportsData.map((f, i) => ({ ...f, properties: { i, st: GRAV_ST[f.properties.gravite] || "warn" } }));
+  setSource("reports", { type: "FeatureCollection", features: feats }, feats.map((f, i) => `${reportsData[i].properties.id}:${f.properties.st}`).join());
 }
-async function loadReports() {
+// Reports are asked for the view plus half a screen around it: panning within that area (for 2 minutes)
+// asks nothing new, instead of one request per map move.
+let reportsBox = null, reportsAt = 0, reportsSeq = 0;
+async function loadReports(force = false) {
   if (!reportsApi || Date.now() < reportsPause || map.getZoom() < 13) return;
-  const b = map.getBounds();
-  const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].map((v) => v.toFixed(5)).join(",");
+  const b = map.getBounds(), w = b.getWest(), e = b.getEast(), so = b.getSouth(), n = b.getNorth();
+  const inside = reportsBox && w >= reportsBox[0] && so >= reportsBox[1] && e <= reportsBox[2] && n <= reportsBox[3];
+  if (!force && inside && Date.now() - reportsAt < 2 * 60 * 1000) return;
+  const mx = (e - w) / 2, my = (n - so) / 2, box = [w - mx, so - my, e + mx, n + my], seq = ++reportsSeq;
   try {
-    const d = await getJSON(`/api/reports?bbox=${bbox}`).catch((e) => {
+    const d = await getJSON(`/api/reports?bbox=${box.map((v) => v.toFixed(5)).join(",")}`).catch((e) => {
       if (e.status === 404 || e.status === 405) reportsApi = false;
       if (e.status === 503) reportsPause = Date.now() + 5 * 60 * 1000;
       throw e;
     });
-    reportsAll = d.features || [];
+    if (seq !== reportsSeq) return;  // a newer request was sent meanwhile
+    reportsAll = d.features || []; reportsBox = box; reportsAt = Date.now();
     renderReports();
   } catch { /* no reports API yet */ }
 }
@@ -1315,7 +1463,8 @@ function openReport(f) {
   show("detail", "half");
   flyTo(coord, 17);
   $("#detail").innerHTML =
-    (p.photo_thumb ? `<figure class="photo" id="photo"><img alt="Report photo" src="${esc(p.photo_thumb)}"><figcaption>Photo taken by a user</figcaption></figure>` : "") +
+    // The photo has its own cached address (the map list no longer carries the images); older servers inline it.
+    (p.photo_url || p.photo_thumb ? `<figure class="photo" id="photo"><img alt="Report photo" decoding="async" src="${esc(p.photo_url ? API + p.photo_url : p.photo_thumb)}"><figcaption>Photo taken by a user</figcaption></figure>` : "") +
     `<h2 id="d-title" class="title">${esc(REPORT_FR[p.categorie] || "Reported obstacle")}</h2>` +
     `<p class="sub">Reported by the community ${p.created_at ? rel(p.created_at) : ""}${p.is_demo ? " · demo report" : ""}</p>` +
     `<div class="verdict ${st}">${mark(st, "lg")}<span><strong>${p.gravite === "bloquant" ? "Blocking in a wheelchair" : p.gravite === "genant" ? "Inconvenient" : "For information"}</strong>${esc(p.description || "")}</span></div>` +
@@ -1325,14 +1474,14 @@ function openReport(f) {
     `<p class="src">Community report, not verified by an official source. It loses confidence if nobody confirms it.</p>`;
   $("#still-there").addEventListener("click", async (e) => {
     const btn = e.currentTarget, label = btn.querySelector("span");
-    btn.disabled = true; label.textContent = "Saving…";
+    // Shown as done at once; put back (with a message) if the server did not save it.
+    btn.disabled = true; label.textContent = "Confirmed";
     try {
       const r = await postJSON(`/api/reports/${encodeURIComponent(p.id)}/confirm`, { user_id: userId() });
       if (!r.ok) throw new Error(r.status);
       const d = await r.json().catch(() => ({}));
-      label.textContent = "Confirmed";
       toast(`Thank you! ${d.confirmations ? plural(d.confirmations, "person has confirmed it", "people have confirmed it") : "Confirmation saved"}.`);
-      loadReports();
+      loadReports(true);
     } catch (err) {
       btn.disabled = false; label.textContent = "Still there";
       toast(err.offline ? "You're offline: nothing was saved. Try again when you're back online." : "I couldn't save that. Try again in a moment.");
@@ -1518,7 +1667,7 @@ async function runTrip(opts = {}) {
   document.activeElement?.blur();
   tripRetry = false;
   out.setAttribute("aria-busy", "true");
-  out.innerHTML = `<p class="muted loading">Checking every step for your ${esc(Profile.get()?.short || "profile")}…</p>`;
+  out.innerHTML = `<p class="muted loading">Checking every step for your ${esc(Profile.get()?.short || "profile")}…</p>` + skeleton(3, "sk-routes", "");
   const q = new URLSearchParams({ profile: Profile.key() });
   if (demo) { q.set("replay", "demo"); q.set("from", "demo"); q.set("to", "demo"); }
   else { q.set("from", `${trip.from.lon},${trip.from.lat}`); q.set("to", `${trip.to.lon},${trip.to.lat}`); }
@@ -1830,11 +1979,11 @@ function renderItinerary(d, id, fromId = null) {
 
 function drawItinerary(it) {
   const color = { passe: C.ok, risque: C.warn, bloque: C.ko };
-  map.getSource("trip")?.setData({ type: "FeatureCollection", features: it.steps.filter((s) => s.geojson).map((s) => ({
+  setSource("trip", { type: "FeatureCollection", features: it.steps.filter((s) => s.geojson).map((s) => ({
     type: "Feature", geometry: s.geojson, properties: { c: color[s.verdict] || C.brand } })) });
   const pts = it.steps.flatMap((s) => (s.geojson?.coordinates || []));
   const pt = (c, end) => ({ type: "Feature", geometry: { type: "Point", coordinates: c }, properties: { end } });
-  map.getSource("trip-ends")?.setData({ type: "FeatureCollection", features: pts.length ? [pt(pts[0], "a"), pt(pts[pts.length - 1], "b")] : [] });
+  setSource("trip-ends", { type: "FeatureCollection", features: pts.length ? [pt(pts[0], "a"), pt(pts[pts.length - 1], "b")] : [] });
   if (pts.length) fitTo(pts.filter((_, i) => i % Math.ceil(pts.length / 40) === 0).concat([pts[pts.length - 1]]));
 }
 
@@ -1865,9 +2014,10 @@ $("#trip-go").addEventListener("click", () => runTrip());
 // Stops without elevators (Bastille, Opéra…): not in S.stations but valid trip ends.
 function otherStations(q, max = 2) {
   if (!S.quais?.length) return [];
-  const n = norm(q), seen = new Set([...S.stations.values()].map((st) => norm(st.name)));
-  return S.quais.filter((f) => norm(f.properties.name || "").startsWith(n))
-    .filter((f) => { const k = norm(f.properties.name); return !seen.has(k) && seen.add(k); }).slice(0, max)
+  // Names normalised once (ensureQuais, buildStations): this runs on every keystroke over 3,500 stops.
+  const n = norm(q), seen = new Set([...S.stations.values()].map((st) => st.key)), key = (f) => f._k ?? norm(f.properties.name || "");
+  return S.quais.filter((f) => key(f).startsWith(n))
+    .filter((f) => { const k = key(f); return !seen.has(k) && seen.add(k); }).slice(0, max)
     .map((f) => ({ kind: "place", label: f.properties.name, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
       sub: `${STOP_TYPE[f.properties.type] || "Station"} · ${{ true: "step-free", partial: "partly step-free", false: "not step-free" }[f.properties.accessibility] || "access unknown"}` }));
 }
@@ -1922,7 +2072,7 @@ const vagueQuery = (q) => norm(q).length < 3 || /^\d+( ?(bis|ter))?( (rue|av|ave
 const CHOOSE = "choose";
 
 function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, stations = true } = {}) {
-  let items = [], sel = -1, timer = null, seq = 0, askHint = "";
+  let items = [], sel = -1, timer = null, seq = 0, askHint = "", remote = [];
   const render = () => {
     if (!items.length) { list.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); return; }
     list.innerHTML = (askHint ? `<li class="sg-ask" role="presentation">${esc(askHint)}</li>` : "") + items.map((it, i) => {
@@ -1932,34 +2082,44 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     }).join("");
     list.hidden = false; input.setAttribute("aria-expanded", "true");
     if (sel >= 0) input.setAttribute("aria-activedescendant", `${list.id}-${sel}`);
-    list.querySelectorAll("li[data-i]").forEach((li) => li.addEventListener("click", () => pick(+li.dataset.i)));
   };
+  // One listener for the list (it is drawn again on every keystroke and every answer).
+  list.addEventListener("click", (e) => { const li = e.target.closest("li[data-i]"); if (li) pick(+li.dataset.i); });
   const pick = (i) => { const it = items[i]; if (!it || it.kind === "none") return; ++seq; items = []; askHint = ""; render(); input.value = it.label; input.blur(); if (withMe) addRecent(it); onPick(it); };
   const favItems = () => [...FAVS.map((f) => { const v = store.json(`fav-${f.key}`); return v && { ...v, kind: "fav", sub: f.label }; }).filter(Boolean),
     ...recents().map((r) => ({ ...r, kind: "recent", sub: recentSub(r) }))];
-  const run = async () => {
+  // Addresses and places from the last answer stay on screen while the next one loads, when they still match
+  // what is typed: the list grows or changes in place instead of shrinking to the stations and growing back.
+  const stillMatches = (it, q) => { const k = norm(`${it.label} ${it.sub || ""}`); return norm(q).split(" ").filter(Boolean).every((w) => k.includes(w)); };
+  // remoteToo false: what is known on the phone only, at once (stations, Home, Work, recents).
+  const run = async (remoteToo = true) => {
     const q = input.value.trim(), my = ++seq;
     const head = [];
     if (withMe && myPosItem() && (!q || norm("my location").startsWith(norm(q)))) head.push({ ...myPosItem(), sub: "Start from where you are" });
     if (withMe && !q) head.push(...favItems());
     if (q.length < 2) { items = head; sel = -1; render(); return; }
-    if (stations && !S.quais?.length) await ensureQuais();  // once, so Bastille or Opéra show up from the first keystroke
-    if (my !== seq) return;
-    const local = stations ? [...localStations(q), ...otherStations(q)].slice(0, 4) : [];
-    items = [...head, ...local]; sel = -1; render();
-    const ref = S.myPos || [map.getCenter().lng, map.getCenter().lat];
-    // Addresses and places first (fast), restaurants from Acceslibre added when they arrive (can take seconds).
-    let ign = { results: [] }, places = [];
+    let local = [], ign = null, places = [];
+    const kept = remote.filter((it) => stillMatches(it, q));
     const show = () => {
       if (my !== seq) return;
-      const found = ign.results.slice(0, 5), exact = found.filter((it) => exactPlace(it, q));
-      items = [...head, ...exact, ...local, ...found.filter((it) => !exact.includes(it)), ...places.slice(0, 3)]; render();
+      if (!ign) { items = [...head, ...local, ...kept]; render(); return; }
+      const found = ign.results.slice(0, 5), exact = found.filter((it) => exactPlace(it, q)), rest = found.filter((it) => !exact.includes(it));
+      remote = [...exact, ...rest, ...places.slice(0, 3)];
+      items = [...head, ...exact, ...local, ...rest, ...places.slice(0, 3)]; render();
     };
+    const findLocal = () => { local = stations ? [...localStations(q), ...otherStations(q)].slice(0, 4) : []; };
+    findLocal(); sel = -1; show();
+    // Stops without elevators (Bastille, Opéra) join the list as soon as the platforms list is here.
+    if (stations && !S.quais?.length) ensureQuais().then(() => { if (my === seq) { findLocal(); show(); } });
+    if (!remoteToo) return;
+    const ref = S.myPos || [map.getCenter().lng, map.getCenter().lat];
+    // Addresses and places first (fast), restaurants from Acceslibre added when they arrive (can take seconds).
     const accP = q.length >= 3 ? getJSON(`/api/places/search?q=${encodeURIComponent(q)}&lon=${ref[0]}&lat=${ref[1]}`).catch(() => ({ features: [] })) : null;
-    ign = await suggestAPI(q, ref);
+    const r = await suggestAPI(q, ref);
+    if (my !== seq) return;
     const localNames = new Set(local.map((it) => norm(it.label)));
-    ign.results = ign.results.filter((it) => !(/^Station/.test(it.sub || "") && localNames.has(norm(it.label))));
-    show();
+    r.results = r.results.filter((it) => !(/^Station/.test(it.sub || "") && localNames.has(norm(it.label))));
+    ign = r; show();
     if (!accP) return;
     const acc = await accP;
     places = acc.features.map((f) => ({ kind: "acces", f, label: f.properties.name, status: PLACE_ST[f.properties.wheelchair],
@@ -1969,7 +2129,8 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
   };
   // A quiet focus (focus given back after closing a view) neither expands the sheet nor opens the list: that waits for typing.
   let quiet = false;
-  input.addEventListener("input", () => { if (quiet) { quiet = false; onFocus?.(); } askHint = ""; clearTimeout(timer); timer = setTimeout(run, 180); });
+  // Each keystroke: stations at once, addresses and places 150 ms after the last one.
+  input.addEventListener("input", () => { if (quiet) { quiet = false; onFocus?.(); } askHint = ""; clearTimeout(timer); run(false); timer = setTimeout(run, 150); });
   input.addEventListener("focus", () => { if (input.dataset.quiet) { delete input.dataset.quiet; quiet = true; return; } quiet = false; onFocus?.(); run(); });
   input.addEventListener("click", () => { if (quiet) { quiet = false; onFocus?.(); run(); } });  // a tap on the quietly focused field
   // Closed a moment after leaving the field (a tap on a suggestion lands first), unless the field got the focus back.
@@ -1996,7 +2157,7 @@ function autocomplete(input, list, onPick, { withMe = false, onFocus, onEnter, s
     const local = stations ? localStations(q) : [];
     // Stations without elevators (Bastille…) are not in S.stations but are valid trip ends.
     await ensureQuais();
-    const quai = (S.quais || []).find((f) => norm(f.properties.name || "") === nq);
+    const quai = (S.quais || []).find((f) => (f._k ?? norm(f.properties.name || "")) === nq);
     const ign = await suggestAPI(q, S.myPos || [map.getCenter().lng, map.getCenter().lat]);
     const all = [...local, ...ign.results].filter((x) => x.lon != null);
     const exact = ign.results.find((x) => exactPlace(x, q)) || local.find((x) => norm(x.label) === nq)
@@ -2083,6 +2244,7 @@ $("#locate").addEventListener("click", async (e) => {
   if (!pos) return toast("I can't find your location. Allow location access in your phone settings.");
   flyTo(pos, 15.5);
 });
+// + and − exist on large screens only (style.css): phones zoom with the fingers.
 $("#zoom-in").addEventListener("click", () => map.zoomIn());
 $("#zoom-out").addEventListener("click", () => map.zoomOut());
 $("#snap").addEventListener("click", () => openReportFlow({}));
@@ -2100,7 +2262,7 @@ function setLayer(k, on) {
 }
 document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => {
   const k = chip.dataset.layer; setLayer(k, !layerOn[k]);
-  if (k === "quais" && layerOn.quais) ensureQuais();
+  if (k === "quais" && layerOn.quais) ensureQuais().then(() => S.quais.length && setSource("quais", { type: "FeatureCollection", features: S.quais }, "all"));
   if (k === "works" && layerOn.works && map.getZoom() >= 14) ensureWorks();
   const minZ = { places: 15, works: 14.5 }[k];
   if (minZ && layerOn[k] && map.getZoom() < minZ) {
@@ -2121,6 +2283,7 @@ function setTextSize(n) {
   html.dataset.text = String(zoomed ? 2 : n);
   if (zoomed) html.dataset.tz = String(n); else delete html.dataset.tz;
   textSeg.querySelectorAll("input").forEach((r) => { r.checked = r.value === String(n); });
+  Sheet.refresh();  // panel heights, filters and map buttons depend on the text size
   return n;
 }
 setTextSize(store.get("text") ?? (store.get("big") === "1" ? 1 : 0));
@@ -2159,8 +2322,16 @@ renderFavs();
 // Elevator status and the "Just changed" feed load at once, map or no map.
 loadLifts().then(applyHash);
 loadAlerts();
-setInterval(loadLifts, 5 * 60 * 1000);
-setInterval(loadAlerts, 60 * 1000);
+// Polls (elevators every 5 min, the feed every minute) stop while the app is in the background (switched away,
+// screen locked) and catch up as soon as it is back on screen.
+const POLL = [["lifts", loadLifts, 5 * 60 * 1000], ["alerts", loadAlerts, 60 * 1000]];
+let pollT = null;
+const poll = () => POLL.forEach(([k, fn, ms]) => { if (Date.now() - lastLoad[k] >= ms - 2000) fn(); });
+const startPolls = () => { pollT ||= setInterval(poll, 20 * 1000); };
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { clearInterval(pollT); pollT = null; } else { poll(); startPolls(); }
+});
+if (!document.hidden) startPolls();
 
 // ---------------------------------------------------------------------------
 // First launch: choose a mobility profile (roadmap screen 1)
@@ -2168,8 +2339,7 @@ setInterval(loadAlerts, 60 * 1000);
 let chosen = Profile.get()?.key || null;
 radioKeys($("#ptiles"));
 function renderOnboard() {
-  $("#ptiles").innerHTML = PMR_PROFILES.map((p, i) =>
-    `<button class="ptile${p.sub ? " community" : ""}" role="radio" aria-checked="${p.key === chosen}" tabindex="${radioTab(p.key, chosen, i)}" data-p="${p.key}"><span class="tile-ic">${icon(p.ic)}</span><span><b>${esc(p.label)}</b>${p.sub ? `<small>${esc(p.sub)}</small>` : ""}</span></button>`).join("");
+  $("#ptiles").innerHTML = profileTilesHTML(chosen);  // profiles.js: same tiles as the first paint (index.html)
   document.querySelectorAll("[data-p]").forEach((b) => b.addEventListener("click", () => { chosen = b.dataset.p; renderOnboard(); $("#v-onboard").classList.add("picked"); $("#o-go").disabled = false; $(`[data-p="${chosen}"]`)?.focus(); }));
   $("#o-go").disabled = !chosen;
   $("#o-name").value = Profile.name();
@@ -2291,6 +2461,8 @@ let onboardFrom = null;
 $("#me-chip").addEventListener("click", () => { onboardFrom = [...document.querySelectorAll(".view")].find((v) => !v.hidden)?.id.slice(2); $("#v-onboard").classList.remove("picked"); renderOnboard(); show("onboard", "full"); });
 renderMe();
 if (!Profile.get() && !REPLAY) { renderOnboard(); show("onboard", "full"); }
+// The first paint showed the profile screen by CSS (html[data-first]); from now on the views' hidden attributes say it.
+delete document.documentElement.dataset.first;
 if (REPLAY) openTrip(null, null);
 
 // Report: "Change" lets the user pick the exact place (station, address) instead of the guessed one.

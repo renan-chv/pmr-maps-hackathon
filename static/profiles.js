@@ -13,6 +13,15 @@ const PMR_PROFILES = [
     sub: "Report broken elevators and blocked sidewalks so wheelchair users know before they go." },
 ];
 
+// Tiles of the profile screen, as radios (one tab stop: the chosen one, else the first). Used by app.js and,
+// on first launch, by index.html before the map library loads, so the first screen is complete when it appears.
+function profileTilesHTML(chosen) {
+  const e = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  return PMR_PROFILES.map((p, i) => `<button class="ptile${p.sub ? " community" : ""}" role="radio" aria-checked="${p.key === chosen}" ` +
+    `tabindex="${(chosen ? p.key === chosen : i === 0) ? "0" : "-1"}" data-p="${p.key}"><span class="tile-ic"><svg class="i " aria-hidden="true"><use href="#i-${p.ic}"/></svg></span>` +
+    `<span><b>${e(p.label)}</b>${p.sub ? `<small>${e(p.sub)}</small>` : ""}</span></button>`).join("");
+}
+
 const Profile = (() => {
   const read = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
   const write = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
