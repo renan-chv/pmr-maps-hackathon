@@ -19,9 +19,9 @@ Ne jamais écrire de valeur dans le dépôt, un ticket ou un chat. Seulement les
 
 | Variable | Rôle | Sans elle | Aiven | Vercel |
 |---|---|---|---|---|
-| `DATABASE_URL` | PostgreSQL : historique des ascenseurs, comptes, signalements, journal de l'agent | Pas de comptes ni de signalements (les routes répondent 503), historique en mémoire | Oui (fournie par le service PostgreSQL Aiven) | Non (volontaire) |
+| `DATABASE_URL` | PostgreSQL : historique des ascenseurs, comptes, signalements, journal de l'agent | Pas de comptes ni de signalements (les routes répondent 503), historique en mémoire | Oui (fournie par le service PostgreSQL Aiven) | Oui : Neon, posée par l'intégration Vercel |
 | `PRIM_API_KEY` | Clé PRIM pour le calcul d'itinéraire Navitia (en-tête `apiKey`) | Pas d'itinéraire en direct | Oui | Oui |
-| `ANTHROPIC_API_KEY` | Agent conversationnel et analyse des photos de signalement | Ces deux fonctions répondent qu'elles sont indisponibles | Oui si l'on veut ces fonctions | Non (volontaire) |
+| `ANTHROPIC_API_KEY` | Agent conversationnel et analyse des photos de signalement | Ces deux fonctions répondent qu'elles sont indisponibles | Oui si l'on veut ces fonctions | Oui si l'on veut ces fonctions |
 | `PHOTON_URL` | Adresse de Photon, doit finir par `/api/` | Instance publique `photon.komoot.io` | Oui, vers l'instance auto-hébergée | Oui, même valeur |
 | `AGENT_MODEL` | Modèle de l'agent (défaut `claude-opus-5-5`) | Défaut | Optionnel | Sans effet sans clé |
 | `REPORTS_MODEL` | Modèle de l'analyse photo (défaut `claude-sonnet-5-5`) | Défaut | Optionnel | Sans effet sans clé |
@@ -37,15 +37,15 @@ Ne jamais écrire de valeur dans le dépôt, un ticket ou un chat. Seulement les
 Où les saisir :
 
 - **Aiven** : console Aiven, projet, service de l'application (Runtime), section des variables d'environnement du service. `DATABASE_URL` vient de l'intégration avec le service PostgreSQL. [à vérifier : libellé exact du menu dans la console]
-- **Vercel** : projet `roulib` (équipe `mike-virtual-coach`), Settings, Environment Variables, cocher « Production ». En ligne de commande : `vercel env add PHOTON_URL production --scope mike-virtual-coach`. Une variable modifiée ne s'applique qu'au prochain déploiement.
+- **Vercel** : projet `roulib` (compte `luigi-6d97`, https://roulib-gray.vercel.app), Settings, Environment Variables, cocher « Production ». En ligne de commande : `vercel env add PHOTON_URL production`. Une variable modifiée ne s'applique qu'au prochain déploiement.
 
 ## 2. Redéployer
 
 - **Aiven** : un push ne redéploie pas. Console Aiven, service de l'app, bouton **« Deploy latest commit »**. Puis vérifier `curl https://<domaine Aiven>/health`.
-- **Vercel** (copie de secours), depuis la racine du dépôt :
+- **Vercel** (serveur de l'app iOS), depuis la racine du dépôt :
   ```bash
-  vercel link --project roulib --scope mike-virtual-coach   # une seule fois
-  vercel deploy --prod --scope mike-virtual-coach
+  vercel link --project roulib   # une seule fois
+  vercel deploy --prod
   ```
 - Après chaque déploiement, tester :
   ```bash

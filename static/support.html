@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fff9f1">
+  <title>Roulib – Aide et contact</title>
+  <style>
+    :root { --ground:#fff9f1; --ink:#1c1a17; --ink2:#5a524a; --blue:#3d3bd6; --line:#e8dfd3; }
+    @media (prefers-color-scheme: dark) { :root { --ground:#171512; --ink:#f4efe8; --ink2:#c4bbb0; --blue:#a9a8ff; --line:#38322b; } }
+    * { box-sizing:border-box; }
+    html { -webkit-text-size-adjust:100%; }
+    body { margin:0; background:var(--ground); color:var(--ink); font:17px/1.55 "Atkinson Hyperlegible Next", -apple-system, system-ui, sans-serif;
+      padding:calc(24px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left)); }
+    main { max-width:680px; margin:0 auto; }
+    .back { display:inline-flex; align-items:center; min-height:44px; color:var(--blue); font-weight:700; text-decoration:none; }
+    h1 { font-size:32px; line-height:1.15; margin:12px 0 4px; letter-spacing:-.01em; }
+    h2 { font-size:21px; margin:32px 0 8px; }
+    p, li { color:var(--ink2); }
+    strong { color:var(--ink); }
+    ul { padding-left:22px; }
+    li { margin:6px 0; }
+    a { color:var(--blue); }
+    .date { margin:0 0 24px; }
+    .box { border:1px solid var(--line); border-radius:16px; padding:4px 18px; }
+  </style>
+</head>
+<body>
+<main>
+  <a class="back" href="/">‹ Retour à Roulib</a>
+  <h1>Aide et contact</h1>
+  <p class="date">Roulib vérifie chaque étape d'un trajet en transports en commun à Paris et en Île-de-France, pour votre façon de vous déplacer.</p>
+
+  <div class="box">
+    <p><strong>Nous écrire :</strong> une question, un problème, une donnée fausse ou une demande sur vos données personnelles ? Ouvrez une demande sur <a href="https://github.com/LuigiRevelli/roulib/issues">github.com/LuigiRevelli/roulib/issues</a>. Nous répondons sous quelques jours.</p>
+  </div>
+
+  <h2>Vérifier un trajet</h2>
+  <p>Tapez votre destination dans « Où allez-vous ? », choisissez-la dans la liste puis touchez « Y aller ». Roulib vérifie les ascenseurs des stations, les travaux sur les trottoirs, les rues en escalier et la longueur des trajets à pied pour votre profil. Si un trajet est bloqué, un plan B est proposé.</p>
+
+  <h2>Voir un exemple sans être à Paris</h2>
+  <p>Sur l'accueil, touchez « Voir un trajet d'exemple (enregistré) ». C'est un vrai trajet enregistré le 22 octobre 2026, affiché comme exemple, pas en direct.</p>
+
+  <h2>Changer de profil ou de taille de texte</h2>
+  <p>Sur l'accueil, touchez « Profil » puis « Changer ». Vous y choisissez votre façon de vous déplacer et la taille du texte, de Normal à Très grand.</p>
+
+  <h2>Signaler un obstacle</h2>
+  <p>Touchez « Signaler » sur la carte, choisissez ce que vous voyez, ajoutez si vous voulez une photo, votre voix ou un texte, puis envoyez. Un signalement inapproprié peut être signalé, et vous pouvez masquer les signalements d'une personne.</p>
+
+  <h2>Supprimer vos données</h2>
+  <p>Profil › Supprimer mes données efface votre profil, vos signalements et tout ce que l'app garde sur ce téléphone. Détails dans la <a href="/static/privacy.html">politique de confidentialité</a>.</p>
+
+  <h2>D'où viennent les informations</h2>
+  <p>Île-de-France Mobilités (trajets et ascenseurs), Ville de Paris (travaux, rues en escalier, feux sonores), SNCF (assistance en gare), Acceslibre (accessibilité des lieux), OpenStreetMap (recherche et fond de carte). Chaque information affiche sa source et son heure. Une information inconnue n'est jamais présentée comme accessible.</p>
+</main>
+</body>
+</html>

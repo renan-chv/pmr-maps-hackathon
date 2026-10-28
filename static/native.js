@@ -9,7 +9,7 @@
   // Page served from the app bundle (capacitor://localhost on iOS, https://localhost on Android): call the hosted API.
   // During live reload the page comes from a dev server (with a port): keep same-origin calls.
   const bundled = location.protocol === "capacitor:" || (location.hostname === "localhost" && !location.port);
-  if (bundled) window.ROULIB_API = "https://01a1630f-d719-7e22-99af-faa332f9258b-8080.eur-1.aiven.app";
+  if (bundled) window.ROULIB_API = "https://roulib-gray.vercel.app";  // Vercel project "roulib" (luigi). Holds every key; see deploy/CHECKLIST.md
   document.documentElement.classList.add("native", "native-" + window.ROULIB_NATIVE);
   const P = cap.Plugins || {};
 

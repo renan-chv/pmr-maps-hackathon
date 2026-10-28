@@ -2375,7 +2375,7 @@ function renderOnboard() {
 // Help, privacy and "Supprimer mes données" (profile screen)
 // ---------------------------------------------------------------------------
 // In the app the bundle has no web address of its own: the policy opens from the hosted site in the in-app browser.
-if (API) $("#privacy-link").href = `${API}/static/privacy.html`;
+if (API) { $("#privacy-link").href = `${API}/static/privacy.html`; $("#help-link").href = `${API}/static/support.html`; }
 function renderUnhide() {
   const n = blockedAuthors().size;
   $("#unhide-row").hidden = !n;
