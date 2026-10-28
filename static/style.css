@@ -34,7 +34,12 @@
   --shadow-2: 0 -2px 6px rgba(30, 26, 22, .05), 0 -12px 34px rgba(30, 26, 22, .14);
   --ease: cubic-bezier(.16, 1, .3, 1);
   --safe-b: env(safe-area-inset-bottom, 0px); --safe-t: env(safe-area-inset-top, 0px);
-  --sheet-h: 420px;
+  --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
+  /* Same numbers as Sheet.heights() in app.js, so the panel is already at its place on the first paint
+     (it used to open at 420 px, then slide up when the script ran). */
+  --sheet-full: calc(100dvh - max(76px, var(--safe-t) + 28px));
+  --sheet-h: 60dvh;
+  color-scheme: light;  /* the page is light only: iOS dark mode must not darken the date picker or scrollbars */
   --z-map: 0; --z-overlay: 10; --z-sheet: 20; --z-toast: 30; --z-skip: 40;
 }
 /* Text size steps (Display setting): 18, 22, 26, 32 px body text. html.big = the old switch, read as "Large". */
@@ -43,12 +48,26 @@ html[data-text="2"] { --fs: 1.625rem; }
 html[data-text="3"] { --fs: 2rem; }
 /* Phone or browser text at 200 %: data-text="2" brings the stacked layouts, data-tz keeps the size the user chose (index.html). */
 html[data-tz="0"] { --fs: 1.125rem; } html[data-tz="1"] { --fs: 1.375rem; }
+/* Larger steps open the half panel higher (Sheet.heights); first launch opens the profile screen full height. */
+html[data-text="2"], html[data-text="3"] { --sheet-h: 75dvh; }
+html[data-first] { --sheet-h: var(--sheet-full); }
+/* First launch (index.html, before any script): the profile screen is the first paint, not a flash of home. */
+html[data-first] #v-home { display: none !important; }
+html[data-first] #v-onboard { display: block !important; }
+/* ...and, the sheet being full, the map's buttons and filters are hidden as with body.sheet-full (set by app.js). */
+@media (max-width: 1023px) and (not ((orientation: landscape) and (max-height: 540px))) {
+  html[data-first] :is(#map-tools, .snap, #chips) { opacity: 0; visibility: hidden; pointer-events: none; }
+}
 
 * { box-sizing: border-box; }
+/* `hidden` always wins: .btn, .mic, .r-add set their own display and used to stay visible when hidden (no speech input). */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
 body { font: 400 var(--fs)/1.45 var(--font); color: var(--ink); background: var(--ground); -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
+/* No double-tap zoom wait on anything tappable. */
+a, label, summary, [role="option"], [role="radio"], .suggest li { touch-action: manipulation; }
 a { color: var(--brand); text-underline-offset: 3px; }
 ::selection { background: var(--brand-soft); color: var(--ink); }
 input { caret-color: var(--brand); }
@@ -75,7 +94,8 @@ input { caret-color: var(--brand); }
   background: var(--ground); border-radius: var(--r-l) var(--r-l) 0 0; box-shadow: var(--shadow-2);
   transition: transform .4s var(--ease);
 }
-#sheet.dragging { transition: none; }
+/* While a finger moves the panel, it and its followers track the finger exactly (Sheet in app.js). */
+body.dragging :is(#sheet, #map-tools, .snap, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left) { transition: none !important; }
 #grip { flex: none; height: 30px; display: grid; place-items: center; touch-action: none; cursor: grab; }
 #grip span { width: 44px; height: 5px; border-radius: 99px; background: var(--line-2); }
 #sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 var(--sp-4) calc(var(--sp-6) + var(--safe-b)); scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
@@ -92,8 +112,12 @@ input { caret-color: var(--brand); }
 .search input::placeholder, .field::placeholder { color: var(--ink-2); opacity: 1; }
 .search input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .mic { width: 46px; height: 46px; display: grid; place-items: center; border: 0; border-radius: var(--r-s); background: var(--brand); color: #fff; }
-.mic.listening { background: var(--ko); animation: pulse 1.4s var(--ease) infinite; }
-@keyframes pulse { 50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--ko) 22%, transparent); } }
+.mic { position: relative; isolation: isolate; }
+.mic.listening { background: var(--ko); }
+/* Listening ring: a layer that scales and fades (no box-shadow repaint on every frame). */
+.mic.listening::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: color-mix(in srgb, var(--ko) 22%, transparent);
+  z-index: -1; animation: pulse 1.4s var(--ease) infinite; will-change: transform, opacity; }
+@keyframes pulse { from { transform: scale(1); opacity: 1; } to { transform: scale(1.45); opacity: 0; } }
 
 .suggest { list-style: none; margin: var(--sp-2) 0 0; padding: var(--sp-1); border-radius: var(--r-m); background: var(--surface); box-shadow: var(--shadow-1); }
 .suggest li { display: flex; gap: var(--sp-3); align-items: center; min-height: 60px; padding: var(--sp-2); border-radius: var(--r-s); cursor: pointer; }
@@ -166,7 +190,8 @@ input { caret-color: var(--brand); }
 .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin: var(--sp-4) 0; }
 
 /* ---------- Filters ---------- */
-.filters { display: flex; gap: var(--sp-2); margin: var(--sp-3) calc(-1 * var(--sp-4)) var(--sp-4); padding: 0 var(--sp-4); overflow-x: auto; scrollbar-width: none; }
+/* Filters wrap: every one stays in sight (French labels are longer, nothing hides past the edge). */
+.filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-4); }
 .filters::-webkit-scrollbar { display: none; }
 .fchip { flex: none; }
 .filters:empty { display: none; }
@@ -219,14 +244,18 @@ input { caret-color: var(--brand); }
 .chip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 46px; padding: 0 16px 0 12px; border-radius: 99px; border: 0; background: var(--surface); box-shadow: var(--shadow-1); font-weight: 700; font-size: var(--t-meta); }
 .chip .i { width: 20px; height: 20px; }
 .chip.on { background: var(--ink); color: var(--surface); }
-#map-tools { position: fixed; z-index: var(--z-overlay); right: 12px; bottom: calc(var(--sheet-h) + var(--safe-b) + 12px); display: flex; flex-direction: column; gap: var(--sp-2); transition: bottom .4s var(--ease), opacity .2s; }
-body.sheet-full #map-tools { opacity: 0; pointer-events: none; visibility: hidden; transition: bottom .4s var(--ease), opacity .2s, visibility 0s .2s; }
+#map-tools { position: fixed; z-index: var(--z-overlay); right: 12px; bottom: calc(var(--safe-b) + 12px); display: flex; flex-direction: column; gap: var(--sp-2); transition: transform .4s var(--ease), opacity .2s; }
+/* Hidden with opacity, moved with transform: never a layout animation over the map. */
+body.sheet-full #map-tools { opacity: 0; pointer-events: none; visibility: hidden; transition: transform .4s var(--ease), opacity .2s, visibility 0s .2s; }
 /* No room left between the sheet and the map filters (large text, sheet at 75 %): hidden rather than over the filters (Sheet.set). */
-body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden; transition: bottom .4s var(--ease), opacity .2s, visibility 0s .2s; }
+body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden; transition: transform .4s var(--ease), opacity .2s, visibility 0s .2s; }
+/* Phones zoom with the fingers (pinch, double tap): no + and − buttons over the map. Large screens keep them. */
+.zoom { display: none; }
+@media (min-width: 1024px) { .zoom { display: flex; } }
 .fab { width: 52px; height: 52px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--surface); box-shadow: var(--shadow-1); }
 .fab[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
 .fab.txt { font-weight: 800; font-size: var(--t-body); letter-spacing: -.02em; }
-.zoom { display: flex; flex-direction: column; border-radius: 26px; box-shadow: var(--shadow-1); overflow: hidden; }
+.zoom { flex-direction: column; border-radius: 26px; box-shadow: var(--shadow-1); overflow: hidden; }
 .zoom .fab { box-shadow: none; border-radius: 0; }
 .zoom .fab + .fab { border-top: 1px solid var(--line); }
 .legend-card { margin: 0; padding: var(--sp-2) var(--sp-4); list-style: none; background: var(--surface); border-radius: var(--r-m); box-shadow: var(--shadow-1); }
@@ -235,7 +264,10 @@ body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden
 .legend-card .mark.food .i { stroke-width: 2.2; }
 .hatch { width: 32px; height: 32px; flex: none; border-radius: 8px; border: 1.5px solid var(--works);
   background: repeating-linear-gradient(-45deg, rgba(194,65,12,.8) 0 2.5px, rgba(194,65,12,.14) 2.5px 8px); }
-.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: calc(var(--sheet-h) + var(--safe-b)); transition: bottom .4s var(--ease); }
+/* Map credits ride on the sheet's top edge with transform (bottom used to relayout them on every drag frame). */
+.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: var(--safe-b); transform: translate3d(0, calc(-1 * var(--sheet-h)), 0); transition: transform .4s var(--ease); }
+/* Shown once the map has drawn: the credits button growing in at load time was the only layout shift on the home screen. */
+body:not(.map-ready) :is(.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left) { visibility: hidden; }
 .maplibregl-ctrl-attrib { font-family: var(--font); }
 .maplibregl-popup-content { font-family: var(--font); font-size: var(--t-meta); color: var(--ink); border-radius: var(--r-s); padding: 12px 14px; box-shadow: var(--shadow-1); }
 
@@ -248,6 +280,7 @@ body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden
   #sheet-body { padding-top: var(--sp-4); }
   #chips { left: calc(min(400px, 50vw) + 20px); padding: 0; }
   #map-tools, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: 12px; }
+  .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { transform: none; }
 }
 
 /* ---------- Tablet & desktop: side panel ---------- */
@@ -257,12 +290,15 @@ body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden
   #sheet-body { padding: var(--sp-5); }
   #chips { left: 452px; top: 16px; padding: 0; flex-wrap: wrap; overflow: visible; }
   #map-tools { bottom: 112px; right: 16px; }
-  .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: 0; }
+  .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: 0; transform: none; }
+  #toast { top: auto; bottom: 28px; }
+}
+/* Hover only where there is a pointer that hovers: an iPad keeps no "stuck" hover after a tap. */
+@media (min-width: 1024px) and (hover: hover) {
   .item:hover, .suggest li:hover { background: var(--raised); }
   .chip:hover:not(.on), .fchip:hover:not([aria-pressed="true"]) { background: var(--raised); }
   .tile:hover { filter: brightness(.98); }
   .btn:hover { border-color: var(--ink-2); } .btn.primary:hover { filter: brightness(1.08); }
-  #toast { top: auto; bottom: 28px; }
 }
 
 /* ---------- Photos ---------- */
@@ -340,8 +376,8 @@ body.tools-off #map-tools { opacity: 0; pointer-events: none; visibility: hidden
 .lift small.rel.bad { color: var(--ko); font-weight: 700; }
 .report-lift { padding: 6px 0; min-height: 44px; font-size: var(--t-meta); }
 .report-lift[disabled] { color: var(--ok); }
-.snap { position: fixed; z-index: var(--z-overlay); left: 12px; bottom: calc(var(--sheet-h) + var(--safe-b) + 12px); display: inline-flex; align-items: center; gap: 8px;
-  min-height: 52px; padding: 0 18px 0 14px; border: 0; border-radius: 99px; background: #b93a0a; color: #fff; font-weight: 800; box-shadow: var(--shadow-1); transition: bottom .4s var(--ease), opacity .2s; }
+.snap { position: fixed; z-index: var(--z-overlay); left: 12px; bottom: calc(var(--safe-b) + 12px); display: inline-flex; align-items: center; gap: 8px;
+  min-height: 52px; padding: 0 18px 0 14px; border: 0; border-radius: 99px; background: #b93a0a; color: #fff; font-weight: 800; box-shadow: var(--shadow-1); transition: transform .4s var(--ease), opacity .2s; }
 body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 @media (orientation: landscape) and (max-height: 540px) { .snap { left: auto; right: 76px; bottom: 12px; } }
 @media (min-width: 1024px) { .snap { left: 452px; bottom: 24px; } }
@@ -464,8 +500,6 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 /* The part of the body below the screen edge doesn't count when Tab scrolls a control into view. */
 #sheet-body { scroll-padding-bottom: calc(var(--sheet-full, 80dvh) - var(--sheet-h) + var(--safe-b) + 110px); }
 #map-tools, .snap { bottom: calc(var(--safe-b) + 12px); transform: translate3d(0, calc(-1 * var(--sheet-h)), 0); transition: transform .4s var(--ease), opacity .2s; will-change: transform; }
-#sheet.dragging ~ #map-tools, body:has(#sheet.dragging) #map-tools, body:has(#sheet.dragging) .snap { transition: none; }
-.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { transition: none; }
 @media (orientation: landscape) and (max-height: 540px) {
   #sheet { transform: none; height: auto; }
   #sheet-body { padding-bottom: calc(24px + var(--safe-b)); scroll-padding-bottom: 0; }
@@ -512,6 +546,8 @@ body.sheet-full .snap { opacity: 0; pointer-events: none; visibility: hidden; }
 .trip-swap .i { width: 20px; height: 20px; }
 .trip-row .field { padding-right: 56px; }
 body.sheet-full #chips { opacity: 0; pointer-events: none; visibility: hidden; }  /* filters belong to the map */
+/* Map credits ride on top of the sheet: with the sheet full they would end up under the clock. They stay one tap away on the map. */
+body.sheet-full .maplibregl-ctrl-bottom-right, body.sheet-full .maplibregl-ctrl-bottom-left { opacity: 0; pointer-events: none; visibility: hidden; }
 #o-go { position: sticky; bottom: calc(var(--safe-b) + 12px); z-index: 2; box-shadow: var(--shadow-1), 0 0 0 var(--sp-3) var(--ground); }
 /* Sticky only once a tile is tapped: before that it stays in the flow instead of hiding the last tiles. Tab scrolls tiles above it. */
 #v-onboard:not(.picked) #o-go { position: static; }
@@ -640,14 +676,22 @@ html:is([data-text="2"], [data-text="3"]) #when-at { font-size: max(16px, calc(v
 .ts-seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .ts-seg span { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; height: 100%; min-height: 64px; padding: 6px 4px; border-radius: var(--r-s);
   text-align: center; font-size: var(--t-meta); font-weight: 700; line-height: 1.15; color: var(--ink-2); overflow-wrap: anywhere; }
-.ts-a { font-weight: 800; line-height: 1; color: var(--ink); }
+.ts-a { font-weight: 800; line-height: 1; color: var(--ink); white-space: nowrap; letter-spacing: -.06em; }  /* "A+++" no longer breaks onto two lines at 390 px */
 .ts-seg label:nth-child(1) .ts-a { font-size: 1.125rem; } .ts-seg label:nth-child(2) .ts-a { font-size: 1.375rem; }
 .ts-seg label:nth-child(3) .ts-a { font-size: 1.625rem; } .ts-seg label:nth-child(4) .ts-a { font-size: 2rem; }
 .ts-seg input:checked + span { background: var(--surface); color: var(--brand); box-shadow: inset 0 0 0 2px var(--brand), var(--shadow-1); }
 .ts-seg input:checked + span .ts-a { color: var(--brand); }
 .ts-seg input:focus-visible + span { outline: 3px solid var(--brand); outline-offset: 2px; }
-/* Map filters follow the setting (were fixed 15 px); they still scroll sideways when they do not fit. */
-#chips .chip { font-size: calc(var(--fs) * .8333); }
+/* Map filters follow the text setting as far as the screen allows: from 360 to 430 px wide they always sit on one
+   centred row, at every text size (they used to overflow and stick to the left at 360-375 px, and at every width
+   from "Large" up). Below 360 px the rule above wraps them. 150 px = paddings, icons and gaps of the row. */
+#chips .chip { padding: 0 10px 0 8px; gap: 4px; font-size: calc(var(--fs) * .8333); }
+#chips .chip .i { width: 17px; height: 17px; }
+@media (min-width: 360px) { #chips .chip { font-size: max(13px, min(calc(var(--fs) * .8333), calc((100vw - 150px - var(--safe-l) - var(--safe-r)) / 15.2))); } }
+@media (orientation: landscape) and (max-height: 540px) {
+  #chips .chip { font-size: max(13px, min(calc(var(--fs) * .8333), calc((100vw - min(400px, 50vw) - 190px - var(--safe-l) - var(--safe-r)) / 15.2))); }
+}
+@media (min-width: 1024px) { #chips .chip { font-size: calc(var(--fs) * .8333); padding: 0 12px 0 10px; gap: 5px; } #chips .chip .i { width: 18px; height: 18px; } }
 /* From "Large" up: names and summaries wrap instead of ending in "…" (the hidden part is often the station). */
 html[data-text]:not([data-text="0"]) :is(.suggest b, .fav-go small, .hp-go b, .hp-go small) { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
 html[data-text]:not([data-text="0"]) .trip-summary .t { display: block; overflow: visible; -webkit-line-clamp: none; overflow-wrap: break-word; }
@@ -677,3 +721,146 @@ html[data-text="3"] .mark.lg { width: 64px; height: 64px; } html[data-text="3"] 
   html[data-text="1"] :is(.ptiles, .favs, .cmp, .r-cats) { grid-template-columns: 1fr; }
   html[data-text="1"] .ptile { flex-direction: row; align-items: center; min-height: 0; grid-column: auto; }
 }
+
+/* ---------- Network banner (offline, server not answering) ---------- */
+/* In the sheet, under the grip: visible at every sheet height, never over the map controls. */
+.netbar { flex: none; display: flex; align-items: center; gap: var(--sp-2); margin: 0 var(--sp-4) var(--sp-2); padding: 2px var(--sp-1) 2px var(--sp-3);
+  border-radius: var(--r-s); background: var(--warn-soft); color: var(--ink); font-size: var(--t-meta); font-weight: 700; line-height: 1.3; }
+.netbar[hidden] { display: none; }
+.netbar > .i { width: 20px; height: 20px; color: var(--warn); }
+.netbar > span { flex: 1; min-width: 0; padding: 10px 0; }
+.netbar .linkish { flex: none; padding: 0 var(--sp-2); font-size: var(--t-meta); }
+@media (min-width: 1024px) { .netbar { margin: var(--sp-4) var(--sp-5) 0; } }
+@media (orientation: landscape) and (max-height: 540px) { .netbar { margin-top: var(--sp-3); } }
+
+/* ---------- Calm trip states (no step-free route, planner down, offline) ---------- */
+.verdict.trip-state { background: var(--raised); }
+.trip-state .mark.neutral { background: var(--surface); color: var(--ink); }
+.trip-state .mark.neutral .i { stroke-width: 2.2; }
+.state-actions .btn.block:first-child { margin-top: var(--sp-4); }
+.loading::after { content: ""; display: inline-block; width: 1.2em; text-align: left; animation: dots 1.2s steps(4, end) infinite; }
+@keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+.fab.busy .i { animation: breathe 1s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .3; } }
+
+/* ---------- Community reports: moderation ---------- */
+.mod { display: flex; flex-wrap: wrap; gap: 0 var(--sp-4); margin-top: var(--sp-2); }
+.mod-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 0; color: var(--ink-2); font-size: var(--t-meta); font-weight: 700; text-align: left; }
+.mod-btn .i { width: 18px; height: 18px; }
+.mod-btn[disabled] { opacity: .6; cursor: progress; }
+.mod-done { display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0; color: var(--ok); font-size: var(--t-meta); font-weight: 700; }
+.mod-done .i { width: 18px; height: 18px; stroke-width: 3; }
+.mod-hidden { margin: var(--sp-3) 0 0; padding: var(--sp-3) var(--sp-4); border-radius: var(--r-m); background: var(--raised); }
+.mod-hidden p { display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0; }
+.mod-hidden p .i { width: 20px; height: 20px; margin-top: 2px; color: var(--ink-2); }
+.mod-hidden .linkish { padding-left: 28px; }
+#detail > .mod-hidden:first-child { margin-top: var(--sp-2); }
+.check.check-hidden { color: var(--ink-2); }
+.check-hidden .mark.neutral .i { stroke-width: 2; }
+
+/* ---------- Help, privacy, delete (profile screen) ---------- */
+.o-help { margin-bottom: var(--sp-4); }
+a.item { color: var(--ink); text-decoration: none; }
+.o-help .item .chev { color: var(--ink-2); }
+.item.danger b { color: var(--ko); }
+.item.danger .fav-ic { background: var(--ko-soft); color: var(--ko); }
+.btn.danger { background: var(--ko); border-color: var(--ko); color: #fff; }
+.btn.danger:active { filter: brightness(.92); }
+.btn[disabled][aria-busy], dialog[aria-busy] .btn.danger { cursor: progress; }
+
+/* Confirmation: a bottom sheet on phones (thumb reach), a centred card on large screens. */
+.confirm { padding: 0; border: 0; background: transparent; color: var(--ink); overflow: visible; }
+.confirm:modal { width: 100%; max-width: 100%; max-height: 100%; margin: auto 0 0; }
+.confirm::backdrop { background: rgba(30, 26, 22, .45); }
+.cf-panel { max-height: calc(100dvh - var(--safe-t) - 24px); overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--sp-5) calc(var(--sp-4) + var(--safe-r)) calc(var(--sp-4) + var(--safe-b)) calc(var(--sp-4) + var(--safe-l));
+  border-radius: var(--r-l) var(--r-l) 0 0; background: var(--ground); box-shadow: var(--shadow-2); }
+.confirm[open] .cf-panel { animation: cf-up .32s var(--ease); }
+@keyframes cf-up { from { transform: translateY(32px); opacity: 0; } }
+.cf-panel .title { margin-top: 0; }
+.cf-body p { margin: var(--sp-3) 0 0; }
+.cf-err { margin: var(--sp-3) 0 0; font-weight: 700; }
+.cf-err:empty { display: none; }
+.cf-actions { margin-top: var(--sp-2); }
+@media (min-width: 600px) {
+  .confirm:modal { width: min(440px, calc(100% - 32px)); margin: auto; }
+  .cf-panel { border-radius: var(--r-l); padding: var(--sp-5); box-shadow: var(--shadow-1); }
+}
+
+/* ---------- No map (library offline on first launch, or no WebGL) ---------- */
+body.no-map #map { background: var(--raised); }
+body.no-map #chips, body.no-map #map-tools { display: none; }
+.map-off { position: absolute; top: calc(var(--safe-t) + 16px); left: calc(16px + var(--safe-l)); right: calc(16px + var(--safe-r)); max-width: 420px; margin: 0 auto;
+  padding: var(--sp-4); border-radius: var(--r-m); background: var(--surface); box-shadow: var(--shadow-1); text-align: center; }
+.map-off p { margin: 0 0 var(--sp-3); }
+@media (min-width: 1024px) { .map-off { left: 460px; } }
+
+/* ---------- iOS app shell (and phones generally) ---------- */
+/* Notch and home indicator, also in landscape (left / right insets). */
+#chips { padding-left: calc(8px + var(--safe-l)); padding-right: calc(8px + var(--safe-r)); }
+#map-tools { right: calc(12px + var(--safe-r)); }
+.snap { left: calc(12px + var(--safe-l)); }
+#toast { left: calc(16px + var(--safe-l)); right: calc(16px + var(--safe-r)); }
+/* The map credits fold into an "i" button left of the locate button, instead of under it. */
+.maplibregl-ctrl-bottom-right { right: calc(68px + var(--safe-r)); }
+@media (orientation: landscape) and (max-height: 540px) {
+  #chips { left: calc(min(400px, 50vw) + 20px + var(--safe-l)); padding-left: 0; }
+  .snap { left: auto; right: calc(76px + var(--safe-r)); }
+}
+@media (min-width: 1024px) {
+  #chips { padding: 0; }
+  #map-tools { right: 16px; }
+  .snap { left: 452px; }
+  .maplibregl-ctrl-bottom-right { right: 0; }
+}
+/* Controls are not text: no selection on a long press. Content (names, sentences) stays selectable. */
+button, .chip, .fab, .snap, #grip, .r-add, .lchip, .wchip, .mark, .i, .ts-seg span, .when-seg span { -webkit-user-select: none; user-select: none; }
+/* In the app: no link preview / image callout on a long press over UI chrome, no rubber band on the page itself. */
+html.native :is(button, a.item, a.btn, .chip, .fab, .snap, #map, #grip, img) { -webkit-touch-callout: none; }
+html.native, html.native body { overscroll-behavior: none; }
+textarea { font: inherit; color: inherit; }
+
+/* Home: the recorded sample trip. Secondary to search and the shortcuts: outlined, no shadow. */
+.home-demo { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-height: 56px; margin: var(--sp-3) 0 0; padding: 6px var(--sp-3);
+  border: 1px solid var(--line-2); border-radius: var(--r-m); background: transparent; color: var(--ink); text-align: left; }
+.home-demo:active { background: var(--raised); }
+.home-demo:focus-visible { outline-offset: 2px; border-radius: var(--r-m); }
+.home-demo-ic { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 11px; background: var(--brand-soft); color: var(--brand); }
+.home-demo-ic .i { width: 20px; height: 20px; }
+.home-demo .t { flex: 1; min-width: 0; line-height: 1.25; }
+.home-demo b { display: block; font-size: var(--t-body); font-weight: 700; }
+.home-demo small { display: block; font-size: var(--t-meta); color: var(--ink-2); }
+.home-demo .chev { color: var(--ink-2); }
+@media (hover: hover) { .home-demo:hover { background: var(--raised); } }
+/* Landscape phone: the Report pill sits bottom right too, so the credits button goes above it. */
+@media (orientation: landscape) and (max-height: 540px) { .maplibregl-ctrl-bottom-right { bottom: 60px; } }
+/* Larger text: a two-line pill reads better with a card radius than a capsule. */
+html:is([data-text="2"], [data-text="3"]) .rec-line { border-radius: var(--r-s); align-items: flex-start; }
+html:is([data-text="2"], [data-text="3"]) .rec-line .i { margin-top: .2em; }
+/* Rows inside a rounded list: the focus ring sits inside the row (the list clips anything outside). */
+.list .item:focus-visible { outline-offset: -3px; border-radius: var(--r-m); }
+
+/* ---------- Fluidity pass (iPhone) ---------- */
+/* Pressed state on every tap target, at touch down (app.js registers a passive touchstart so iOS applies :active). */
+:is(.btn:not(.primary):not(.danger), .chip:not(.on), .fchip:not([aria-pressed="true"]), .fab:not([aria-pressed="true"]), .r-cat, .ptile,
+  .route, .when-btn, .trip-swap, .hp-edit, .fav-edit, .ls-pick-b, .ls-toggle):active { background-color: var(--raised); }
+:is(.chip.on, .fchip[aria-pressed="true"], .fab[aria-pressed="true"], .snap, .mic, .btn.primary, .btn.danger):active { filter: brightness(.88); }
+.r-add:active { background: var(--line-2); }
+:is(.linkish, .back):active { opacity: .6; }
+@media (prefers-reduced-motion: no-preference) {
+  :is(.btn, .chip, .fchip, .fab, .r-cat, .ptile, .route, .r-add, .trip-swap, .mic) { transition: transform .12s var(--ease); }
+  :is(.btn, .chip, .fchip, .fab, .r-cat, .ptile, .route, .r-add, .trip-swap, .mic):active { transform: scale(.97); }
+}
+/* Placeholder rows while a list or a trip check loads: the shape of the answer, never a blank panel. */
+.skel { list-style: none; margin: var(--sp-3) 0 0; padding: 0; background: var(--surface); border-radius: var(--r-m); box-shadow: var(--shadow-1); overflow: hidden; }
+.skel li { display: flex; align-items: center; gap: var(--sp-3); min-height: 68px; padding: var(--sp-3) var(--sp-4); }
+.skel li + li { border-top: 1px solid var(--line); }
+.skel .sk-dot { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--line); }
+.skel .sk-t { flex: 1; display: grid; gap: 8px; }
+.skel .sk-t span { display: block; width: 70%; height: .8em; border-radius: 6px; background: var(--line); }
+.skel .sk-t span + span { width: 45%; height: .65em; }
+.skel.sk-routes { background: none; box-shadow: none; display: grid; gap: var(--sp-3); }
+.skel.sk-routes li { min-height: 96px; border: 0; border-radius: var(--r-m); background: var(--surface); box-shadow: var(--shadow-1); }
+.skel.sk-routes .sk-dot { border-radius: 7px; width: 56px; height: 30px; }
+@media (prefers-reduced-motion: no-preference) { .skel { animation: skel 1.4s ease-in-out infinite; } }
+@keyframes skel { 50% { opacity: .55; } }

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Roulib</string>
+    <string name="title_activity_main">Roulib</string>
+    <string name="package_name">fr.roulib.app</string>
+    <string name="custom_url_scheme">fr.roulib.app</string>
+</resources>

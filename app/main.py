@@ -7,19 +7,23 @@ import logging
 import math
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
+from concurrent.futures import wait as wait_futures
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import agent, db, http_cache, photos, poller, profiles, reliability, reports, search, sources, station_api, verify
+from .errors import ApiError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -30,6 +34,48 @@ PRIM_JOURNEYS = "https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/jo
 app = FastAPI(title="Roulib")
 app.add_middleware(GZipMiddleware, minimum_size=1000)  # roadworks layer: 2.3 MB of uncompressed GeoJSON on Aiven
 http_cache.install(app)
+
+
+@app.middleware("http")
+async def json_errors(request: Request, call_next):
+    """Never a bare 500 page: an open-data source that is down (and not cached) is a 503 the app can explain.
+
+    Registered before CORS, so these answers carry the CORS headers too (the native app could not read them otherwise).
+    """
+    try:
+        return await call_next(request)
+    except httpx.HTTPError as e:
+        logging.warning("upstream failure on %s: %s", request.url.path, type(e).__name__)
+        return JSONResponse({"detail": "Une source de données ne répond pas pour l'instant. Réessayez dans un instant.",
+                             "code": "upstream"}, status_code=503, headers={"Retry-After": "30"})
+    except Exception:
+        logging.exception("unhandled error on %s", request.url.path)
+        return JSONResponse({"detail": "Un problème est survenu de notre côté. Réessayez dans un instant.",
+                             "code": "internal"}, status_code=500)
+
+
+# The native shells load the page from the app bundle and call this backend cross-origin:
+# capacitor://localhost (iOS), https://localhost and http://localhost (Android). The web app is same-origin.
+NATIVE_ORIGINS = ["capacitor://localhost", "https://localhost", "http://localhost"]
+app.add_middleware(CORSMiddleware, allow_origins=NATIVE_ORIGINS, allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+                   allow_headers=["Content-Type", "X-User-Token"], allow_credentials=False, max_age=600)
+
+
+@app.exception_handler(ApiError)
+async def api_error(request: Request, exc: ApiError):
+    return JSONResponse(exc.body(), status_code=exc.status_code, headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    """FastAPI's default 422 is a list of objects; the app shows `detail` as text, so give it a sentence."""
+    msgs = []
+    for err in exc.errors():
+        where = ".".join(str(p) for p in err.get("loc", ()) if p not in ("query", "path", "body", "header"))
+        msgs.append(f"{where or 'requête'}\u00a0: valeur invalide ({err.get('msg', '')})")
+    return JSONResponse({"detail": " ; ".join(msgs)[:300] or "requête invalide", "code": "invalid"}, status_code=422)
+
+
 app.include_router(photos.router)
 app.include_router(search.router)
 app.include_router(station_api.router)
@@ -63,11 +109,21 @@ def point(lon, lat, props: dict) -> dict:
 
 # --- Layers ----------------------------------------------------------------
 
+def _lifts_or_503() -> dict:
+    """Live elevator status, or a 503: a trip is never checked (or shown as fine) without it."""
+    try:
+        return sources.lifts()
+    except Exception as e:
+        logging.warning("lifts unavailable: %s", type(e).__name__)
+        raise ApiError(503, "L'état des ascenseurs IDFM est indisponible pour l'instant. Réessayez dans un instant.", "upstream",
+                       headers={"Retry-After": "60"})
+
+
 @app.get("/api/lifts")
 def api_lifts():
     if SERVERLESS:
         poller.maybe_poll()
-    data = sources.lifts()
+    data = _lifts_or_503()
     feats, counts = [], {"available": 0, "notavailable": 0, "unknown": 0}
     for r in data["rows"]:
         c = r.get("centroidzdc") or {}
@@ -116,11 +172,8 @@ def api_train_stations():
 
 
 @app.get("/api/bus-stops")
-def api_bus_stops(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat")):
-    try:
-        x1, y1, x2, y2 = [float(v) for v in bbox.split(",")]
-    except ValueError:
-        raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat")
+def api_bus_stops(bbox: str = Query(..., max_length=200, description="minLon,minLat,maxLon,maxLat")):
+    x1, y1, x2, y2 = _bbox(bbox)
     data = sources.bus_stops()
     feats = []
     for r in data["rows"]:
@@ -148,11 +201,11 @@ def api_works():
         where = r.get("localisation_detail") or []
         feats.append({"type": "Feature", "geometry": shape, "properties": {
             "id": r.get("num_emprise"), "category": r.get("chantier_categorie"),
-            "summary": sources.works_en(r.get("chantier_synthese")), "owner": r.get("moa_principal"),
+            "summary": sources.works_label(r.get("chantier_synthese")), "owner": r.get("moa_principal"),
             "start": r.get("date_debut"), "end": r.get("date_fin"),
             "where": ", ".join(where), "postcode": r.get("cp_arrondissement"),
         }})
-    return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="roadworks active today that take up the sidewalk")
+    return fc(feats, "works", data["fetched_at"], stale=data.get("stale", False), filter="chantiers actifs aujourd'hui occupant le trottoir")
 
 
 @app.get("/api/stairs")
@@ -168,7 +221,10 @@ def api_stairs():
 FOOD = re.compile(r"\b(restaura\w*|caf[ée]s?|bars?|brasseries?|glaciers?|salons? de th[ée]|cr[êe]peries?|pizzerias?|traiteurs?|sandwich\w*)\b", re.I)
 RAMP = ("fixe", "amovible")
 MIN_DOOR_CM = 77  # minimum clear width for a door in an existing ERP (arrêté du 20 avril 2017)
-_places_pool = ThreadPoolExecutor(max_workers=4)
+# Acceslibre's tabular API can take 5-15 s per page (up to 70 s for a cold area): answer with the tiles ready
+# within this budget; the others keep loading in the background and are cached for the next call.
+PLACES_BUDGET_S = float(os.getenv("PLACES_BUDGET_S", "10"))
+MAX_PLACE_TILES = 16
 
 
 def _num(v) -> Optional[float]:
@@ -180,12 +236,12 @@ def _num(v) -> Optional[float]:
 
 def _steps_text(steps: Optional[float]) -> str:
     if not steps:
-        return "Steps"
-    return f"{int(steps)} step" + ("" if int(steps) == 1 else "s")
+        return "Des marches"
+    return f"{int(steps)} marche" + ("" if int(steps) == 1 else "s")
 
 
 def wheelchair_verdict(r: dict) -> Tuple[str, List[str]]:
-    """Return ("true" | "partial" | "false" | "unknown", reasons in English).
+    """Return ("true" | "partial" | "false" | "unknown", reasons in French).
 
     Missing fields stay unknown: we never turn "not filled in" into "not accessible".
     """
@@ -193,37 +249,37 @@ def wheelchair_verdict(r: dict) -> Tuple[str, List[str]]:
     steps = _num(r.get("entree_marches"))
     if r.get("entree_plain_pied") is True:
         entrance = "true"
-        reasons.append("Step-free entrance")
+        reasons.append("Entrée de plain-pied")
     elif r.get("entree_pmr") is True or r.get("entree_ascenseur_pmr") is True:
         entrance = "true"
-        reasons.append("Dedicated accessible entrance" if r.get("entree_pmr") else "Accessible elevator at the entrance")
+        reasons.append("Entrée dédiée PMR" if r.get("entree_pmr") else "Ascenseur PMR à l'entrée")
     elif r.get("entree_marches_rampe") == "fixe":
         entrance = "true"
-        reasons.append("Permanent ramp at the entrance")
+        reasons.append("Rampe fixe à l'entrée")
     elif r.get("entree_marches_rampe") == "amovible":
         entrance = "partial"
-        reasons.append("Removable ramp (on request)")
+        reasons.append("Rampe amovible (sur demande)")
     elif r.get("entree_plain_pied") is False:
         if r.get("entree_aide_humaine") is True or r.get("entree_dispositif_appel") is True:
             entrance = "partial"
-            reasons.append(f"{_steps_text(steps)} at the entrance, staff can help")
+            reasons.append(f"{_steps_text(steps)} à l'entrée, le personnel peut aider")
         else:
             entrance = "false"
-            reasons.append(f"{_steps_text(steps)} at the entrance, no ramp")
+            reasons.append(f"{_steps_text(steps)} à l'entrée, sans rampe")
     else:
         entrance = "unknown"
-        reasons.append("Entrance not documented")
+        reasons.append("Entrée non renseignée")
 
     level = entrance
     width = _num(r.get("entree_largeur_mini"))
     if width is not None and width < MIN_DOOR_CM:
         level = "false"
-        reasons.append(f"Narrow door: {int(width)} cm (minimum {MIN_DOOR_CM} cm)")
+        reasons.append(f"Porte étroite\u00a0: {int(width)}\u00a0cm (minimum {MIN_DOOR_CM}\u00a0cm)")
     elif width is not None:
-        reasons.append(f"Door: {int(width)} cm")
+        reasons.append(f"Porte\u00a0: {int(width)}\u00a0cm")
     blocked = [
-        ("cheminement_ext", "Steps on the outside path"),
-        ("accueil_cheminement", "Steps between the entrance and the front desk"),
+        ("cheminement_ext", "Marches sur le cheminement extérieur"),
+        ("accueil_cheminement", "Marches entre l'entrée et l'accueil"),
     ]
     for prefix, text in blocked:
         if (r.get(f"{prefix}_plain_pied") is False and r.get(f"{prefix}_rampe") not in RAMP
@@ -244,22 +300,42 @@ def toilets_verdict(r: dict) -> str:
     return "unknown"
 
 
-@app.get("/api/places")
-def api_places(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat")):
+def _bbox(bbox: str) -> Tuple[float, float, float, float]:
     try:
         x1, y1, x2, y2 = [float(v) for v in bbox.split(",")]
     except ValueError:
-        raise HTTPException(400, "bbox must be minLon,minLat,maxLon,maxLat")
+        raise HTTPException(400, "bbox doit être minLon,minLat,maxLon,maxLat")
+    if not all(math.isfinite(v) for v in (x1, y1, x2, y2)) or x1 > x2 or y1 > y2:
+        raise HTTPException(400, "bbox doit être minLon,minLat,maxLon,maxLat (des nombres, min avant max)")
+    return x1, y1, x2, y2
+
+
+@app.get("/api/places")
+def api_places(bbox: str = Query(..., max_length=200, description="minLon,minLat,maxLon,maxLat")):
+    x1, y1, x2, y2 = _bbox(bbox)
+    t = sources.PLACE_TILE  # count before listing: a world-sized box would be millions of tiles
+    if (math.floor(x2 / t) - math.floor(x1 / t) + 1) * (math.floor(y2 / t) - math.floor(y1 / t) + 1) > MAX_PLACE_TILES:
+        raise HTTPException(400, "zone trop grande\u00a0: rapprochez la carte")
     tiles = sources.place_tiles(x1, y1, x2, y2)
-    if len(tiles) > 16:
-        raise HTTPException(400, "area too large: zoom in")
-    feats, seen, fetched, stale = [], set(), [], False
-    for data in _places_pool.map(lambda xy: sources.places_tile(*xy), tiles):
+    futures = [sources.in_background(f"places_{tx}_{ty}", lambda tx=tx, ty=ty: sources.places_tile(tx, ty),
+                                     sources.places_pool) for tx, ty in tiles]
+    done, _ = wait_futures(futures, timeout=PLACES_BUDGET_S)
+    feats, seen, fetched, stale, missing = [], set(), [], False, 0
+    for fut in futures:
+        if fut not in done:
+            missing += 1
+            continue
+        try:
+            data = fut.result()
+        except Exception as e:
+            logging.warning("places tile unavailable: %s", type(e).__name__)
+            missing += 1
+            continue
         fetched.append(data["fetched_at"])
         stale = stale or data.get("stale", False)
         for r in data["rows"]:
             lon, lat = _num(r.get("longitude")), _num(r.get("latitude"))
-            if lon is None or lat is None or r["id"] in seen:
+            if lon is None or lat is None or not r.get("id") or r["id"] in seen:
                 continue
             seen.add(r["id"])
             level, reasons = wheelchair_verdict(r)
@@ -271,8 +347,16 @@ def api_places(bbox: str = Query(..., description="minLon,minLat,maxLon,maxLat")
                 "parking": r.get("stationnement_pmr") is True or r.get("stationnement_ext_pmr") is True,
                 "url": sources.ACCESLIBRE_PAGE.format(id=r["id"]),
             }))
-    return fc(feats, "places", min(fetched) if fetched else None, stale=stale,
+    if not fetched:
+        still_loading = any(not f.done() for f in futures)
+        raise ApiError(503, "Les lieux arrivent encore d'Acceslibre. Réessayez dans quelques secondes." if still_loading
+                       else "Acceslibre ne répond pas pour l'instant. Réessayez dans un instant.", "upstream",
+                       headers={"Retry-After": "5" if still_loading else "60"})
+    body = fc(feats, "places", min(fetched), stale=stale, incomplete=bool(missing), missing_tiles=missing,
               counts={k: sum(f["properties"]["wheelchair"] == k for f in feats) for k in ("true", "partial", "false", "unknown")})
+    if missing:  # part of the area only: never cached (browser, CDN), so the next call gets the rest
+        return JSONResponse(body, headers={"Cache-Control": "no-store"})
+    return body
 
 
 @app.get("/api/alerts")
@@ -291,22 +375,22 @@ def _dist_m(lon1, lat1, lon2, lat2) -> float:
     return 6371000 * math.hypot(x, y)
 
 
-def _lifts_near(lon: float, lat: float, radius: float = 150) -> List[dict]:
+def _lifts_near(rows: List[dict], lon: float, lat: float, radius: float = 150) -> List[dict]:
     out = []
-    for r in sources.lifts()["rows"]:
+    for r in rows:
         c = r.get("centroidzdc") or {}
         if c.get("lon") is not None and _dist_m(lon, lat, c["lon"], c["lat"]) <= radius:
-            out.append({"liftid": r["liftid"], "station": r.get("zdcname"), "status": r.get("liftstatus"),
+            out.append({"liftid": r.get("liftid"), "station": r.get("zdcname"), "status": r.get("liftstatus"),
                         "reason": r.get("liftreason"), "situation": r.get("liftsituation"),
                         "source_update": r.get("liftstateupdate")})
     return out
 
 
 @app.get("/api/geocode")
-def api_geocode(q: str):
+def api_geocode(q: str = Query(..., min_length=1, max_length=200)):
     res = sources.geocode(q)
     if not res:
-        raise HTTPException(404, "address not found")
+        raise HTTPException(404, "adresse introuvable")
     return res
 
 
@@ -316,16 +400,30 @@ def api_suggest(q: str = Query(..., min_length=2, max_length=200),
     return {"results": sources.suggest(q, near=(lon, lat) if lon is not None and lat is not None else None)}
 
 
+OUTSIDE_AREA = "Roulib couvre seulement l'Île-de-France\u00a0: choisissez un départ et une arrivée en Île-de-France."
+
+
 def _resolve(q: str) -> Optional[dict]:
-    """Accept "lon,lat" (from the UI) or free text (geocoded)."""
+    """Accept "lon,lat" (from the UI) or free text (geocoded). Points outside Île-de-France are a 400."""
     parts = q.split(",")
     if len(parts) == 2:
         try:
             lon, lat = float(parts[0]), float(parts[1])
-            return {"label": q, "lon": lon, "lat": lat}
         except ValueError:
             pass
-    return sources.geocode(q)
+        else:
+            if not sources._in_idf(lon, lat):  # also NaN and swapped "lat,lon"
+                raise ApiError(400, OUTSIDE_AREA, "outside_area")
+            return {"label": q, "lon": lon, "lat": lat}
+    try:
+        res = sources.geocode(q)
+    except httpx.HTTPError as e:
+        logging.warning("geocoder unavailable: %s", type(e).__name__)
+        raise ApiError(503, "La recherche d'adresses ne répond pas pour l'instant. Choisissez un lieu dans les suggestions "
+                            "ou réessayez dans un instant.", "upstream")
+    if res and not sources._in_idf(float(res["lon"]), float(res["lat"])):
+        raise ApiError(400, OUTSIDE_AREA, "outside_area")
+    return res
 
 
 FIXTURES = STATIC / "fixtures"
@@ -346,13 +444,13 @@ def _parse_when(when: Optional[str], now: Optional[datetime] = None) -> Optional
     try:
         t = datetime.fromisoformat(when.strip())
     except ValueError:
-        raise HTTPException(400, "when must be an ISO date and time, e.g. 2026-10-22T18:30")
+        raise HTTPException(400, "when doit être une date et une heure ISO, par exemple 2026-10-22T18:30")
     t = t.replace(tzinfo=PARIS_TZ) if t.tzinfo is None else t.astimezone(PARIS_TZ)
     now = now or datetime.now(PARIS_TZ)
     if t < now - WHEN_PAST_TOLERANCE:
-        raise HTTPException(400, "when is in the past")
+        raise HTTPException(400, "cette heure est déjà passée")
     if t > now + WHEN_MAX_AHEAD:
-        raise HTTPException(400, "when is more than 30 days ahead")
+        raise HTTPException(400, "cette heure est à plus de 30 jours")
     return t
 
 
@@ -361,13 +459,26 @@ def _time_note(when: Optional[datetime], now: Optional[datetime] = None) -> Opti
     now = now or datetime.now(PARIS_TZ)
     if when is None or when - now < WHEN_FUTURE_NOTE:
         return None
-    day = "" if when.date() == now.date() else f" on {when.strftime('%a %d %b')}"
-    return f"Elevator status is from now ({now:%H:%M}); it may change by {when:%H:%M}{day}."
+    day = "" if when.date() == now.date() else f" le {verify.date_fr(when.strftime('%Y-%m-%d')).rsplit(' ', 1)[0]}"
+    return f"L'état des ascenseurs est celui de maintenant ({now:%H:%M})\u00a0: il peut changer d'ici {when:%H:%M}{day}."
 
 
 # One PRIM call per trip (1000 a day): ask it for a few more alternatives rather than calling it again.
 NAVITIA_MIN_JOURNEYS = 3
 NAVITIA_MAX_JOURNEYS = 5
+PRIM_TIMEOUT = httpx.Timeout(20, connect=5)  # PRIM answers in about 1 s; a plan B call doubles the worst case
+# PRIM / Navitia error ids that mean "no trip", not "service down": HTTP 404 {"code": "no_route", "reason": id}.
+NO_ROUTE = {
+    "no_solution": "IDFM ne trouve aucun trajet sans marche à cette heure-là. Essayez une autre heure.",
+    "no_origin": "Le point de départ n'est pas desservi par les transports en commun selon IDFM. "
+                 "Essayez une station ou une adresse proche.",
+    "no_destination": "Le point d'arrivée n'est pas desservi par les transports en commun selon IDFM. "
+                      "Essayez une station ou une adresse proche.",
+    "no_origin_nor_destination": "Ni le départ ni l'arrivée ne sont desservis par les transports en commun selon "
+                                 "IDFM. Essayez des stations ou des adresses proches.",
+    "date_out_of_bounds": "IDFM n'a pas encore les horaires de cette date. Choisissez une date plus proche.",
+}
+NO_ROUTE_ANY_TRIP = "IDFM ne trouve aucun trajet à cette heure-là. Essayez une autre heure."  # profiles that can take stairs
 
 
 def _navitia_params(a: dict, b: dict, forbidden: List[str] = (), when: Optional[datetime] = None,
@@ -386,14 +497,45 @@ def _navitia_params(a: dict, b: dict, forbidden: List[str] = (), when: Optional[
 
 def _navitia(a: dict, b: dict, forbidden: List[str] = (), when: Optional[datetime] = None,
              arrive: bool = False, profile: str = profiles.DEFAULT_PROFILE) -> List[dict]:
+    """Journeys from PRIM, or an ApiError: 404 "no_route" when IDFM finds no trip, 503 "upstream" otherwise.
+
+    The upstream body is logged by its error id only and never sent to the app.
+    """
     params = _navitia_params(a, b, forbidden, when, arrive, profile)
-    r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=30, params=params)
-    if r.status_code != 200:
-        raise HTTPException(502, f"PRIM answered {r.status_code}: {r.text[:300]}")
-    return r.json().get("journeys", [])
+    try:
+        r = httpx.get(PRIM_JOURNEYS, headers={"apiKey": PRIM_API_KEY}, timeout=PRIM_TIMEOUT, params=params)
+    except httpx.TimeoutException:
+        logging.warning("PRIM journeys: timeout")
+        raise ApiError(503, "Le calcul d'itinéraire d'IDFM met trop de temps à répondre. Réessayez dans un instant.", "upstream",
+                       headers={"Retry-After": "10"})
+    except httpx.HTTPError as e:
+        logging.warning("PRIM journeys unreachable: %s", type(e).__name__)
+        raise ApiError(503, "Le calcul d'itinéraire d'IDFM est injoignable pour l'instant. Réessayez dans un instant.", "upstream",
+                       headers={"Retry-After": "30"})
+    try:
+        body = r.json()
+    except ValueError:
+        body = None
+    body = body if isinstance(body, dict) else {}
+    error_id = str((body.get("error") or {}).get("id") or "") if isinstance(body.get("error"), dict) else ""
+    if r.status_code == 200:
+        journeys = body.get("journeys") or []
+        if journeys:
+            return journeys
+        error_id = error_id or "no_solution"  # 200 with nothing in it: same answer for the user
+    if error_id in NO_ROUTE:
+        stairs_ok = dict(profiles.navitia_params(profile)).get("wheelchair") == "false"
+        detail = NO_ROUTE_ANY_TRIP if error_id == "no_solution" and stairs_ok else NO_ROUTE[error_id]
+        raise ApiError(404, detail, "no_route", reason=error_id)
+    logging.warning("PRIM journeys answered %s (%s)", r.status_code, error_id or "no error id")
+    if r.status_code == 429:
+        raise ApiError(503, "Le calcul de trajets en direct est très demandé en ce moment. Réessayez dans quelques minutes.", "upstream",
+                       headers={"Retry-After": "120"})
+    raise ApiError(503, "Le calcul d'itinéraire d'IDFM ne répond pas correctement pour l'instant. Réessayez dans un instant.", "upstream",
+                   headers={"Retry-After": "30"})
 
 
-def _legacy(j: dict) -> dict:
+def _legacy(j: dict, lift_rows: List[dict]) -> dict:
     """Navitia journey with lifts near each stop: what Navitia alone proposes (baseline, current UI)."""
     sections, blocking = [], []
     for s in j.get("sections", []):
@@ -405,7 +547,7 @@ def _legacy(j: dict) -> dict:
             for end in ("from", "to"):
                 coord = ((s.get(end) or {}).get("stop_point") or {}).get("coord") or {}
                 if coord.get("lon"):
-                    lifts = _lifts_near(float(coord["lon"]), float(coord["lat"]))
+                    lifts = _lifts_near(lift_rows, float(coord["lon"]), float(coord["lat"]))
                     sec[f"{end}_lifts"] = lifts
                     blocking += [l for l in lifts if l["status"] != "available"]
         sections.append(sec)
@@ -422,15 +564,44 @@ def _summary(j: dict) -> dict:
                       for s in j.get("sections", []) if s.get("type") in ("public_transport", "street_network")]}
 
 
-def _reports() -> List[dict]:
-    """Community reports (chantier B). Empty until its columns exist."""
+REPORTS_PAD_DEG = 0.01  # about 1 km around the journeys: reports further away cannot touch them
+
+
+def _journeys_bbox(journeys: List[dict]) -> Optional[Tuple[float, float, float, float]]:
+    """Box around every point of these journeys (walk lines and stops), padded; None when there is none."""
+    xs, ys = [], []
+    for j in journeys:
+        for s in j.get("sections") or []:
+            for p in ((s.get("geojson") or {}).get("coordinates") or []):
+                if isinstance(p, (list, tuple)) and len(p) >= 2:
+                    xs.append(float(p[0]))
+                    ys.append(float(p[1]))
+            for end in ("from", "to"):
+                lon, lat, _, _ = verify._stop(s.get(end) or {})
+                if lon is not None:
+                    xs.append(lon)
+                    ys.append(lat)
+    if not xs:
+        return None
+    d = REPORTS_PAD_DEG
+    return min(xs) - d, min(ys) - d, max(xs) + d, max(ys) + d
+
+
+def _reports(bbox: Optional[Tuple[float, float, float, float]] = None) -> List[dict]:
+    """Community reports (chantier B) near the journeys, without the ones hidden by moderation (flagged)."""
     if not db.enabled():
         return []
+    where, args = "", []
+    if bbox:
+        where, args = " AND r.lon BETWEEN %s AND %s AND r.lat BETWEEN %s AND %s", [bbox[0], bbox[2], bbox[1], bbox[3]]
     try:
         with db.conn().cursor() as cur:
-            cur.execute("""SELECT id, lon, lat, categorie, temporaire, confirmations, created_at,
-                                  target_type, target_id, message
-                           FROM user_reports WHERE lon IS NOT NULL""")
+            cur.execute(f"""SELECT r.id, r.lon, r.lat, r.categorie, r.temporaire, r.confirmations, r.created_at,
+                                   r.target_type, r.target_id, r.message
+                            FROM user_reports r
+                            WHERE r.lon IS NOT NULL{where}
+                              AND (SELECT count(*) FROM report_flags f WHERE f.report_id = r.id) < %s""",
+                        (*args, reports.HIDE_AFTER_FLAGS))
             cols = [c.name for c in cur.description]
             return [dict(zip(cols, row), description=row[-1]) for row in cur.fetchall()]
     except Exception:
@@ -439,18 +610,28 @@ def _reports() -> List[dict]:
 
 
 _layers: dict = {}
+# How long a journey waits for a layer that is not in memory yet (cold start, slow opendata.paris.fr: minutes).
+# The download goes on in the background for the next journeys.
+LAYER_BUDGET_S = {"works": 3.0, "stairs": 10.0}
+LOW_VISION_BUDGET_S = 6.0  # all six visually impaired layers together; a missing one is checked as unknown
 
 
-def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
-    """Optional GeoJSON-like layer from sources, built once per upstream refresh (bbox precomputed)."""
+def _layer(fn_name: str) -> Tuple[Optional[List[dict]], Optional[str]]:
+    """Optional GeoJSON-like layer from sources, built once per upstream refresh (bbox precomputed).
+
+    (None, None) when the layer is unavailable: the caller must treat that as unknown, not as "nothing there".
+    """
     fn = getattr(sources, fn_name, None)
     if fn is None:
-        return [], None
+        return None, None
     try:
-        data = fn()
+        data = sources.in_background(f"layer_{fn_name}", fn).result(timeout=LAYER_BUDGET_S.get(fn_name, 10.0))
+    except FutureTimeout:
+        logging.warning("%s still loading, journey checked without it", fn_name)
+        return None, None
     except Exception:
         logging.exception("%s unavailable, journey checked without it", fn_name)
-        return [], None
+        return None, None
     key = (fn_name, data.get("fetched_at"), len(data.get("rows", [])))
     if key not in _layers:
         feats = []
@@ -458,7 +639,7 @@ def _layer(fn_name: str) -> Tuple[List[dict], Optional[str]]:
             shape = (r.get("geo_shape") or {}).get("geometry")
             if shape:
                 feats.append({"type": "Feature", "geometry": shape, "_bbox": verify.feature_bbox(shape),
-                              "properties": {"summary": sources.works_en(r.get("chantier_synthese")), "end": r.get("date_fin")}})
+                              "properties": {"summary": sources.works_label(r.get("chantier_synthese")), "end": r.get("date_fin")}})
         _layers.clear() if len(_layers) > 8 else None
         _layers[key] = feats
     return _layers[key], data.get("fetched_at")
@@ -485,25 +666,28 @@ def _lifts_on_route(journeys: List[dict], rows: List[dict]) -> List[dict]:
 
 def _check_all(journeys: List[dict], profile: str, lifts: dict, prefix: str = "it",
                rel: Optional[dict] = None) -> List[dict]:
-    works, works_at = _layer("works")
-    stairs, _ = _layer("stairs")
-    reports = _reports()
+    if not journeys:
+        return []  # nothing to check: do not load (or wait for) the layers
+    works, works_at = _layer("works")  # information only: never changes a verdict, fine to skip
+    stairs, _ = _layer("stairs")  # None (unavailable) makes every walk "unknown" for stairs, never "clear"
+    reports = _reports(_journeys_bbox(journeys))
     if rel is None:
         rel = reliability.for_lifts(_lifts_on_route(journeys, lifts["rows"]))
-    low_vision = sources.low_vision() if verify.cares_about_low_vision(profile) else None
-    return [verify.verify_journey(j, profile, lifts["rows"], lifts.get("fetched_at"), works, works_at,
+    low_vision = sources.low_vision(LOW_VISION_BUDGET_S) if verify.cares_about_low_vision(profile) else None
+    return [verify.verify_journey(j, profile, lifts["rows"], lifts.get("fetched_at"), works or [], works_at,
                                   stairs, reports, reliability=rel, it_id=f"{prefix}{i + 1}", low_vision=low_vision)
             for i, j in enumerate(journeys)]
 
 
 @app.get("/api/journey")
-def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., alias="to"),
+def api_journey(from_q: str = Query(..., alias="from", min_length=1, max_length=200),
+                to_q: str = Query(..., alias="to", min_length=1, max_length=200),
                 profile: str = Query(profiles.DEFAULT_PROFILE, description=", ".join(profiles.PROFILES)),
                 replay: Optional[str] = Query(None, description="demo: recorded journeys and lift snapshot"),
                 when: Optional[str] = Query(None, max_length=40, description="local Paris time, e.g. 2026-10-22T18:30; default now"),
                 arrive: bool = Query(False, description="true: 'when' is the arrival time (Arrive by)")):
     if profile not in profiles.PROFILES:
-        raise HTTPException(400, f"profile must be one of: {', '.join(profiles.PROFILES)}")
+        raise HTTPException(400, f"profile doit être l'un de\u00a0: {', '.join(profiles.PROFILES)}")
     # The recorded demo has fixed times: the chosen time does not apply to it.
     at = None if replay == "demo" else _parse_when(when)
     if replay == "demo":
@@ -511,17 +695,18 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
             demo = json.loads((FIXTURES / "navitia_demo.json").read_text())
             lifts = json.loads((FIXTURES / "lifts_demo.json").read_text())
         except FileNotFoundError:
-            raise HTTPException(404, "demo files missing (static/fixtures)")
+            raise HTTPException(404, "fichiers de démo absents (static/fixtures)")
         a, b, journeys = demo["from"], demo["to"], demo["journeys"]
         rel = reliability.load_fixture(FIXTURES / "reliability_demo.json")
     else:
         if not PRIM_API_KEY:
-            raise HTTPException(503, "PRIM_API_KEY missing: journey planning unavailable")
+            raise ApiError(503, "Le calcul de trajets en direct n'est pas disponible sur ce serveur.", "unavailable")
         a, b = _resolve(from_q), _resolve(to_q)
         if not a or not b:
-            raise HTTPException(404, "departure or arrival address not found")
+            raise ApiError(404, "Adresse de départ ou d'arrivée introuvable. Essayez une station, une adresse ou un lieu connu.",
+                           "address_not_found")
         journeys = _navitia(a, b, when=at, arrive=arrive, profile=profile)
-        lifts = sources.lifts()
+        lifts = _lifts_or_503()
         rel = None
     itineraries = _check_all(journeys, profile, lifts, rel=rel)
     if replay != "demo" and itineraries and all(it["verdict"] == "bloque" for it in itineraries):
@@ -535,9 +720,9 @@ def api_journey(from_q: str = Query(..., alias="from"), to_q: str = Query(..., a
     itineraries = verify.pick_plan_b(itineraries)
     return {"from": a, "to": b, "profile": profile, "itineraries": itineraries,
             "way_out": verify.way_out(itineraries, profile),
-            "journeys": [] if replay == "demo" else [_legacy(j) for j in journeys],  # kept for the current UI
+            "journeys": [] if replay == "demo" else [_legacy(j, lifts["rows"]) for j in journeys],  # kept for the current UI
             "baseline": [_summary(j) for j in journeys], "replay": replay,
-            "source": "PRIM / Navitia, with the walking limits of this profile, checked by Roulib",
+            "source": "PRIM / Navitia, avec les limites de marche de ce profil, vérifié par Roulib",
             "lifts_fetched_at": lifts.get("fetched_at"),
             "when": at.strftime("%Y-%m-%dT%H:%M") if at else None, "arrive": bool(at and arrive),
             "time_note": _time_note(at)}

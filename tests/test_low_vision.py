@@ -56,7 +56,7 @@ def test_silent_traffic_light_is_a_risk_never_a_block():
 def test_announced_stop_is_ok():
     c = verify.station_audio_check(2.35, 48.86, "Châtelet", "Métro", None, idx(stops=[stop("1", 2.3501, 48.86)]), "malvoyant")
     assert c["status"] == "ok" and c["effect"] == "sans_effet" and c["confidence"] == 3
-    assert "announced aloud" in c["message"] and "screens" in c["message"]
+    assert "annoncés à voix haute" in c["message"] and "Écrans" in c["message"]
 
 
 def test_stop_without_announcements_is_a_risk():
@@ -86,7 +86,7 @@ def test_navitia_stop_point_id_wins_over_distance():
 
 def test_missing_stop_layer_degrades_to_unknown():
     c = verify.station_audio_check(2.35, 48.86, "X", "Métro", None, idx(missing=["stop_signals"]), "malvoyant")
-    assert c["status"] == "inconnu" and c["effect"] == "sans_effet" and "unavailable" in c["message"]
+    assert c["status"] == "inconnu" and c["effect"] == "sans_effet" and "indisponibles" in c["message"]
 
 
 def test_sncf_list_fills_an_unknown_train_station():
@@ -101,7 +101,7 @@ def test_sncf_list_fills_an_unknown_train_station():
     assert c["status"] == "ok" and c["source"].startswith("SNCF")
     a = verify.assistance_checks(2.3734, 48.8445, "Gare de Lyon", "RER", i, MONDAY)
     assert [x["kind"] for x in a] == ["assistance", "tactile"]
-    assert "book ahead or ask on the spot" in a[0]["message"] and "06:15 - 01:00" in a[0]["message"]
+    assert "réservez à l'avance ou demandez sur place" in a[0]["message"] and "06:15 - 01:00" in a[0]["message"]
     assert all(x["effect"] == "sans_effet" for x in a)
     # no assistance on Sunday at this (fictitious) station: said plainly, not a risk
     sunday = datetime(2026, 10, 25, 10, 0, tzinfo=timezone.utc)
@@ -117,7 +117,7 @@ def test_onboard_announcements_from_the_line_register():
              {"id_line": "C01040", "audiblesigns_available": "unknown"}]
     i = idx(lines=lines)
     off = verify.onboard_audio_check("C01038", "Bus", "38", i, "malvoyant")
-    assert off["status"] == "absent" and off["effect"] == "genant" and off["label"] == "On-board announcements, Bus 38"
+    assert off["status"] == "absent" and off["effect"] == "genant" and off["label"] == "Annonces à bord, Bus 38"
     assert verify.onboard_audio_check("C01039", "Bus", "39", i, "malvoyant")["status"] == "ok"
     assert verify.onboard_audio_check("C01040", "Bus", "40", i, "malvoyant") is None  # unknown: no noise
     assert verify.onboard_audio_check(None, "Bus", "41", i, "malvoyant") is None
@@ -141,28 +141,28 @@ def test_traffic_lights_with_and_without_sound():
     c = verify.crossing_check(WALK, i, "malvoyant")
     assert c["status"] == "partiel" and c["effect"] == "genant" and c["obstacle"] == "feu_sans_son"
     # The warning is about the silent crossings, and says what the remote is for.
-    assert c["label"] == "Crossings without sound"
-    assert c["message"].startswith("1 crossing without sound on this walk; 1 has sound with the universal remote")
-    assert "standard remote control" not in c["message"]
+    assert c["label"] == "Feux piétons sans son"
+    assert c["message"].startswith("1 feu sans son sur ce trajet\u00a0; 1 est sonore avec la télécommande universelle")
+    assert "télécommande standard" not in c["message"]
 
 
 def test_all_traffic_lights_audible_is_ok():
     i = idx(lights=[light("S1", 2.3510, 48.85005)], sound=[{"code_ouvrage": "S1"}])
     c = verify.crossing_check(WALK, i, "malvoyant")
-    assert c["status"] == "ok" and c["effect"] == "sans_effet" and c["message"].startswith("The crossing on this walk has sound")
-    assert c["label"] == "Crossings with sound"
+    assert c["status"] == "ok" and c["effect"] == "sans_effet" and c["message"].startswith("Le feu piéton de ce trajet est sonore")
+    assert c["label"] == "Feux piétons sonores"
 
 
 def test_all_crossings_silent_says_so_plainly():
     i = idx(lights=[light("S1", 2.3510, 48.85005), light("S2", 2.3520, 48.8501)], sound=[])
     c = verify.crossing_check(WALK, i, "malvoyant")
-    assert c["status"] == "absent" and c["message"].startswith("2 crossings without sound on this walk.")
+    assert c["status"] == "absent" and c["message"].startswith("2 feux sans son sur ce trajet.")
 
 
 def test_walk_far_from_any_mapped_light_is_unknown():
     i = idx(lights=[light("S1", 2.40, 48.80)], sound=[])
     c = verify.crossing_check(WALK, i, "malvoyant")
-    assert c["status"] == "inconnu" and c["effect"] == "sans_effet" and "inside Paris" in c["message"]
+    assert c["status"] == "inconnu" and c["effect"] == "sans_effet" and "dans Paris" in c["message"]
 
 
 def test_missing_light_layers_degrade_to_unknown():
@@ -225,4 +225,4 @@ def test_long_diagonal_walk_is_checked_fast_and_finds_the_same_lights():
     expected = {c for g in idx["lights"].values() for x, y, c in g
                 if verify.point_to_line_m([x, y], line) <= verify.CROSSING_NEAR_M}
     silent = len(expected - idx["sound"])
-    assert out["message"].startswith(f"{silent} crossings without sound")
+    assert out["message"].startswith(f"{silent} feux sans son")

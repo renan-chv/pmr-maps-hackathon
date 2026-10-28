@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
@@ -8,13 +8,16 @@
   <script>try { var t = localStorage.getItem("text") ?? (localStorage.getItem("big") === "1" ? "1" : null), d = document.documentElement;
     /* Phone or browser text at 200 % (root 20 px or more): the "Larger" layouts, at the size the user chose (data-tz) */
     if (parseFloat(getComputedStyle(d).fontSize) >= 20 && !(+t >= 2)) { d.dataset.tz = +t || 0; t = "2"; }
-    if (t) d.dataset.text = t; } catch (e) {}</script>
+    if (t) d.dataset.text = t;
+    /* First launch (no profile yet): the profile screen is the first paint, at full height (style.css, html[data-first]) */
+    if (!localStorage.getItem("pmr_profile") && !/[?&]replay=demo/.test(location.search)) d.dataset.first = "1"; } catch (e) {}</script>
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Roulib">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-180.png">
-  <title>Roulib – Getting around Île-de-France in a wheelchair</title>
+  <title>Roulib – Se déplacer en fauteuil en Île-de-France</title>
   <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,172 +27,184 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <a class="skip" href="#sheet-body">Skip to content</a>
-  <div id="map" aria-label="Map"></div>
+  <a class="skip" href="#sheet-body">Aller au contenu</a>
+  <div id="map" aria-label="Carte"></div>
 
-  <div id="chips" role="toolbar" aria-label="What the map shows">
-    <button class="chip on" data-layer="lifts" aria-pressed="true"><svg class="i"><use href="#i-lift"/></svg>Stations</button>
-    <button class="chip" data-layer="places" aria-pressed="false"><svg class="i"><use href="#i-food"/></svg>Restaurants</button>
-    <button class="chip on" data-layer="works" aria-pressed="true"><svg class="i"><use href="#i-cone"/></svg>Roadworks</button>
+  <div id="chips" role="toolbar" aria-label="Ce que la carte affiche">
+    <button class="chip on" data-layer="lifts" aria-pressed="true"><svg class="i"><use href="#i-lift"/></svg>Gares</button>
+    <button class="chip" data-layer="places" aria-pressed="false"><svg class="i"><use href="#i-food"/></svg>Restos</button>
+    <button class="chip on" data-layer="works" aria-pressed="true"><svg class="i"><use href="#i-cone"/></svg>Travaux</button>
   </div>
 
-  <button id="snap" class="snap" aria-label="Report an obstacle with a photo"><svg class="i"><use href="#i-camera"/></svg><span>Report</span></button>
+  <button id="snap" class="snap" aria-label="Signaler un obstacle avec une photo"><svg class="i"><use href="#i-camera"/></svg><span>Signaler</span></button>
 
   <div id="map-tools">
     <div class="zoom" role="group" aria-label="Zoom">
-      <button id="zoom-in" class="fab" aria-label="Zoom in"><svg class="i"><use href="#i-plus"/></svg></button>
-      <button id="zoom-out" class="fab" aria-label="Zoom out"><svg class="i"><use href="#i-minus"/></svg></button>
+      <button id="zoom-in" class="fab" aria-label="Rapprocher la carte"><svg class="i"><use href="#i-plus"/></svg></button>
+      <button id="zoom-out" class="fab" aria-label="Éloigner la carte"><svg class="i"><use href="#i-minus"/></svg></button>
     </div>
-    <button id="locate" class="fab" aria-label="Show me on the map"><svg class="i"><use href="#i-arrow"/></svg></button>
+    <button id="locate" class="fab" aria-label="Me montrer sur la carte"><svg class="i"><use href="#i-arrow"/></svg></button>
   </div>
 
-  <main id="sheet" aria-label="Main panel">
-    <div id="grip" role="slider" tabindex="0" aria-label="Panel size" aria-valuetext="half"><span></span></div>
+  <main id="sheet" aria-label="Panneau principal">
+    <div id="grip" role="slider" tabindex="0" aria-label="Taille du panneau" aria-valuetext="moitié"><span></span></div>
+    <!-- Network trouble: says so without blocking anything; what was loaded stays on screen with its time -->
+    <div id="netbar" class="netbar" role="status" hidden><svg class="i" aria-hidden="true"><use href="#i-offline"/></svg><span id="netbar-t"></span><button id="netbar-retry" class="linkish" type="button" hidden>Réessayer</button></div>
     <div id="sheet-body" tabindex="-1">
 
       <!-- FIRST LAUNCH: mobility profile -->
       <section class="view" id="v-onboard" hidden aria-labelledby="o-title">
         <p class="brand-line">Roulib</p>
-        <h2 id="o-title" class="greet">How do you get around?</h2>
-        <p class="sub">I check every trip for you: elevators, roadworks, steps. Pick the one that fits you. No difficulty getting around? Join the community: every report you send helps someone in a wheelchair.</p>
+        <h2 id="o-title" class="greet">Comment vous déplacez-vous&nbsp;?</h2>
+        <p class="sub">Je vérifie chaque trajet pour vous&nbsp;: ascenseurs, travaux, marches. Choisissez ce qui vous ressemble. Vous vous déplacez sans difficulté&nbsp;? Rejoignez la communauté&nbsp;: chaque signalement que vous envoyez aide une personne en fauteuil.</p>
         <div class="ptiles" role="radiogroup" aria-labelledby="o-title" id="ptiles"></div>
-        <label for="o-name" class="field-label">Your first name <span class="muted">(optional)</span></label>
-        <input id="o-name" class="field" type="text" autocomplete="given-name" enterkeyhint="done" placeholder="For example: Lea">
-        <h3 class="h2">Display</h3>
+        <label for="o-name" class="field-label">Votre prénom <span class="muted">(facultatif)</span></label>
+        <input id="o-name" class="field" type="text" autocomplete="given-name" enterkeyhint="done" placeholder="Par exemple&nbsp;: Martin">
+        <h3 class="h2">Affichage</h3>
         <fieldset id="textsize" class="ts">
-          <legend class="ts-l">Text size</legend>
+          <legend class="ts-l">Taille du texte</legend>
           <div class="ts-seg">
-            <label><input type="radio" name="textsize" value="0"><span><b class="ts-a" aria-hidden="true">A</b>Default</span></label>
-            <label><input type="radio" name="textsize" value="1"><span><b class="ts-a" aria-hidden="true">A+</b>Large</span></label>
-            <label><input type="radio" name="textsize" value="2"><span><b class="ts-a" aria-hidden="true">A++</b>Larger</span></label>
-            <label><input type="radio" name="textsize" value="3"><span><b class="ts-a" aria-hidden="true">A+++</b>Largest</span></label>
+            <label><input type="radio" name="textsize" value="0"><span><b class="ts-a" aria-hidden="true">A</b>Normal</span></label>
+            <label><input type="radio" name="textsize" value="1"><span><b class="ts-a" aria-hidden="true">A+</b>Grand</span></label>
+            <label><input type="radio" name="textsize" value="2"><span><b class="ts-a" aria-hidden="true">A++</b>Plus grand</span></label>
+            <label><input type="radio" name="textsize" value="3"><span><b class="ts-a" aria-hidden="true">A+++</b>Très grand</span></label>
           </div>
         </fieldset>
-        <button id="o-go" class="btn primary block" disabled>Let's go</button>
-        <p class="src">Your choice stays on this phone. You can change it at any time.</p>
+        <button id="o-go" class="btn primary block" disabled>C'est parti</button>
+        <p class="src">Votre choix reste sur ce téléphone. Vous pourrez le changer à tout moment.</p>
+
+        <h3 class="h2" id="o-help-h">Aide et confidentialité</h3>
+        <ul class="list o-help" aria-labelledby="o-help-h">
+          <li><a class="item" id="privacy-link" href="/static/privacy.html" target="_blank" rel="noopener"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-lock"/></svg></span><span class="t"><b>Politique de confidentialité</b><small>Ce que Roulib garde, et pourquoi</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></a></li>
+          <li><a class="item" id="help-link" href="/static/support.html" target="_blank" rel="noopener"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-help"/></svg></span><span class="t"><b>Aide et contact</b><small>Posez une question ou signalez un problème, sur GitHub</small></span><svg class="i chev" aria-hidden="true"><use href="#i-ext"/></svg></a></li>
+          <li id="unhide-row" hidden><button class="item" id="unhide" type="button"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-eye-off"/></svg></span><span class="t"><b>Réafficher les signalements masqués</b><small id="unhide-sub"></small></span></button></li>
+          <li id="delete-row" hidden><button class="item danger" id="delete-data" type="button"><span class="fav-ic" aria-hidden="true"><svg class="i"><use href="#i-trash"/></svg></span><span class="t"><b>Supprimer mes données</b><small>Votre compte, et tout ce que l'app garde sur ce téléphone</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+        </ul>
       </section>
 
       <!-- COMPARISON (demo) -->
       <section class="view" id="v-compare" hidden aria-labelledby="c-title">
-        <button class="back" data-back-trip><svg class="i"><use href="#i-chev-l"/></svg>Back to the trip</button>
-        <h2 id="c-title" class="title">What a regular app doesn't see</h2>
+        <button class="back" data-back-trip><svg class="i"><use href="#i-chev-l"/></svg>Retour au trajet</button>
+        <h2 id="c-title" class="title">Ce qu'une appli classique ne voit pas</h2>
         <div id="compare"></div>
       </section>
 
       <!-- HOME -->
       <section class="view" id="v-home" aria-labelledby="h-home">
-        <h1 id="h-home" class="greet home-greet">Hello!</h1>
+        <h1 id="h-home" class="greet home-greet">Bonjour</h1>
         <div class="search" role="search">
           <svg class="i search-i" aria-hidden="true"><use href="#i-search"/></svg>
-          <label for="search" class="sr">Where to? Search for a station, a place or an address</label>
-          <input id="search" type="search" enterkeyhint="search" placeholder="Where to?" autocomplete="off"
+          <label for="search" class="sr">Où allez-vous&nbsp;? Cherchez une station, un lieu ou une adresse</label>
+          <input id="search" type="search" enterkeyhint="search" placeholder="Où allez-vous&nbsp;?" autocomplete="off"
                  role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
-          <button id="mic" class="mic" aria-label="Say where you are going"><svg class="i"><use href="#i-mic"/></svg></button>
+          <button id="mic" class="mic" aria-label="Dire où vous allez"><svg class="i"><use href="#i-mic"/></svg></button>
         </div>
         <ul id="suggest" class="suggest" role="listbox" aria-label="Suggestions" hidden></ul>
-        <button id="me-chip" class="me-line home-me" aria-label="Trips checked for your profile. Change profile"><span id="me-ic"></span><span>For: <b id="me-name">your profile</b></span><span class="linkish" aria-hidden="true">Change</span></button>
+        <button id="me-chip" class="me-line home-me" aria-label="Trajets vérifiés pour votre profil. Changer de profil"><span id="me-ic"></span><span>Profil&nbsp;: <b id="me-name">à choisir</b></span><span class="linkish" aria-hidden="true">Changer</span></button>
 
-        <!-- One tap to go: Home, Work, then the last places searched -->
-        <ul class="home-places" id="favs" aria-label="My places"></ul>
+        <!-- One tap to go: Maison, Travail, then the last places searched. Maison and Travail are in the page so the row is there on the first paint (app.js fills it). -->
+        <ul class="home-places" id="favs" aria-label="Mes endroits"><li class="hp"><button class="hp-go" data-fav="home"><svg class="i " aria-hidden="true"><use href="#i-home"/></svg><span class="t"><b>Maison</b><small>Ajouter</small></span></button></li><li class="hp"><button class="hp-go" data-fav="work"><svg class="i " aria-hidden="true"><use href="#i-work"/></svg><span class="t"><b>Travail</b><small>Ajouter</small></span></button></li></ul>
 
-        <ul class="home-acts" aria-label="Around me">
-          <li><button class="home-act a-food" data-go="food"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span><span class="t"><b>Restaurants nearby</b><small id="act-food">Step-free entrance</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
-          <li><button class="home-act a-near" data-go="near"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-lift"/></svg></span><span class="t"><b>Stations near me</b><small id="act-near">With elevators</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
-          <li><button class="home-act a-lift" data-go="pannes"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span><span class="t"><b>Elevator outages</b><small id="tile-pannes">Elevators out of order</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+        <ul class="home-acts" aria-label="Autour de moi">
+          <li><button class="home-act a-food" data-go="food"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span><span class="t"><b>Restaurants autour de moi</b><small id="act-food">Entrée sans marche</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+          <li><button class="home-act a-near" data-go="near"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-lift"/></svg></span><span class="t"><b>Stations autour de moi</b><small id="act-near">Avec ascenseur</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
+          <li><button class="home-act a-lift" data-go="pannes"><span class="home-act-ic" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span><span class="t"><b>Pannes d'ascenseur</b><small id="tile-pannes">Ascenseurs en panne</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button></li>
         </ul>
+        <!-- Works anywhere, without a search or a location: what a full check looks like (recorded, labelled as such) -->
+        <button id="demo-trip" class="home-demo" type="button"><span class="home-demo-ic" aria-hidden="true"><svg class="i"><use href="#i-route"/></svg></span><span class="t"><b>Voir un trajet d'exemple (enregistré)</b><small>Paris, enregistré le 22&nbsp;octobre, pas en direct</small></span><svg class="i chev" aria-hidden="true"><use href="#i-chev-r"/></svg></button>
 
         <!-- Network status: the text version of the map (screen readers), below the fold -->
-        <h2 class="h2 home-status" id="h-status">Network status</h2>
-        <div id="today" class="today" aria-live="polite"><p class="muted">Checking elevator status…</p></div>
+        <h2 class="h2 home-status" id="h-status">État du réseau</h2>
+        <div id="today" class="today" aria-live="polite"><p class="muted">Je regarde l'état des ascenseurs…</p></div>
 
-        <h3 class="h2">Just changed</h3>
+        <h3 class="h2">Ça vient de changer</h3>
         <ul id="alerts" class="list"></ul>
 
-        <h3 class="h2">On the map</h3>
+        <h3 class="h2">Sur la carte</h3>
         <ul class="legend-card">
-          <li><span class="mark ok" aria-hidden="true"><svg class="i"><use href="#i-ok"/></svg></span>Station: elevators working</li>
-          <li><span class="mark warn" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span>Station: one elevator to check</li>
-          <li><span class="mark ko" aria-hidden="true"><svg class="i"><use href="#i-ko"/></svg></span>Station: elevator out of order</li>
-          <li><span class="mark ok food" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span>Wheelchair-accessible restaurant</li>
-          <li><span class="hatch" aria-hidden="true"></span>Sidewalk works</li>
+          <li><span class="mark ok" aria-hidden="true"><svg class="i"><use href="#i-ok"/></svg></span>Gare&nbsp;: les ascenseurs marchent</li>
+          <li><span class="mark warn" aria-hidden="true"><svg class="i"><use href="#i-warn"/></svg></span>Gare&nbsp;: un ascenseur à vérifier</li>
+          <li><span class="mark ko" aria-hidden="true"><svg class="i"><use href="#i-ko"/></svg></span>Gare&nbsp;: ascenseur en panne</li>
+          <li><span class="mark ok food" aria-hidden="true"><svg class="i"><use href="#i-food"/></svg></span>Resto accessible en fauteuil</li>
+          <li><span class="hatch" aria-hidden="true"></span>Travaux sur le trottoir</li>
         </ul>
 
         <details class="sources">
-          <summary>Where the information comes from</summary>
+          <summary>D'où viennent les informations</summary>
           <ul id="sources-list"></ul>
         </details>
       </section>
 
       <!-- LIST (restos, nearby, pannes) -->
       <section class="view" id="v-list" hidden aria-labelledby="l-title">
-        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Back</button>
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
         <h2 id="l-title" class="title"></h2>
         <p id="l-sub" class="sub"></p>
-        <div id="l-filters" class="filters" role="group" aria-label="Filters"></div>
+        <div id="l-filters" class="filters" role="group" aria-label="Filtres"></div>
         <div id="l-body" aria-live="polite"></div>
       </section>
 
       <!-- REPORT (roadmap screen 5) -->
       <section class="view" id="v-report" hidden aria-labelledby="r-title">
-        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Back</button>
-        <div class="r-where"><span class="fav-ic"><svg class="i"><use href="#i-pin"/></svg></span><span class="t"><b id="r-place">Here</b><small id="r-place-sub">Your location</small></span><button class="linkish" id="r-place-edit">Change</button></div>
-        <div id="r-place-pick" hidden><label for="r-place-input" class="sr">Where is the obstacle?</label>
-          <input id="r-place-input" class="field" type="search" placeholder="Station, address or place" autocomplete="off" role="combobox" aria-controls="suggest-rplace" aria-autocomplete="list" aria-expanded="false">
-          <ul id="suggest-rplace" class="suggest" role="listbox" aria-label="Place suggestions" hidden></ul></div>
-        <h2 id="r-title" class="title">What do you want to report?</h2>
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
+        <div class="r-where"><span class="fav-ic"><svg class="i"><use href="#i-pin"/></svg></span><span class="t"><b id="r-place">Ici</b><small id="r-place-sub">Votre position</small></span><button class="linkish" id="r-place-edit">Changer</button></div>
+        <div id="r-place-pick" hidden><label for="r-place-input" class="sr">Où est l'obstacle&nbsp;?</label>
+          <input id="r-place-input" class="field" type="search" placeholder="Station, adresse ou lieu" autocomplete="off" role="combobox" aria-controls="suggest-rplace" aria-autocomplete="list" aria-expanded="false">
+          <ul id="suggest-rplace" class="suggest" role="listbox" aria-label="Suggestions de lieux" hidden></ul></div>
+        <h2 id="r-title" class="title">Que voulez-vous signaler&nbsp;?</h2>
         <div class="r-cats" role="radiogroup" aria-labelledby="r-title" id="r-cats"></div>
-        <h3 class="h2">Add details <span class="muted">(optional)</span></h3>
+        <h3 class="h2">Ajouter des précisions <span class="muted">(facultatif)</span></h3>
         <div class="r-adds">
-          <button class="r-add" id="r-voice"><svg class="i"><use href="#i-mic"/></svg>Voice</button>
+          <button class="r-add" id="r-voice"><svg class="i"><use href="#i-mic"/></svg>Voix</button>
           <label class="r-add" id="r-photo-btn"><svg class="i"><use href="#i-camera"/></svg>Photo<input id="r-photo" class="sr" type="file" accept="image/*" capture="environment"></label>
-          <button class="r-add" id="r-text-btn"><svg class="i"><use href="#i-keyboard"/></svg>Text</button>
+          <button class="r-add" id="r-text-btn"><svg class="i"><use href="#i-keyboard"/></svg>Texte</button>
         </div>
-        <img id="r-thumb" class="r-thumb" alt="Your photo" hidden>
-        <label for="r-text" class="sr">Your description</label>
-        <textarea id="r-text" class="field r-text" rows="3" placeholder="For example: the elevator near exit 2 is stopped" hidden></textarea>
+        <img id="r-thumb" class="r-thumb" alt="Votre photo" hidden>
+        <label for="r-text" class="sr">Votre description</label>
+        <textarea id="r-text" class="field r-text" rows="3" placeholder="Par exemple&nbsp;: l'ascenseur côté sortie&nbsp;2 est arrêté" hidden></textarea>
         <div class="r-summary" id="r-summary" aria-live="polite"></div>
-        <button id="r-send" class="btn primary block" disabled>Send report</button>
-        <p class="src">Your report will be visible to other users, marked "reported by the community". It does not replace official information.</p>
+        <button id="r-send" class="btn primary block" disabled>Envoyer le signalement</button>
+        <p class="src">Votre signalement sera visible par les autres utilisateurs, marqué «&nbsp;signalé par la communauté&nbsp;». Il ne remplace pas une information officielle.</p>
       </section>
 
       <!-- DETAIL (station, place, works) -->
       <section class="view" id="v-detail" hidden aria-labelledby="d-title">
-        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Back</button>
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
         <div id="detail"></div>
       </section>
 
       <!-- TRIP -->
       <section class="view" id="v-trip" hidden aria-labelledby="t-title">
-        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Back</button>
-        <h2 id="t-title" class="title">Where do you want to go?</h2>
+        <button class="back" data-back><svg class="i"><use href="#i-chev-l"/></svg>Retour</button>
+        <h2 id="t-title" class="title">Où voulez-vous aller&nbsp;?</h2>
         <button id="trip-summary" class="trip-summary"></button>
         <p id="trip-hint" class="trip-hint" role="status" hidden></p>
         <div class="trip-fields">
           <div class="trip-row"><span class="pin a" aria-hidden="true"></span>
-            <label for="trip-from" class="sr">From</label>
-            <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="From…" autocomplete="off" role="combobox" aria-controls="suggest-from" aria-autocomplete="list" aria-expanded="false"></div>
-          <ul id="suggest-from" class="suggest" role="listbox" aria-label="Start suggestions" hidden></ul>
-          <button id="trip-swap" class="trip-swap" aria-label="Swap start and destination"><svg class="i"><use href="#i-swap"/></svg></button>
+            <label for="trip-from" class="sr">Je pars de</label>
+            <input id="trip-from" class="field" type="search" enterkeyhint="next" placeholder="Je pars de…" autocomplete="off" role="combobox" aria-controls="suggest-from" aria-autocomplete="list" aria-expanded="false"></div>
+          <ul id="suggest-from" class="suggest" role="listbox" aria-label="Suggestions de départ" hidden></ul>
+          <button id="trip-swap" class="trip-swap" aria-label="Inverser le départ et l'arrivée"><svg class="i"><use href="#i-swap"/></svg></button>
           <div class="trip-row"><span class="pin b" aria-hidden="true"></span>
-            <label for="trip-to" class="sr">To</label>
-            <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="To…" autocomplete="off" role="combobox" aria-controls="suggest-to" aria-autocomplete="list" aria-expanded="false"></div>
-          <ul id="suggest-to" class="suggest" role="listbox" aria-label="Destination suggestions" hidden></ul>
+            <label for="trip-to" class="sr">Je vais à</label>
+            <input id="trip-to" class="field" type="search" enterkeyhint="go" placeholder="Je vais à…" autocomplete="off" role="combobox" aria-controls="suggest-to" aria-autocomplete="list" aria-expanded="false"></div>
+          <ul id="suggest-to" class="suggest" role="listbox" aria-label="Suggestions d'arrivée" hidden></ul>
           <div class="when">
-            <button id="when-btn" class="when-btn" type="button" aria-expanded="false" aria-controls="when-panel"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span id="when-label">Leave now</span><span class="sr">, change the trip time</span></button>
+            <button id="when-btn" class="when-btn" type="button" aria-expanded="false" aria-controls="when-panel"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span id="when-label">Partir maintenant</span><span class="sr">, changer l'heure du trajet</span></button>
             <div id="when-panel" class="when-panel" role="group" aria-labelledby="when-title" hidden>
-              <p id="when-title" class="sr">Trip time</p>
+              <p id="when-title" class="sr">Heure du trajet</p>
               <div class="when-seg">
-                <label><input type="radio" name="when-mode" value="now" checked><span>Leave now</span></label>
-                <label><input type="radio" name="when-mode" value="depart"><span>Depart at</span></label>
-                <label><input type="radio" name="when-mode" value="arrive"><span>Arrive by</span></label>
+                <label><input type="radio" name="when-mode" value="now" checked><span>Partir maintenant</span></label>
+                <label><input type="radio" name="when-mode" value="depart"><span>Partir à</span></label>
+                <label><input type="radio" name="when-mode" value="arrive"><span>Arriver avant</span></label>
               </div>
-              <label for="when-at" class="when-at-l">Date and time</label>
+              <label for="when-at" class="when-at-l">Date et heure</label>
               <input id="when-at" class="field" type="datetime-local" step="300" aria-describedby="when-err">
               <p id="when-err" class="err when-err" role="alert"></p>
-              <div class="when-actions"><button id="when-ok" class="btn primary" type="button">Done</button><button id="when-cancel" class="btn" type="button">Cancel</button></div>
+              <div class="when-actions"><button id="when-ok" class="btn primary" type="button">OK</button><button id="when-cancel" class="btn" type="button">Annuler</button></div>
             </div>
           </div>
-          <button id="trip-go" class="btn primary block">Check my trip</button>
+          <button id="trip-go" class="btn primary block">Vérifier mon trajet</button>
         </div>
         <div id="trip-result"></div>
         <div id="sr-status" class="sr" role="status"></div>
@@ -199,6 +214,20 @@
   </main>
 
   <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Confirmation sheet (destructive actions only). A real <dialog>: focus stays inside, Escape cancels. -->
+  <dialog id="confirm" class="confirm" aria-labelledby="cf-title" aria-describedby="cf-body">
+    <div class="cf-panel">
+      <h2 id="cf-title" class="title"></h2>
+      <div id="cf-body" class="cf-body"></div>
+      <p id="cf-err" class="err cf-err" role="alert"></p>
+      <div class="cf-actions">
+        <button id="cf-ok" class="btn danger block" type="button"></button>
+        <button id="cf-local" class="btn block" type="button" hidden>Effacer seulement ce téléphone</button>
+        <button id="cf-cancel" class="btn block" type="button" autofocus>Annuler</button>
+      </div>
+    </div>
+  </dialog>
 
   <!-- Icon set: authored SVG, 24px grid, 2px stroke, round caps -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -245,12 +274,21 @@
       <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 5v9M12 19h.01"/></symbol>
       <symbol id="i-unk" viewBox="0 0 24 24"><path d="M9 9a3 3 0 1 1 4 2.8c-.7.3-1 .9-1 1.6V14M12 19h.01"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-offline" viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0 1 4.2-2.6M9.6 5.2A15 15 0 0 1 22 8.8M5 12.5a10 10 0 0 1 4.3-2.2M14.9 10.6A10 10 0 0 1 19 12.5M8.5 16a5 5 0 0 1 7 0M12 20h.01M3 3l18 18"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.3 2.4c-.5.2-.8.7-.8 1.2v.4M12 16.8h.01"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 7V4.5h4V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/></symbol>
+      <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></symbol>
+      <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.6 3.2M6.6 7.6A15.6 15.6 0 0 0 2.5 12s3.5 6 9.5 6a9.5 9.5 0 0 0 4.4-1.1M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
       <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-.5a6 6 0 0 1-5-2.7L3 15.5a1.5 1.5 0 0 1 2.4-1.8L8 16"/></symbol>
     </defs>
   </svg>
 
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/static/native.js"></script>
   <script src="/static/profiles.js"></script>
+  <!-- First launch: the profile tiles are drawn now, before the map library (the biggest script) is read. -->
+  <script>try { if (document.documentElement.dataset.first) document.getElementById("ptiles").innerHTML = profileTilesHTML(null); } catch (e) {}</script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

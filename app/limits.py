@@ -20,6 +20,8 @@ RULES: Dict[str, Tuple[int, int]] = {
     "report": (int(os.getenv("REPORTS_PER_HOUR", "10")), 3600),
     "confirm": (30, 3600),
     "user": (2, 86400),  # one person, one or two profiles a day (a new phone, a reset): more is abuse
+    "flag": (20, 3600),
+    "delete_user": (10, 3600),
 }
 # Whole app, per UTC day: each agent answer costs about 3 cents, so 50 a day is at most about 1.50 EUR.
 AGENT_DAILY_LIMIT = int(os.getenv("AGENT_DAILY_LIMIT", "50"))
@@ -67,8 +69,8 @@ def agent_budget(today: Optional[str] = None) -> None:
     if _day["date"] != today:
         _day.update(date=today, agent=0)
     if int(_day["agent"]) >= AGENT_DAILY_LIMIT:
-        raise HTTPException(429, "The assistant has answered a lot of questions today. "
-                                 "Trip planning and the map still work; the assistant is back tomorrow.")
+        raise HTTPException(429, "L'assistant a répondu à beaucoup de questions aujourd'hui. "
+                                 "Les trajets et la carte marchent toujours ; l'assistant revient demain.")
     _day["agent"] = int(_day["agent"]) + 1
 
 

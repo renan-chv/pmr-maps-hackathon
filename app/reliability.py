@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time as clock
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time, timedelta
 from pathlib import Path
@@ -21,7 +22,7 @@ from .sources import cached
 
 log = logging.getLogger("reliability")
 DISPOTRAINS = "https://dispotrains.membrives.fr/app/Elevator/{id}"
-SOURCE = "Dispotrains (IDFM status history)"
+SOURCE = "Dispotrains (historique des états IDFM)"
 _pool = ThreadPoolExecutor(max_workers=8)
 _client = httpx.Client(timeout=httpx.Timeout(6, connect=4), headers={"User-Agent": "pmr-maps-hackathon"})
 
@@ -29,6 +30,10 @@ _client = httpx.Client(timeout=httpx.Timeout(6, connect=4), headers={"User-Agent
 SERVICE_START_H, SERVICE_END_H = 6, 21  # lifts are often switched off at night: only daytime counts (estimate)
 PARIS = ZoneInfo("Europe/Paris")
 MIN_OUTAGE_S = 600
+# After a failure, leave Dispotrains alone for a while: otherwise every journey waits for its timeouts (one per
+# elevator on the route) while the archive is down. Reliability is a bonus, never a reason to be slow.
+PAUSE_AFTER_FAILURE_S = 300
+_paused_until = 0.0
 
 
 def _daytime_overlap_s(a: datetime, b: datetime) -> float:
@@ -74,15 +79,23 @@ def parse(data: dict, now: Optional[datetime] = None) -> Optional[dict]:
 
 
 def _fetch(private_id: str) -> Optional[dict]:
+    global _paused_until
+
     def load():
+        if clock.time() < _paused_until:
+            raise RuntimeError("Dispotrains paused after a recent failure")
         r = _client.get(DISPOTRAINS.format(id=quote(private_id, safe=":()_-")))
+        if 400 <= r.status_code < 500:
+            return None  # this elevator is not in the archive: no history, not an outage of the archive
         r.raise_for_status()
         return parse(r.json())
 
     try:
         return cached(f"reliability:{private_id}", 6 * 3600, load)
     except Exception as e:  # the archive is a bonus: a failure must never break a journey
-        log.warning("Dispotrains unavailable for %s: %s", private_id, e)
+        if isinstance(e, (httpx.TransportError, httpx.HTTPStatusError)) and clock.time() >= _paused_until:
+            log.warning("Dispotrains unavailable (%s): paused for %d s", type(e).__name__, PAUSE_AFTER_FAILURE_S)
+            _paused_until = clock.time() + PAUSE_AFTER_FAILURE_S
         return None
 
 

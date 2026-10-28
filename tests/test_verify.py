@@ -88,7 +88,7 @@ def test_unreliable_lift_warns_even_when_in_service():
     rel = {"a": {"availability": 0.6, "window_days": 11.2, "outages": 4, "source": "Dispotrains"}}
     c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel", reliability=rel)
     assert c["status"] == "ok" and c["effect"] == "genant" and c["reliability"] == 0.6
-    assert "60%" in c["message"] and "11.2" in c["message"] and "4 outages" in c["message"]
+    assert "60\u00a0%" in c["message"] and "11,2" in c["message"] and "4 pannes" in c["message"]
 
 
 def test_reliable_lift_stays_clear():
@@ -122,7 +122,7 @@ def test_fresh_report_overrides_older_official_status():
     c = verify.lift_check(2.0, 48.0, "T", "Métro", "1", rows, None, "manuel",
                           reports=[_lift_report("a", "2026-10-22T11:30:00+00:00")], now=now)
     assert c["status"] == "en_panne" and c["effect"] == "bloquant" and c["confidence"] == 2
-    assert "report" in c["source"] and "newer" in c["source"]
+    assert "Signalement" in c["source"] and "plus récent" in c["source"]
 
 
 def test_report_older_than_official_update_is_ignored():
@@ -172,7 +172,7 @@ def test_several_worksites_on_one_walk_give_one_calm_line():
     assert len(checks) == 1
     c = checks[0]
     assert c["kind"] == "works" and c["count"] == 3 and c["effect"] == "sans_effet" and c["status"] == "info"
-    assert c["message"].startswith("3 roadworks on the sidewalk along this walk; usually passable")
+    assert c["message"].startswith("3 chantiers sur le trottoir le long de ce trajet\u00a0; en général on passe")
 
 
 def test_roadworks_alone_do_not_make_a_trip_risky():
@@ -196,11 +196,11 @@ def _walk_of(m):
 def test_long_walk_follows_the_profile_thresholds():
     assert verify.walk_checks(_walk_of(479), "manuel") == []  # was "479 m on foot" for everyone
     c = verify.walk_checks(_walk_of(863), "deambulateur")[0]
-    assert c["effect"] == "genant" and " m to walk: plan a rest" in c["message"] and c["confidence"] is None
+    assert c["effect"] == "genant" and "\u00a0m à pied\u00a0: prévoyez une pause" in c["message"] and c["confidence"] is None
     c = verify.walk_checks(_walk_of(900), "manuel")[0]
-    assert c["effect"] == "genant" and " m to roll" in c["message"]
+    assert c["effect"] == "genant" and "\u00a0m en fauteuil" in c["message"]
     c = verify.walk_checks(_walk_of(1200), "deambulateur")[0]
-    assert c["effect"] == "bloquant" and abs(c["length_m"] - 1200) < 10 and "too far" in c["message"]
+    assert c["effect"] == "bloquant" and abs(c["length_m"] - 1200) < 10 and "trop loin" in c["message"]
     assert verify.walk_checks(_walk_of(3000), "malvoyant") == []
 
 

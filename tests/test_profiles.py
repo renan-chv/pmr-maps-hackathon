@@ -27,8 +27,8 @@ def test_warning_threshold_is_below_the_blocking_one():
 
 
 def test_walk_word_per_profile():
-    assert profiles.walk_word("manuel") == "roll" and profiles.walk_word("electrique") == "roll"
-    assert profiles.walk_word("poussette") == "walk" and profiles.walk_word("deambulateur") == "walk"
+    assert profiles.walk_word("manuel") == "en fauteuil" and profiles.walk_word("electrique") == "en fauteuil"
+    assert profiles.walk_word("poussette") == "à pied" and profiles.walk_word("deambulateur") == "à pied"
 
 
 def test_unknown_profile_falls_back_to_manual_wheelchair():

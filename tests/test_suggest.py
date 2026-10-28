@@ -9,7 +9,7 @@ def _feat(lon, lat, **props):
 def test_address_label_and_place_category():
     addr = sources._photon_item(_feat(2.33, 48.87, osm_value="house", housenumber="15", street="Rue de la Paix",
                                       postcode="75002", city="Paris"))
-    assert addr == {"kind": "address", "label": "15 Rue de la Paix", "sub": "Address · 2e", "lon": 2.33, "lat": 48.87}
+    assert addr == {"kind": "address", "label": "15 Rue de la Paix", "sub": "Adresse · 2e", "lon": 2.33, "lat": 48.87}
     resto = sources._photon_item(_feat(2.34, 48.85, osm_value="restaurant", name="Le Procope",
                                        street="Rue de l'Ancienne Comédie", city="Paris"))
     assert resto["kind"] == "place" and resto["sub"].startswith("Restaurant · ")
@@ -36,20 +36,20 @@ def test_paris_open_data_url_is_not_shadowed():
 def test_subtitle_says_what_the_result_is():
     museum = sources._photon_item(_feat(2.3266, 48.86, osm_key="tourism", osm_value="museum", name="Musée d'Orsay",
                                         street="Rue de la Légion d'Honneur", postcode="75007", city="Paris"))
-    assert museum["sub"] == "Museum · Rue de la Légion d'Honneur, 7e"
+    assert museum["sub"] == "Musée · Rue de la Légion d'Honneur, 7e"
     # Value not in the table: the tag key still gives a type.
     ferry = sources._photon_item(_feat(2.29, 48.86, osm_key="amenity", osm_value="ferry_terminal", name="Tour-Eiffel",
                                        postcode="75007", city="Paris"))
-    assert ferry["sub"] == "Place · 7e"
+    assert ferry["sub"] == "Lieu · 7e"
     first = sources._photon_item(_feat(2.34, 48.86, osm_value="house", housenumber="1", street="Rue de Rivoli",
                                        postcode="75001", city="Paris"))
-    assert first["sub"] == "Address · 1er"
+    assert first["sub"] == "Adresse · 1er"
     sixteenth = sources._photon_item(_feat(2.27, 48.86, osm_value="street", street="Avenue Foch", name="Avenue Foch",
                                            postcode="75116", city="Paris"))
-    assert sixteenth["sub"] == "Street · 16e"
+    assert sixteenth["sub"] == "Rue · 16e"
     suburb = sources._photon_item(_feat(2.28, 48.82, osm_value="house", housenumber="3", street="Rue d'Issy",
                                         postcode="92130", city="Vanves"))
-    assert suburb["sub"] == "Address · 92130 Vanves"
+    assert suburb["sub"] == "Adresse · 92130 Vanves"
 
 
 def test_exact_name_ranks_first_accents_ignored():
